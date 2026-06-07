@@ -1,0 +1,40 @@
+{
+  "entities": {
+    "UserConfig": {
+      "title": "User Configurations",
+      "description": "User specific configurations including spreadsheet settings and last updated timestamps",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The unique Google user identity ID mapped from auth and verified tokens" },
+        "sheetId": { "type": "string", "description": "Google Spreadsheet ID of the synchronized CARS24 operational spreadsheet" },
+        "sheetName": { "type": "string", "description": "Google Sheets active tab or sheet name synchronized with current visualizer" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Timestamp indicating when the spreadsheet configurations was last modified" }
+      },
+      "required": ["userId", "sheetId", "sheetName", "updatedAt"]
+    },
+    "CaseRow": {
+      "title": "Operation Case Row Record",
+      "description": "Individually serialized and cached operational table data representing CARS24 operational variables",
+      "type": "object",
+      "properties": {
+        "bookingId": { "type": "string", "description": "Unique identifier representing the booking of a particular vehicle" },
+        "_rowNumber": { "type": "number", "description": "Index mapped from the source row inside Google Sheets" },
+        "city": { "type": "string", "description": "Operation Hub City" },
+        "hubName": { "type": "string", "description": "Operations central hub name" },
+        "leadStage": { "type": "string", "description": "Operational tracking stage" },
+        "readyToDeliver": { "type": "string", "description": "Review status of delivery ready, checked by operator" }
+      },
+      "required": ["bookingId"]
+    }
+  },
+  "firestore": {
+    "/userConfigs/{userId}": {
+      "schema": "UserConfig",
+      "description": "High integrity workspace config container mapped uniquely per logged-in Google operator"
+    },
+    "/userConfigs/{userId}/cases/{caseId}": {
+      "schema": "CaseRow",
+      "description": "Operational cases synchronized directly from private corporate spreadsheets into protected workspace database"
+    }
+  }
+}

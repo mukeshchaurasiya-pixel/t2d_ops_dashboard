@@ -1,0 +1,6 @@
+{
+  "name": "CARS24 T2D Ops Dashboard",
+  "description": "An optimized and robust dashboard visualization and automated data entry portal including an interactive client-side live visualizer, CSV imported rows processor, and Google Apps Script generator.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

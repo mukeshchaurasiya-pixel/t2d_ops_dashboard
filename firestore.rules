@@ -1,0 +1,90 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+        // Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAllowedOperator(email) {
+      return email is string && (
+        email.matches('(?i).*@cars24\\.com$') || 
+        email.matches('(?i).*@cariotauto\\.com$')
+      );
+    }
+
+    function canAccessSpace(userId) {
+      return isSignedIn() && (
+        request.auth.uid == userId ||
+        userId == 'shared' ||
+        (userId == 'cars24_cariotauto_collaborative_space' && isAllowedOperator(request.auth.token.email))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    // Hardened Schema Builders
+    function isValidUserConfig(data) {
+      return ('userId' in data)
+        && ('sheetId' in data)
+        && ('sheetName' in data)
+        && ('updatedAt' in data)
+        && data.keys().size() <= 6
+        && data.userId is string
+        && data.userId.size() <= 128
+        && data.sheetId is string
+        && data.sheetId.size() <= 200
+        && data.sheetName is string
+        && data.sheetName.size() <= 100;
+    }
+
+    function isValidCaseRow(data) {
+      return ('bookingId' in data)
+        && data.bookingId is string
+        && data.bookingId.size() <= 128;
+    }
+
+    // Match blocks
+    match /userConfigs/shared {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isValidUserConfig(incoming());
+    }
+
+    match /userConfigs/{userId} {
+      allow get: if canAccessSpace(userId);
+      allow create, update: if canAccessSpace(userId) && isValidUserConfig(incoming());
+      allow delete: if canAccessSpace(userId);
+      allow list: if canAccessSpace(userId);
+
+      match /cases/{caseId} {
+        allow get: if canAccessSpace(userId);
+        allow create, update: if canAccessSpace(userId) && isValidCaseRow(incoming());
+        allow delete: if canAccessSpace(userId);
+        allow list: if canAccessSpace(userId);
+      }
+
+      match /chunks/{chunkId} {
+        allow get: if canAccessSpace(userId);
+        allow create, update: if canAccessSpace(userId);
+        allow delete: if canAccessSpace(userId);
+        allow list: if canAccessSpace(userId);
+      }
+    }
+  }
+}
