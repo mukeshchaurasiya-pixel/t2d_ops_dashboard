@@ -12,8 +12,7 @@ import Dashboard from './components/Dashboard';
 import LoginPage from './components/LoginPage';
 import { CaseRow } from './types';
 import { SEED_CASE_ROWS } from './data/mockData';
-import { initAuth, logout } from './lib/firebaseAuth';
-import { User } from 'firebase/auth';
+import { initAuth, logout, AppUser } from './lib/firebaseAuth';
 import { getCleanSpreadsheetId } from './lib/sheetsService';
 
 export default function App() {
@@ -30,7 +29,7 @@ export default function App() {
   const [tempSheetName, setTempSheetName] = useState<string>(() => localStorage.getItem('cars24_sheetName') || 'Sheet1');
 
   // Authentication & State Preservation Loader/Control States
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AppUser | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [restoreLoading, setRestoreLoading] = useState<boolean>(false);
   const [demoMode, setDemoMode] = useState<boolean>(false);
