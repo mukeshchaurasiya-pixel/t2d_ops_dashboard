@@ -28,6 +28,20 @@ export interface SharedConfig {
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
+const TOKEN_CACHE_KEY = 'cars24_google_provider_token';
+
+function cacheProviderToken(token: string | null) {
+  if (token) {
+    localStorage.setItem(TOKEN_CACHE_KEY, token);
+  }
+}
+
+function getProviderToken(session: Session): string | null {
+  // provider_token is available immediately after OAuth but may be null
+  // on session restore (PKCE limitation). Fall back to localStorage cache.
+  return session.provider_token ?? localStorage.getItem(TOKEN_CACHE_KEY);
+}
+
 function sessionToAppUser(session: Session): AppUser {
   const u = session.user;
   return {
@@ -52,7 +66,8 @@ export function initAuth(
   // Check current session immediately
   supabase.auth.getSession().then(({ data: { session } }) => {
     if (session) {
-      const token = session.provider_token ?? null;
+      const token = getProviderToken(session);
+      cacheProviderToken(token);
       if (onAuthSuccess) onAuthSuccess(sessionToAppUser(session), token);
     } else {
       if (onAuthFailure) onAuthFailure();
@@ -63,7 +78,8 @@ export function initAuth(
   const { data: { subscription } } = supabase.auth.onAuthStateChange(
     (_event, session) => {
       if (session) {
-        const token = session.provider_token ?? null;
+        const token = getProviderToken(session);
+        cacheProviderToken(token); // persist for session restores
         if (onAuthSuccess) onAuthSuccess(sessionToAppUser(session), token);
       } else {
         if (onAuthFailure) onAuthFailure();
@@ -113,6 +129,7 @@ export async function getAccessToken(): Promise<string | null> {
 
 // ─── Sign out ─────────────────────────────────────────────────────────────────
 export async function logout(): Promise<void> {
+  localStorage.removeItem(TOKEN_CACHE_KEY);
   await supabase.auth.signOut();
 }
 
