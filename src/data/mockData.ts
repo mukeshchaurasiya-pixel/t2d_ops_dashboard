@@ -147,28 +147,70 @@ export function buildKpis(rows: CaseRow[]): DashboardKpis {
   };
 }
 
+function getOrdinalSuffix(day: number): string {
+  if (day > 3 && day < 21) return 'th';
+  switch (day % 10) {
+    case 1:  return "st";
+    case 2:  return "nd";
+    case 3:  return "rd";
+    default: return "th";
+  }
+}
+
+function formatDateWithSuffix(date: Date): string {
+  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const day = date.getDate();
+  const month = months[date.getMonth()];
+  return `${day}${getOrdinalSuffix(day)} ${month}`;
+}
+
 export function buildEddDistribution(rows: CaseRow[]): Record<string, number> {
-  const result: Record<string, number> = {
-    'Overdue / Breached': 0,
-    'Today': 0,
-    'Tomorrow': 0,
-    'Next 2-3 Days': 0,
-    'Next 4-7 Days': 0,
-    'Beyond 7 Days': 0,
-    'Missing EDD': 0
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const addDays = (d: Date, n: number) => {
+    const newD = new Date(d.getTime());
+    newD.setDate(newD.getDate() + n);
+    return newD;
   };
 
-  const today = getTodayStart();
+  const formatRange = (start: Date, end: Date) => {
+    const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const startDay = start.getDate();
+    const endDay = end.getDate();
+    const startMonth = months[start.getMonth()];
+    const endMonth = months[end.getMonth()];
+    
+    if (startMonth === endMonth) {
+      return `${startDay}${getOrdinalSuffix(startDay)} to ${endDay}${getOrdinalSuffix(endDay)} ${startMonth}`;
+    }
+    return `${startDay}${getOrdinalSuffix(startDay)} ${startMonth} to ${endDay}${getOrdinalSuffix(endDay)} ${endMonth}`;
+  };
+
+  const labelToday = formatDateWithSuffix(today);
+  const labelD1 = formatDateWithSuffix(addDays(today, 1));
+  const labelD2 = formatDateWithSuffix(addDays(today, 2));
+  const labelD3_6 = formatRange(addDays(today, 3), addDays(today, 6));
+  const labelD7Plus = `${formatDateWithSuffix(addDays(today, 7))} +`;
+
+  const result: Record<string, number> = {};
+  result['Overdue / Breached'] = 0;
+  result[labelToday] = 0;
+  result[labelD1] = 0;
+  result[labelD2] = 0;
+  result[labelD3_6] = 0;
+  result[labelD7Plus] = 0;
+  result['Blank'] = 0;
 
   rows.forEach(r => {
     if (!r.expectedDeliveryDate) {
-      result['Missing EDD']++;
+      result['Blank']++;
       return;
     }
 
     const edd = parseDateString(r.expectedDeliveryDate);
     if (!edd) {
-      result['Missing EDD']++;
+      result['Blank']++;
       return;
     }
 
@@ -179,15 +221,15 @@ export function buildEddDistribution(rows: CaseRow[]): Record<string, number> {
     if (diffDays < 0) {
       result['Overdue / Breached']++;
     } else if (diffDays === 0) {
-      result['Today']++;
+      result[labelToday]++;
     } else if (diffDays === 1) {
-      result['Tomorrow']++;
-    } else if (diffDays >= 2 && diffDays <= 3) {
-      result['Next 2-3 Days']++;
-    } else if (diffDays >= 4 && diffDays <= 7) {
-      result['Next 4-7 Days']++;
+      result[labelD1]++;
+    } else if (diffDays === 2) {
+      result[labelD2]++;
+    } else if (diffDays >= 3 && diffDays <= 6) {
+      result[labelD3_6]++;
     } else {
-      result['Beyond 7 Days']++;
+      result[labelD7Plus]++;
     }
   });
 
