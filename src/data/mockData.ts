@@ -4,6 +4,7 @@
  */
 
 import { CaseRow, DerivedFlags, DashboardKpis, DashboardCharts } from '../types';
+import { parseDateString } from '../lib/dateUtils';
 
 export function getTodayStart(): Date {
   const today = new Date('2026-06-05T00:00:00Z'); // Matches current time in metadata
@@ -12,10 +13,7 @@ export function getTodayStart(): Date {
 }
 
 export function parseDateSafe(value: string): Date | null {
-  if (!value) return null;
-  const date = new Date(value);
-  if (isNaN(date.getTime())) return null;
-  return date;
+  return parseDateString(value);
 }
 
 export function splitTasks(value: string): string[] {

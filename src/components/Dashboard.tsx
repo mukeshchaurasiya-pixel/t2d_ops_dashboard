@@ -14,6 +14,7 @@ import {
 import { CaseRow, FilterState, DashboardKpis, DashboardCharts } from '../types';
 import { getDerivedFlags, buildKpis, buildCharts, splitTasks } from '../data/mockData';
 import { auth } from '../lib/firebaseAuth';
+import { parseDateString } from '../lib/dateUtils';
 
 interface DashboardProps {
   rows: CaseRow[];
@@ -175,24 +176,52 @@ export default function Dashboard({
           latestRemarkDate: 'latestRemarkDate',
           cancellationDate: 'cancellationDate',
           updatedAt: 'updatedAt',
-          expectedOdCompletionDate: 'expectedOdCompletionDate'
+          expectedOdCompletionDate: 'expectedOdCompletionDate',
+          eddReviewerDate: 'eddReviewerDate',
+          tokenDateTime: 'tokenDateTime',
+          expectedDeliveryTime: 'expectedDeliveryTime',
+          cancelReqDate: 'cancelReqDate',
+          latestLeadCreationTimestamp: 'latestLeadCreationTimestamp',
+          latestLoginTime: 'latestLoginTime',
+          latestCreditAssessedTimestamp: 'latestCreditAssessedTimestamp',
+          latestDiligenceAssessedTimestamp: 'latestDiligenceAssessedTimestamp',
+          latestFcuAssessedTimestamp: 'latestFcuAssessedTimestamp',
+          tncGeneratedDate: 'tncGeneratedDate',
+          tncAcceptedTimestamp: 'tncAcceptedTimestamp',
+          fcuSentDate: 'fcuSentDate',
+          sentToRcuTimestamp: 'sentToRcuTimestamp',
+          sentToOpsTimestamp: 'sentToOpsTimestamp',
+          submitToOpsTimestamp: 'submitToOpsTimestamp',
+          opsDisbursalTimestamp: 'opsDisbursalTimestamp',
+          financeDisbursedTimestamp: 'financeDisbursedTimestamp',
+          lastCallAt: 'lastCallAt',
+          followupAt: 'followupAt',
+          sheetLoginTimestamp: 'sheetLoginTimestamp',
+          gmailPendencyDate: 'gmailPendencyDate',
+          mlEstimatedDeliveryDate: 'mlEstimatedDeliveryDate',
+          dealStatusUpdatedAt: 'dealStatusUpdatedAt',
+          tokenAutoCancellationExtendedDate: 'tokenAutoCancellationExtendedDate'
         };
         const dateKey = dateMap[filters.dateField];
         if (dateKey) {
           const rawVal = row[dateKey];
           if (!rawVal) return false;
-          const rowDate = new Date(String(rawVal));
-          if (isNaN(rowDate.getTime())) return false;
+          const rowDate = parseDateString(String(rawVal));
+          if (!rowDate) return false;
 
           if (filters.startDate) {
-            const start = new Date(filters.startDate);
-            start.setHours(0, 0, 0, 0);
-            if (rowDate < start) return false;
+            const start = parseDateString(filters.startDate);
+            if (start) {
+              start.setHours(0, 0, 0, 0);
+              if (rowDate < start) return false;
+            }
           }
           if (filters.endDate) {
-            const end = new Date(filters.endDate);
-            end.setHours(23, 59, 59, 999);
-            if (rowDate > end) return false;
+            const end = parseDateString(filters.endDate);
+            if (end) {
+              end.setHours(23, 59, 59, 999);
+              if (rowDate > end) return false;
+            }
           }
         }
       }
@@ -566,12 +595,49 @@ export default function Dashboard({
               className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
             >
               <option value="All">No Date Filter</option>
-              <option value="tokenDate">Token Date</option>
-              <option value="bookingDate">Booking Date</option>
-              <option value="expectedDeliveryDate">Expected Delivery</option>
-              <option value="actualDeliveryDate">Actual Delivery</option>
-              <option value="lastPaymentDate">Last Payment</option>
-              <option value="expectedOdCompletionDate">OD Completion</option>
+              <optgroup label="Core Case Dates">
+                <option value="tokenDate">Token Date</option>
+                <option value="tokenDateTime">Token Date & Time</option>
+                <option value="bookingDate">Booking Date</option>
+                <option value="expectedDeliveryDate">Expected Delivery Date</option>
+                <option value="expectedDeliveryTime">Expected Delivery Time</option>
+                <option value="actualDeliveryDate">Actual Delivery Date</option>
+                <option value="mlEstimatedDeliveryDate">ML Est Delivery Date</option>
+              </optgroup>
+              <optgroup label="Payments & OD">
+                <option value="lastPaymentDate">Last Payment Date</option>
+                <option value="expectedOdCompletionDate">OD Completion Date</option>
+                <option value="eddReviewerDate">EDD Date (Reviewer)</option>
+              </optgroup>
+              <optgroup label="Cancellations & Updates">
+                <option value="cancelReqDate">Cancellation Req Date</option>
+                <option value="cancellationDate">Cancellation Date</option>
+                <option value="tokenAutoCancellationExtendedDate">Auto Cancel Ext Date</option>
+                <option value="dealStatusUpdatedAt">Deal Status Update Date</option>
+                <option value="latestRemarkDate">Latest Remark Date</option>
+                <option value="updatedAt">System Update Date</option>
+              </optgroup>
+              <optgroup label="CRM & Outbound Calls">
+                <option value="lastCallAt">Last Call Date</option>
+                <option value="followupAt">Followup Date</option>
+                <option value="gmailPendencyDate">Gmail Pendency Date</option>
+              </optgroup>
+              <optgroup label="Milestones & Journey">
+                <option value="latestLeadCreationTimestamp">Lead Creation Date</option>
+                <option value="latestLoginTime">Login Time</option>
+                <option value="latestCreditAssessedTimestamp">Credit Assessed Date</option>
+                <option value="latestDiligenceAssessedTimestamp">Diligence Assessed Date</option>
+                <option value="latestFcuAssessedTimestamp">FCU Assessed Date</option>
+                <option value="tncGeneratedDate">TnC Generated Date</option>
+                <option value="tncAcceptedTimestamp">TnC Accepted Date</option>
+                <option value="fcuSentDate">FCU Sent Date</option>
+                <option value="sentToRcuTimestamp">Sent to RCU Date</option>
+                <option value="sentToOpsTimestamp">Sent to Ops Date</option>
+                <option value="submitToOpsTimestamp">Submit to Ops Date</option>
+                <option value="opsDisbursalTimestamp">Ops Disbursal Date</option>
+                <option value="financeDisbursedTimestamp">Finance Disbursed Date</option>
+                <option value="sheetLoginTimestamp">Sheet Login Date</option>
+              </optgroup>
             </select>
           </div>
 
