@@ -128,20 +128,61 @@ export default function Dashboard({
       if (filters.hubName !== 'All' && row.hubName !== filters.hubName) return false;
       if (filters.tokenType !== 'All' && row.tokenType !== filters.tokenType) return false;
       if (filters.tokenTypeWithNrt !== 'All' && row.tokenTypeWithNrt !== filters.tokenTypeWithNrt) return false;
-      if (filters.rmName !== 'All' && row.assignedRm !== filters.rmName) return false;
-      if (filters.dcName !== 'All' && row.assignedDc !== filters.dcName) return false;
-      if (filters.paymentType !== 'All' && row.paymentType !== filters.paymentType) return false;
+      
+      if (filters.rmName !== 'All') {
+        if (filters.rmName === 'Blank') {
+          if (row.assignedRm && String(row.assignedRm).trim() !== '') return false;
+        } else if (row.assignedRm !== filters.rmName) {
+          return false;
+        }
+      }
+
+      if (filters.dcName !== 'All') {
+        if (filters.dcName === 'Blank') {
+          if (row.assignedDc && String(row.assignedDc).trim() !== '') return false;
+        } else if (row.assignedDc !== filters.dcName) {
+          return false;
+        }
+      }
+
+      if (filters.paymentType !== 'All') {
+        if (filters.paymentType === 'Blank') {
+          if (row.paymentType && String(row.paymentType).trim() !== '') return false;
+        } else if (row.paymentType !== filters.paymentType) {
+          return false;
+        }
+      }
+
       if (filters.leadStage !== 'All' && row.leadStage !== filters.leadStage) return false;
       if (filters.dealStatus !== 'All' && row.dealStatus !== filters.dealStatus) return false;
       if (filters.funnelStage !== 'All' && row.funnelStage !== filters.funnelStage) return false;
-      if (filters.sheetFinalStatus !== 'All' && row.sheetFinalStatus !== filters.sheetFinalStatus) return false;
-      if (filters.formFinalStatus !== 'All' && row.formFinalStatus !== filters.formFinalStatus) return false;
+
+      if (filters.sheetFinalStatus !== 'All') {
+        if (filters.sheetFinalStatus === 'Blank') {
+          if (row.sheetFinalStatus && String(row.sheetFinalStatus).trim() !== '') return false;
+        } else if (row.sheetFinalStatus !== filters.sheetFinalStatus) {
+          return false;
+        }
+      }
+
+      if (filters.formFinalStatus !== 'All') {
+        if (filters.formFinalStatus === 'Blank') {
+          if (row.formFinalStatus && String(row.formFinalStatus).trim() !== '') return false;
+        } else if (row.formFinalStatus !== filters.formFinalStatus) {
+          return false;
+        }
+      }
+
       if (filters.gmailPendencyStatus !== 'All' && row.gmailPendencyStatus !== filters.gmailPendencyStatus) return false;
 
       // Task Bucket checking
       if (filters.taskBucket !== 'All') {
-        const tasks = String(row.taskBucket || '').toLowerCase();
-        if (!tasks.includes(filters.taskBucket.toLowerCase())) return false;
+        if (filters.taskBucket === 'Blank') {
+          if (row.taskBucket && String(row.taskBucket).trim() !== '') return false;
+        } else {
+          const tasks = String(row.taskBucket || '').toLowerCase();
+          if (!tasks.includes(filters.taskBucket.toLowerCase())) return false;
+        }
       }
 
       // Derived status checking
@@ -471,7 +512,7 @@ export default function Dashboard({
             Operational Handshake Filters
           </h3>
           <span className="text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full font-bold">
-            14 Active Mappings
+            12 Active Mappings
           </span>
         </div>
 
@@ -515,19 +556,6 @@ export default function Dashboard({
             </select>
           </div>
 
-          {/* Token Type with NRT */}
-          <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Token with NRT</label>
-            <select
-              value={filters.tokenTypeWithNrt}
-              onChange={e => setFilters(p => ({ ...p, tokenTypeWithNrt: e.target.value }))}
-              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
-            >
-              <option value="All">All Tokens with NRT</option>
-              {filterOptions.tokenTypesWithNrt?.map(ttn => <option key={ttn} value={ttn}>{ttn}</option>)}
-            </select>
-          </div>
-
           {/* RM Name */}
           <div>
             <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Assigned RM</label>
@@ -537,6 +565,7 @@ export default function Dashboard({
               className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
             >
               <option value="All">All RMs</option>
+              <option value="Blank">Blank / Empty</option>
               {filterOptions.rms?.map(rm => <option key={rm} value={rm}>{rm}</option>)}
             </select>
           </div>
@@ -550,6 +579,7 @@ export default function Dashboard({
               className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
             >
               <option value="All">All DCs</option>
+              <option value="Blank">Blank / Empty</option>
               {filterOptions.dcs?.map(dc => <option key={dc} value={dc}>{dc}</option>)}
             </select>
           </div>
@@ -563,6 +593,7 @@ export default function Dashboard({
               className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
             >
               <option value="All">All Payments</option>
+              <option value="Blank">Blank / Empty</option>
               {filterOptions.paymentTypes?.map(pt => <option key={pt} value={pt}>{pt}</option>)}
             </select>
           </div>
@@ -577,19 +608,6 @@ export default function Dashboard({
             >
               <option value="All">All Stages</option>
               {filterOptions.leadStages?.map(ls => <option key={ls} value={ls}>{ls}</option>)}
-            </select>
-          </div>
-
-          {/* Deal Status */}
-          <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Deal Status</label>
-            <select
-              value={filters.dealStatus}
-              onChange={e => setFilters(p => ({ ...p, dealStatus: e.target.value }))}
-              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
-            >
-              <option value="All">All Deal Statuses</option>
-              {filterOptions.dealStatuses?.map(ds => <option key={ds} value={ds}>{ds}</option>)}
             </select>
           </div>
 
@@ -615,6 +633,7 @@ export default function Dashboard({
               className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
             >
               <option value="All">All Sheet Statuses</option>
+              <option value="Blank">Blank / Empty</option>
               {filterOptions.sheetFinalStatuses?.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
@@ -628,6 +647,7 @@ export default function Dashboard({
               className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
             >
               <option value="All">All Form Statuses</option>
+              <option value="Blank">Blank / Empty</option>
               {filterOptions.formFinalStatuses?.map(f => <option key={f} value={f}>{f}</option>)}
             </select>
           </div>
@@ -654,6 +674,7 @@ export default function Dashboard({
               className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
             >
               <option value="All">All Task Buckets</option>
+              <option value="Blank">Blank / Empty</option>
               {allUniqueTasks.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
