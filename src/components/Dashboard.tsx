@@ -677,8 +677,16 @@ export default function Dashboard({
               // City was changed, reset Hub
               setFilters(p => ({ ...p, hubName: 'All' }));
             } else if (hubChanged && !cityChanged) {
-              // Hub was changed, reset City
-              setFilters(p => ({ ...p, city: 'All' }));
+              // Hub was changed. Resolve City to the cities of the selected Hubs
+              const selectedHubsLower = filters.hubName.split(',').map(s => s.trim().toLowerCase());
+              const cities = new Set<string>();
+              rows.forEach(r => {
+                if (r.hubName && selectedHubsLower.includes(r.hubName.trim().toLowerCase()) && r.city) {
+                  cities.add(r.city);
+                }
+              });
+              const newCityVal = cities.size > 0 ? Array.from(cities).join(',') : 'All';
+              setFilters(p => ({ ...p, city: newCityVal }));
             }
           }
         }
