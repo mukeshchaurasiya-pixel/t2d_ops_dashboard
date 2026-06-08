@@ -109,6 +109,20 @@ export function mapCsvRows(parsed: string[][]): CaseRow[] {
     'taskbucket': 'taskBucket',
     'reason & data pointer': 'reasonPointer',
     'reason_pointer': 'reasonPointer',
+
+    // Cancellation mappings
+    'cancel_req_date': 'cancelReqDate',
+    'cancelreqdate': 'cancelReqDate',
+    'cancellation_date': 'cancellationDate',
+    'cancellationdate': 'cancellationDate',
+    'auto_cancelled_flag': 'autoCancelledFlag',
+    'autocancelledflag': 'autoCancelledFlag',
+    'token_auto_cancellation_extended_date': 'tokenAutoCancellationExtendedDate',
+    'tokenautocancellationextendeddate': 'tokenAutoCancellationExtendedDate',
+    'reason': 'cancelReason',
+    'cancelreason': 'cancelReason',
+    'cancel_reason': 'cancelReason',
+
     // Sheet Status mappings
     'sheetloginpartner': 'sheetLoginPartner',
     'sheet_login_partner': 'sheetLoginPartner',

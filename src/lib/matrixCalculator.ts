@@ -68,7 +68,7 @@ const isPVT = (type: string) => {
 };
 const isGCBL = (type: string) => {
   const t = String(type || '').toUpperCase();
-  return t.includes('GCBL');
+  return t.includes('GCBL') || (t.includes('GREEN') && t.includes('BL')) || (t.includes('GC') && t.includes('BL'));
 };
 
 // ----------------------------------------------------
@@ -83,14 +83,16 @@ export function calculateOperationsMatrix(rows: CaseRow[]): {
   let found = false;
 
   rows.forEach(r => {
-    const dStr = r.tokenDate || r.bookingDate;
-    if (dStr) {
-      const parsed = parseDateString(dStr);
-      if (parsed && (!found || parsed > latestDate)) {
-        latestDate = parsed;
-        found = true;
+    const dates = [r.tokenDate, r.bookingDate, r.actualDeliveryDate, r.cancelReqDate, r.cancellationDate];
+    dates.forEach(dStr => {
+      if (dStr) {
+        const parsed = parseDateString(dStr);
+        if (parsed && (!found || parsed > latestDate)) {
+          latestDate = parsed;
+          found = true;
+        }
       }
-    }
+    });
   });
 
   const baseDate = setStartOfDay(latestDate);
@@ -332,17 +334,21 @@ export function calculateOperationsMatrix(rows: CaseRow[]): {
     }).length;
     const cfAttachedPct = inflowCount ? cfAttachedCases / inflowCount : 0;
 
-    // Cancellations
-    const cancelPct = inflowCount ? cancellationCases.length / inflowCount : 0;
+    // Cohort-based cancellations (for percentages and TAT)
+    const cohortCancelledCases = inflowCases.filter(r => Boolean(r.cancelReqDate));
+    const cohortCancelPct = inflowCount ? cohortCancelledCases.length / inflowCount : 0;
     
-    const rtCancelCases = cancellationCases.filter(r => isRT(r.tokenType)).length;
-    const rtCancelPct = rtInflow ? rtCancelCases / rtInflow : 0;
+    const cohortRtInflow = inflowCases.filter(r => isRT(r.tokenType)).length;
+    const cohortRtCancelled = cohortCancelledCases.filter(r => isRT(r.tokenType)).length;
+    const cohortRtCancelPct = cohortRtInflow ? cohortRtCancelled / cohortRtInflow : 0;
 
-    const nrtCancelCases = cancellationCases.filter(r => isNRT(r.tokenType)).length;
-    const nrtCancelPct = nrtInflow ? nrtCancelCases / nrtInflow : 0;
+    const cohortNrtInflow = inflowCases.filter(r => isNRT(r.tokenType)).length;
+    const cohortNrtCancelled = cohortCancelledCases.filter(r => isNRT(r.tokenType)).length;
+    const cohortNrtCancelPct = cohortNrtInflow ? cohortNrtCancelled / cohortNrtInflow : 0;
 
-    const pvtCancelCases = cancellationCases.filter(r => isPVT(r.tokenType)).length;
-    const pvtCancelPct = pvtInflow ? pvtCancelCases / pvtInflow : 0;
+    const cohortPvtInflow = inflowCases.filter(r => isPVT(r.tokenType)).length;
+    const cohortPvtCancelled = cohortCancelledCases.filter(r => isPVT(r.tokenType)).length;
+    const cohortPvtCancelPct = cohortPvtInflow ? cohortPvtCancelled / cohortPvtInflow : 0;
 
     // TAT
     let delTat = 0;
@@ -359,16 +365,16 @@ export function calculateOperationsMatrix(rows: CaseRow[]): {
     }
 
     let cancTat = 0;
-    if (cancellationCases.length > 0) {
+    if (cohortCancelledCases.length > 0) {
       let sum = 0;
-      cancellationCases.forEach(r => {
+      cohortCancelledCases.forEach(r => {
         const tD = parseDateString(r.tokenDate || '');
         const cD = parseDateString(r.cancelReqDate || '');
         if (tD && cD) {
           sum += (cD.getTime() - tD.getTime()) / (1000 * 60 * 60 * 24);
         }
       });
-      cancTat = sum / cancellationCases.length;
+      cancTat = sum / cohortCancelledCases.length;
     }
 
     // Map computed values to correct row indices
@@ -395,10 +401,10 @@ export function calculateOperationsMatrix(rows: CaseRow[]): {
         case 'Login >=(T+1)': val = loginT1Pct; break;
         case 'CF attached (%)': val = cfAttachedPct; break;
 
-        case 'Unique Token Cancellation %': val = cancelPct; break;
-        case 'RT - Token base': val = rtCancelPct; break;
-        case 'NRT - Token Base': val = nrtCancelPct; break;
-        case 'PVT - Token Base': val = pvtCancelPct; break;
+        case 'Unique Token Cancellation %': val = cohortCancelPct; break;
+        case 'RT - Token base': val = cohortRtCancelPct; break;
+        case 'NRT - Token Base': val = cohortNrtCancelPct; break;
+        case 'PVT - Token Base': val = cohortPvtCancelPct; break;
 
         case 'Delivery TAT': val = Number(delTat.toFixed(2)); break;
         case 'Cancellation TAT': val = Number(cancTat.toFixed(2)); break;
