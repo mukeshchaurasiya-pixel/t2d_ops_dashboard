@@ -525,7 +525,7 @@ export default function Dashboard({
     return rows.filter(row => isRowMatching(row));
   }, [rows, isRowMatching]);
 
-  // Dynamic filter options based on other active filters (independent dimensional cross-filtering)
+  // Static filter options built from all rows — no cross-filtering to avoid render loops
   const dynamicFilterOptions = useMemo(() => {
     const citiesSet = new Set<string>();
     const hubsSet = new Set<string>();
@@ -544,89 +544,45 @@ export default function Dashboard({
     const leadDsChannelsSet = new Set<string>();
 
     rows.forEach(row => {
-      if (row.city && isRowMatching(row, 'city_and_hub')) {
-        citiesSet.add(row.city);
+      if (row.city)                citiesSet.add(row.city.trim());
+      if (row.hubName)             hubsSet.add(row.hubName.trim());
+      if (row.tokenType)           tokenTypeSet.add(row.tokenType);
+      if (row.assignedRm)          rmSet.add(row.assignedRm);
+      if (row.assignedDc)          dcSet.add(row.assignedDc);
+      if (row.paymentType)         paymentSet.add(row.paymentType);
+      if (row.leadStage)           stagesSet.add(row.leadStage);
+      if (row.funnelStage)         funnelSet.add(row.funnelStage);
+      if (row.sheetFinalStatus)    sheetFinalSet.add(row.sheetFinalStatus);
+      if (row.formFinalStatus)     formFinalSet.add(row.formFinalStatus);
+      if (row.gmailPendencyStatus) gmailPendencySet.add(row.gmailPendencyStatus);
+      if (row.cancelReason)        cancelReasonsSet.add(row.cancelReason);
+      if (row.leadDsChannel)       leadDsChannelsSet.add(row.leadDsChannel);
+      if (row.taskBucket) {
+        splitTasks(row.taskBucket).forEach(t => { if (t.trim()) tasksSet.add(t.trim()); });
       }
-      if (row.hubName && isRowMatching(row, 'city_and_hub')) {
-        hubsSet.add(row.hubName);
-      }
-      if (row.tokenType && isRowMatching(row, 'tokenType')) {
-        tokenTypeSet.add(row.tokenType);
-      }
-      if (row.assignedRm && isRowMatching(row, 'rmName')) {
-        rmSet.add(row.assignedRm);
-      }
-      if (row.assignedDc && isRowMatching(row, 'dcName')) {
-        dcSet.add(row.assignedDc);
-      }
-      if (row.paymentType && isRowMatching(row, 'paymentType')) {
-        paymentSet.add(row.paymentType);
-      }
-      if (row.leadStage && isRowMatching(row, 'leadStage')) {
-        stagesSet.add(row.leadStage);
-      }
-      if (row.funnelStage && isRowMatching(row, 'funnelStage')) {
-        funnelSet.add(row.funnelStage);
-      }
-      if (row.sheetFinalStatus && isRowMatching(row, 'sheetFinalStatus')) {
-        sheetFinalSet.add(row.sheetFinalStatus);
-      }
-      if (row.formFinalStatus && isRowMatching(row, 'formFinalStatus')) {
-        formFinalSet.add(row.formFinalStatus);
-      }
-      if (row.gmailPendencyStatus && isRowMatching(row, 'gmailPendencyStatus')) {
-        gmailPendencySet.add(row.gmailPendencyStatus);
-      }
-      if (row.taskBucket && isRowMatching(row, 'taskBucket')) {
-        splitTasks(row.taskBucket).forEach(t => {
-          if (t && t.trim()) {
-            tasksSet.add(t.trim());
-          }
-        });
-      }
-      if (row.cancelReason && isRowMatching(row, 'cancelReason')) {
-        cancelReasonsSet.add(row.cancelReason);
-      }
-      if (row.leadDsChannel && isRowMatching(row, 'leadDsChannel')) {
-        leadDsChannelsSet.add(row.leadDsChannel);
-      }
-      if (isRowMatching(row, 'derivedStatus')) {
-        const flags = getDerivedFlags(row);
-        if (flags.isAlertCase) derivedSet.add('Alert Cases');
-        if (flags.isEddMissing) derivedSet.add('EDD Missing');
-        if (flags.isEddBreached) derivedSet.add('EDD Breached');
-        if (flags.isPmaxStuck) derivedSet.add('PMax Stuck');
-        if (flags.isCustomerConnectPending) derivedSet.add('Customer Connect Pending');
-        if (flags.isHighPaymentPendingDelivery) derivedSet.add('High Payment Pending Delivery');
-        if (flags.isCancelledAfterPayment) derivedSet.add('Cancelled After Payment');
-        if (flags.isOdPending) derivedSet.add('OD Pending');
-        if (flags.isBlankPaymentType) derivedSet.add('Blank Payment Type');
-        if (flags.isPaymentPending) derivedSet.add('Payment Pending');
-        if (row.taskBucket) {
-          derivedSet.add('Any Active Task');
-          splitTasks(row.taskBucket).forEach(t => {
-            if (t && t.trim()) {
-              derivedSet.add(t.trim());
-            }
-          });
-        }
+      const flags = getDerivedFlags(row);
+      if (flags.isAlertCase)                 derivedSet.add('Alert Cases');
+      if (flags.isEddMissing)                derivedSet.add('EDD Missing');
+      if (flags.isEddBreached)               derivedSet.add('EDD Breached');
+      if (flags.isPmaxStuck)                 derivedSet.add('PMax Stuck');
+      if (flags.isCustomerConnectPending)    derivedSet.add('Customer Connect Pending');
+      if (flags.isHighPaymentPendingDelivery)derivedSet.add('High Payment Pending Delivery');
+      if (flags.isCancelledAfterPayment)     derivedSet.add('Cancelled After Payment');
+      if (flags.isOdPending)                 derivedSet.add('OD Pending');
+      if (flags.isBlankPaymentType)          derivedSet.add('Blank Payment Type');
+      if (flags.isPaymentPending)            derivedSet.add('Payment Pending');
+      if (row.taskBucket) {
+        derivedSet.add('Any Active Task');
+        splitTasks(row.taskBucket).forEach(t => { if (t.trim()) derivedSet.add(t.trim()); });
       }
     });
 
     const coreOrder = [
-      'Alert Cases',
-      'EDD Missing',
-      'EDD Breached',
-      'PMax Stuck',
-      'Customer Connect Pending',
-      'High Payment Pending Delivery',
-      'Cancelled After Payment',
-      'OD Pending',
-      'Blank Payment Type',
-      'Payment Pending',
-      'Any Active Task'
+      'Alert Cases', 'EDD Missing', 'EDD Breached', 'PMax Stuck',
+      'Customer Connect Pending', 'High Payment Pending Delivery',
+      'Cancelled After Payment', 'OD Pending', 'Blank Payment Type',
+      'Payment Pending', 'Any Active Task'
     ];
-
     const sortedDerived = Array.from(derivedSet).sort((a, b) => {
       const idxA = coreOrder.indexOf(a);
       const idxB = coreOrder.indexOf(b);
@@ -637,89 +593,23 @@ export default function Dashboard({
     });
 
     return {
-      cities: Array.from(citiesSet).sort(),
-      hubs: Array.from(hubsSet).sort(),
-      tokenTypes: Array.from(tokenTypeSet).sort(),
-      rms: Array.from(rmSet).sort(),
-      dcs: Array.from(dcSet).sort(),
-      paymentTypes: Array.from(paymentSet).sort(),
-      leadStages: Array.from(stagesSet).sort(),
-      funnelStages: Array.from(funnelSet).sort(),
-      sheetFinalStatuses: Array.from(sheetFinalSet).sort(),
-      formFinalStatuses: Array.from(formFinalSet).sort(),
-      gmailPendencyStatuses: Array.from(gmailPendencySet).sort(),
-      tasks: Array.from(tasksSet).sort(),
-      derivedOptions: sortedDerived,
-      cancelReasons: Array.from(cancelReasonsSet).sort(),
-      leadDsChannels: Array.from(leadDsChannelsSet).sort()
+      cities:               Array.from(citiesSet).sort(),
+      hubs:                 Array.from(hubsSet).sort(),
+      tokenTypes:           Array.from(tokenTypeSet).sort(),
+      rms:                  Array.from(rmSet).sort(),
+      dcs:                  Array.from(dcSet).sort(),
+      paymentTypes:         Array.from(paymentSet).sort(),
+      leadStages:           Array.from(stagesSet).sort(),
+      funnelStages:         Array.from(funnelSet).sort(),
+      sheetFinalStatuses:   Array.from(sheetFinalSet).sort(),
+      formFinalStatuses:    Array.from(formFinalSet).sort(),
+      gmailPendencyStatuses:Array.from(gmailPendencySet).sort(),
+      tasks:                Array.from(tasksSet).sort(),
+      derivedOptions:       sortedDerived,
+      cancelReasons:        Array.from(cancelReasonsSet).sort(),
+      leadDsChannels:       Array.from(leadDsChannelsSet).sort()
     };
-  }, [rows, filters, isRowMatching]);
-
-  // Auto-clear filters that are no longer valid under new selections (prevent empty matching lists)
-  useEffect(() => {
-    if (filters.searchQuery) return; // Skip during active search query matching
-
-    setFilters(prev => {
-      let updated = false;
-      const next = { ...prev };
-
-      const cleanFilterVal = (val: string, validOptions: string[]) => {
-        if (val === 'All') return val;
-        const selected = val.split(',').filter(Boolean);
-        const filtered = selected.filter(item => {
-          if (item === 'Blank') return true;
-          return validOptions.includes(item);
-        });
-        if (filtered.length === 0) return 'All';
-        if (filtered.length !== selected.length) return filtered.join(',');
-        return val;
-      };
-
-      const tokenVal = cleanFilterVal(prev.tokenType, dynamicFilterOptions.tokenTypes);
-      if (tokenVal !== prev.tokenType) { next.tokenType = tokenVal; updated = true; }
-
-      const rmVal = cleanFilterVal(prev.rmName, dynamicFilterOptions.rms);
-      if (rmVal !== prev.rmName) { next.rmName = rmVal; updated = true; }
-
-      const dcVal = cleanFilterVal(prev.dcName, dynamicFilterOptions.dcs);
-      if (dcVal !== prev.dcName) { next.dcName = dcVal; updated = true; }
-
-      const paymentVal = cleanFilterVal(prev.paymentType, dynamicFilterOptions.paymentTypes);
-      if (paymentVal !== prev.paymentType) { next.paymentType = paymentVal; updated = true; }
-
-      const leadVal = cleanFilterVal(prev.leadStage, dynamicFilterOptions.leadStages);
-      if (leadVal !== prev.leadStage) { next.leadStage = leadVal; updated = true; }
-
-      const funnelVal = cleanFilterVal(prev.funnelStage, dynamicFilterOptions.funnelStages);
-      if (funnelVal !== prev.funnelStage) { next.funnelStage = funnelVal; updated = true; }
-
-      const sheetVal = cleanFilterVal(prev.sheetFinalStatus, dynamicFilterOptions.sheetFinalStatuses);
-      if (sheetVal !== prev.sheetFinalStatus) { next.sheetFinalStatus = sheetVal; updated = true; }
-
-      const formVal = cleanFilterVal(prev.formFinalStatus, dynamicFilterOptions.formFinalStatuses);
-      if (formVal !== prev.formFinalStatus) { next.formFinalStatus = formVal; updated = true; }
-
-      const gmailVal = cleanFilterVal(prev.gmailPendencyStatus, dynamicFilterOptions.gmailPendencyStatuses);
-      if (gmailVal !== prev.gmailPendencyStatus) { next.gmailPendencyStatus = gmailVal; updated = true; }
-
-      const taskVal = cleanFilterVal(prev.taskBucket, dynamicFilterOptions.tasks);
-      if (taskVal !== prev.taskBucket) { next.taskBucket = taskVal; updated = true; }
-
-      const derivedVal = cleanFilterVal(prev.derivedStatus, dynamicFilterOptions.derivedOptions);
-      if (derivedVal !== prev.derivedStatus) { next.derivedStatus = derivedVal; updated = true; }
-
-      const cancelVal = cleanFilterVal(prev.cancelReason || 'All', dynamicFilterOptions.cancelReasons);
-      if (cancelVal !== prev.cancelReason) { next.cancelReason = cancelVal; updated = true; }
-
-      const dsChannelVal = cleanFilterVal(prev.leadDsChannel || 'All', dynamicFilterOptions.leadDsChannels);
-      if (dsChannelVal !== prev.leadDsChannel) { next.leadDsChannel = dsChannelVal; updated = true; }
-
-      if (updated) {
-        return next;
-      }
-      return prev;
-    });
-  }, [dynamicFilterOptions, filters.searchQuery]);
+  }, [rows]); // ← only rows, never filters — prevents render loops
 
   // KPIs
   const kpis: DashboardKpis = useMemo(() => buildKpis(filteredRows), [filteredRows]);
