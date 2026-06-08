@@ -5025,7 +5025,7 @@ export const SEED_CASE_ROWS: CaseRow[] = [
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Filter, Search, AlertCircle, FileSpreadsheet, Eye, ExternalLink, Calendar, 
@@ -5289,234 +5289,299 @@ export default function Dashboard({
     setCurrentPage(1);
   }, [filters]);
 
-  // Filter logic
-  const filteredRows = useMemo(() => {
-    // Pre-calculate EDD labels if EDD Status filter is active to avoid re-defining them inside the loop
-    let labelToday = '';
-    let labelD1 = '';
-    let labelD2 = '';
-    let labelD3_6 = '';
-    let labelD7Plus = '';
-    let todayDate: Date | null = null;
+  // Pre-calculate all EDD labels once per mount / day
+  const eddLabels = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    if (filters.eddStatus && filters.eddStatus !== 'All') {
-      todayDate = new Date();
-      todayDate.setHours(0, 0, 0, 0);
+    const getOrdinalSuffix = (day: number) => {
+      if (day > 3 && day < 21) return 'th';
+      switch (day % 10) {
+        case 1:  return "st";
+        case 2:  return "nd";
+        case 3:  return "rd";
+        default: return "th";
+      }
+    };
 
-      const getOrdinalSuffix = (day: number) => {
-        if (day > 3 && day < 21) return 'th';
-        switch (day % 10) {
-          case 1:  return "st";
-          case 2:  return "nd";
-          case 3:  return "rd";
-          default: return "th";
-        }
-      };
+    const formatDateWithSuffix = (date: Date) => {
+      const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      const day = date.getDate();
+      const month = months[date.getMonth()];
+      return `${day}${getOrdinalSuffix(day)} ${month}`;
+    };
 
-      const formatDateWithSuffix = (date: Date) => {
-        const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-        const day = date.getDate();
-        const month = months[date.getMonth()];
-        return `${day}${getOrdinalSuffix(day)} ${month}`;
-      };
+    const addDays = (d: Date, n: number) => {
+      const newD = new Date(d.getTime());
+      newD.setDate(newD.getDate() + n);
+      return newD;
+    };
 
-      const addDays = (d: Date, n: number) => {
-        const newD = new Date(d.getTime());
-        newD.setDate(newD.getDate() + n);
-        return newD;
-      };
+    const formatRange = (start: Date, end: Date) => {
+      const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      const startDay = start.getDate();
+      const endDay = end.getDate();
+      const startMonth = months[start.getMonth()];
+      const endMonth = months[end.getMonth()];
+      
+      if (startMonth === endMonth) {
+        return `${startDay}${getOrdinalSuffix(startDay)} to ${endDay}${getOrdinalSuffix(endDay)} ${startMonth}`;
+      }
+      return `${startDay}${getOrdinalSuffix(startDay)} ${startMonth} to ${endDay}${getOrdinalSuffix(endDay)} ${endMonth}`;
+    };
 
-      const formatRange = (start: Date, end: Date) => {
-        const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-        const startDay = start.getDate();
-        const endDay = end.getDate();
-        const startMonth = months[start.getMonth()];
-        const endMonth = months[end.getMonth()];
-        
-        if (startMonth === endMonth) {
-          return `${startDay}${getOrdinalSuffix(startDay)} to ${endDay}${getOrdinalSuffix(endDay)} ${startMonth}`;
-        }
-        return `${startDay}${getOrdinalSuffix(startDay)} ${startMonth} to ${endDay}${getOrdinalSuffix(endDay)} ${endMonth}`;
-      };
+    return {
+      today,
+      labelToday: formatDateWithSuffix(today),
+      labelD1: formatDateWithSuffix(addDays(today, 1)),
+      labelD2: formatDateWithSuffix(addDays(today, 2)),
+      labelD3_6: formatRange(addDays(today, 3), addDays(today, 6)),
+      labelD7Plus: `${formatDateWithSuffix(addDays(today, 7))} +`
+    };
+  }, []);
 
-      labelToday = formatDateWithSuffix(todayDate);
-      labelD1 = formatDateWithSuffix(addDays(todayDate, 1));
-      labelD2 = formatDateWithSuffix(addDays(todayDate, 2));
-      labelD3_6 = formatRange(addDays(todayDate, 3), addDays(todayDate, 6));
-      labelD7Plus = `${formatDateWithSuffix(addDays(todayDate, 7))} +`;
+  // Helper to evaluate if a row matches the current filters, optionally ignoring one specific filter
+  const isRowMatching = useCallback((row: CaseRow, ignoreKey?: string) => {
+    // If fuzzy search query is active, ignore all other filters and only do fuzzy text search
+    if (filters.searchQuery) {
+      const query = filters.searchQuery.toLowerCase();
+      return (
+        String(row.bookingId || '').toLowerCase().includes(query) ||
+        String(row.carRegNo || '').toLowerCase().includes(query) ||
+        String(row.userId || '').toLowerCase().includes(query) ||
+        String(row.make || '').toLowerCase().includes(query) ||
+        String(row.model || '').toLowerCase().includes(query)
+      );
     }
 
-    return rows.filter(row => {
-      // Free text search
-      if (filters.searchQuery) {
-        const query = filters.searchQuery.toLowerCase();
-        const matchesQuery = 
-          String(row.bookingId || '').toLowerCase().includes(query) ||
-          String(row.carRegNo || '').toLowerCase().includes(query) ||
-          String(row.userId || '').toLowerCase().includes(query) ||
-          String(row.make || '').toLowerCase().includes(query) ||
-          String(row.model || '').toLowerCase().includes(query);
-        if (!matchesQuery) return false;
+    if (ignoreKey !== 'city' && !matchMulti(filters.city, row.city)) return false;
+    if (ignoreKey !== 'hubName' && !matchMulti(filters.hubName, row.hubName)) return false;
+    if (ignoreKey !== 'tokenType' && !matchMulti(filters.tokenType, row.tokenType)) return false;
+    if (ignoreKey !== 'tokenTypeWithNrt' && !matchMulti(filters.tokenTypeWithNrt, row.tokenTypeWithNrt)) return false;
+    if (ignoreKey !== 'rmName' && !matchMulti(filters.rmName, row.assignedRm)) return false;
+    if (ignoreKey !== 'dcName' && !matchMulti(filters.dcName, row.assignedDc)) return false;
+    if (ignoreKey !== 'paymentType' && !matchMulti(filters.paymentType, row.paymentType)) return false;
+    if (ignoreKey !== 'leadStage' && !matchMulti(filters.leadStage, row.leadStage)) return false;
+    if (ignoreKey !== 'dealStatus' && !matchMulti(filters.dealStatus, row.dealStatus)) return false;
+    if (ignoreKey !== 'funnelStage' && !matchMulti(filters.funnelStage, row.funnelStage)) return false;
+    if (ignoreKey !== 'sheetFinalStatus' && !matchMulti(filters.sheetFinalStatus, row.sheetFinalStatus)) return false;
+    if (ignoreKey !== 'formFinalStatus' && !matchMulti(filters.formFinalStatus, row.formFinalStatus)) return false;
+    if (ignoreKey !== 'gmailPendencyStatus' && !matchMulti(filters.gmailPendencyStatus, row.gmailPendencyStatus)) return false;
+
+    if (ignoreKey !== 'taskBucket' && filters.taskBucket !== 'All') {
+      const selectedTasks = filters.taskBucket.split(',').map(s => s.trim().toLowerCase());
+      const rowTasks = splitTasks(row.taskBucket || '').map(s => s.trim().toLowerCase());
+      
+      const matchesBlank = selectedTasks.includes('blank') && rowTasks.length === 0;
+      const matchesAnyTask = selectedTasks.some(t => rowTasks.includes(t));
+      
+      if (!matchesBlank && !matchesAnyTask) return false;
+    }
+
+    if (ignoreKey !== 'derivedStatus' && filters.derivedStatus !== 'All') {
+      const selectedIssues = filters.derivedStatus.split(',');
+      const flags = getDerivedFlags(row);
+      
+      const matchesAny = selectedIssues.some(issue => {
+        if (issue === 'Alert Cases' && flags.isAlertCase) return true;
+        if (issue === 'EDD Missing' && flags.isEddMissing) return true;
+        if (issue === 'EDD Breached' && flags.isEddBreached) return true;
+        if (issue === 'PMax Stuck' && flags.isPmaxStuck) return true;
+        if (issue === 'Customer Connect Pending' && flags.isCustomerConnectPending) return true;
+        if (issue === 'High Payment Pending Delivery' && flags.isHighPaymentPendingDelivery) return true;
+        if (issue === 'Cancelled After Payment' && flags.isCancelledAfterPayment) return true;
+        if (issue === 'OD Pending' && flags.isOdPending) return true;
+        if (issue === 'Blank Payment Type' && flags.isBlankPaymentType) return true;
+        if (issue === 'Payment Pending' && flags.isPaymentPending) return true;
+        if (issue === 'Any Active Task' && Boolean(row.taskBucket)) return true;
+        
+        if (row.taskBucket && String(row.taskBucket).toLowerCase().includes(issue.toLowerCase())) return true;
+        return false;
+      });
+      
+      if (!matchesAny) return false;
+    }
+
+    if (ignoreKey !== 'dateRange' && filters.dateField !== 'All' && (filters.startDate || filters.endDate)) {
+      const dateMap: Record<string, keyof CaseRow> = {
+        tokenDate: 'tokenDate',
+        bookingDate: 'bookingDate',
+        expectedDeliveryDate: 'expectedDeliveryDate',
+        actualDeliveryDate: 'actualDeliveryDate',
+        lastPaymentDate: 'lastPaymentDate',
+        latestRemarkDate: 'latestRemarkDate',
+        cancellationDate: 'cancellationDate',
+        updatedAt: 'updatedAt',
+        expectedOdCompletionDate: 'expectedOdCompletionDate',
+        eddReviewerDate: 'eddReviewerDate',
+        tokenDateTime: 'tokenDateTime',
+        expectedDeliveryTime: 'expectedDeliveryTime',
+        cancelReqDate: 'cancelReqDate',
+        latestLeadCreationTimestamp: 'latestLeadCreationTimestamp',
+        latestLoginTime: 'latestLoginTime',
+        latestCreditAssessedTimestamp: 'latestCreditAssessedTimestamp',
+        latestDiligenceAssessedTimestamp: 'latestDiligenceAssessedTimestamp',
+        latestFcuAssessedTimestamp: 'latestFcuAssessedTimestamp',
+        tncGeneratedDate: 'tncGeneratedDate',
+        tncAcceptedTimestamp: 'tncAcceptedTimestamp',
+        fcuSentDate: 'fcuSentDate',
+        sentToRcuTimestamp: 'sentToRcuTimestamp',
+        sentToOpsTimestamp: 'sentToOpsTimestamp',
+        submitToOpsTimestamp: 'submitToOpsTimestamp',
+        opsDisbursalTimestamp: 'opsDisbursalTimestamp',
+        financeDisbursedTimestamp: 'financeDisbursedTimestamp',
+        lastCallAt: 'lastCallAt',
+        followupAt: 'followupAt',
+        sheetLoginTimestamp: 'sheetLoginTimestamp',
+        gmailPendencyDate: 'gmailPendencyDate',
+        mlEstimatedDeliveryDate: 'mlEstimatedDeliveryDate',
+        dealStatusUpdatedAt: 'dealStatusUpdatedAt',
+        tokenAutoCancellationExtendedDate: 'tokenAutoCancellationExtendedDate'
+      };
+      const dateKey = dateMap[filters.dateField];
+      if (dateKey) {
+        const rawVal = row[dateKey];
+        if (!rawVal) return false;
+        const rowDate = parseDateString(String(rawVal));
+        if (!rowDate) return false;
+
+        if (filters.startDate) {
+          const start = parseDateString(filters.startDate);
+          if (start) {
+            start.setHours(0, 0, 0, 0);
+            if (rowDate < start) return false;
+          }
+        }
+        if (filters.endDate) {
+          const end = parseDateString(filters.endDate);
+          if (end) {
+            end.setHours(23, 59, 59, 999);
+            if (rowDate > end) return false;
+          }
+        }
+      }
+    }
+
+    if (ignoreKey !== 'eddStatus' && filters.eddStatus && filters.eddStatus !== 'All') {
+      let rowBucket = 'Blank / Empty';
+
+      if (row.expectedDeliveryDate) {
+        const edd = parseDateString(row.expectedDeliveryDate);
+        if (edd) {
+          const eddDate = new Date(edd.getFullYear(), edd.getMonth(), edd.getDate(), 0, 0, 0, 0);
+          const diffTime = eddDate.getTime() - eddLabels.today.getTime();
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+          if (diffDays < 0) {
+            rowBucket = 'Overdue / Breached';
+          } else if (diffDays === 0) {
+            rowBucket = eddLabels.labelToday;
+          } else if (diffDays === 1) {
+            rowBucket = eddLabels.labelD1;
+          } else if (diffDays === 2) {
+            rowBucket = eddLabels.labelD2;
+          } else if (diffDays >= 3 && diffDays <= 6) {
+            rowBucket = eddLabels.labelD3_6;
+          } else {
+            rowBucket = eddLabels.labelD7Plus;
+          }
+        }
       }
 
-      // Check simple mapping filters (Multi-Select support)
-      if (!matchMulti(filters.city, row.city)) return false;
-      if (!matchMulti(filters.hubName, row.hubName)) return false;
-      if (!matchMulti(filters.tokenType, row.tokenType)) return false;
-      if (!matchMulti(filters.tokenTypeWithNrt, row.tokenTypeWithNrt)) return false;
-      if (!matchMulti(filters.rmName, row.assignedRm)) return false;
-      if (!matchMulti(filters.dcName, row.assignedDc)) return false;
-      if (!matchMulti(filters.paymentType, row.paymentType)) return false;
-      if (!matchMulti(filters.leadStage, row.leadStage)) return false;
-      if (!matchMulti(filters.dealStatus, row.dealStatus)) return false;
-      if (!matchMulti(filters.funnelStage, row.funnelStage)) return false;
-      if (!matchMulti(filters.sheetFinalStatus, row.sheetFinalStatus)) return false;
-      if (!matchMulti(filters.formFinalStatus, row.formFinalStatus)) return false;
-      if (!matchMulti(filters.gmailPendencyStatus, row.gmailPendencyStatus)) return false;
-
-      // Task Bucket checking (Multi-Select support)
-      if (filters.taskBucket !== 'All') {
-        const selectedTasks = filters.taskBucket.split(',').map(s => s.trim().toLowerCase());
-        const rowTasks = splitTasks(row.taskBucket || '').map(s => s.trim().toLowerCase());
-        
-        const matchesBlank = selectedTasks.includes('blank') && rowTasks.length === 0;
-        const matchesAnyTask = selectedTasks.some(t => rowTasks.includes(t));
-        
-        if (!matchesBlank && !matchesAnyTask) return false;
+      if (rowBucket !== filters.eddStatus) {
+        return false;
       }
+    }
 
-      // Derived status checking (Multi-Select support)
-      if (filters.derivedStatus !== 'All') {
-        const selectedIssues = filters.derivedStatus.split(',');
-        const flags = getDerivedFlags(row);
-        
-        const matchesAny = selectedIssues.some(issue => {
-          if (issue === 'Alert Cases' && flags.isAlertCase) return true;
-          if (issue === 'EDD Missing' && flags.isEddMissing) return true;
-          if (issue === 'EDD Breached' && flags.isEddBreached) return true;
-          if (issue === 'PMax Stuck' && flags.isPmaxStuck) return true;
-          if (issue === 'Customer Connect Pending' && flags.isCustomerConnectPending) return true;
-          if (issue === 'High Payment Pending Delivery' && flags.isHighPaymentPendingDelivery) return true;
-          if (issue === 'Cancelled After Payment' && flags.isCancelledAfterPayment) return true;
-          if (issue === 'OD Pending' && flags.isOdPending) return true;
-          if (issue === 'Blank Payment Type' && flags.isBlankPaymentType) return true;
-          if (issue === 'Payment Pending' && flags.isPaymentPending) return true;
-          if (issue === 'Any Active Task' && Boolean(row.taskBucket)) return true;
-          
-          if (row.taskBucket && String(row.taskBucket).toLowerCase().includes(issue.toLowerCase())) return true;
-          return false;
+    return true;
+  }, [filters, eddLabels]);
+
+  // Filtered rows memoized
+  const filteredRows = useMemo(() => {
+    return rows.filter(row => isRowMatching(row));
+  }, [rows, isRowMatching]);
+
+  // Dynamic filter options based on other active filters (independent dimensional cross-filtering)
+  const dynamicFilterOptions = useMemo(() => {
+    const citiesSet = new Set<string>();
+    const hubsSet = new Set<string>();
+    const tokenTypeSet = new Set<string>();
+    const rmSet = new Set<string>();
+    const dcSet = new Set<string>();
+    const paymentSet = new Set<string>();
+    const stagesSet = new Set<string>();
+    const funnelSet = new Set<string>();
+    const sheetFinalSet = new Set<string>();
+    const formFinalSet = new Set<string>();
+    const gmailPendencySet = new Set<string>();
+    const tasksSet = new Set<string>();
+    const derivedSet = new Set<string>();
+
+    rows.forEach(row => {
+      if (row.city && isRowMatching(row, 'city')) {
+        citiesSet.add(row.city);
+      }
+      if (row.hubName && isRowMatching(row, 'hubName')) {
+        hubsSet.add(row.hubName);
+      }
+      if (row.tokenType && isRowMatching(row, 'tokenType')) {
+        tokenTypeSet.add(row.tokenType);
+      }
+      if (row.assignedRm && isRowMatching(row, 'rmName')) {
+        rmSet.add(row.assignedRm);
+      }
+      if (row.assignedDc && isRowMatching(row, 'dcName')) {
+        dcSet.add(row.assignedDc);
+      }
+      if (row.paymentType && isRowMatching(row, 'paymentType')) {
+        paymentSet.add(row.paymentType);
+      }
+      if (row.leadStage && isRowMatching(row, 'leadStage')) {
+        stagesSet.add(row.leadStage);
+      }
+      if (row.funnelStage && isRowMatching(row, 'funnelStage')) {
+        funnelSet.add(row.funnelStage);
+      }
+      if (row.sheetFinalStatus && isRowMatching(row, 'sheetFinalStatus')) {
+        sheetFinalSet.add(row.sheetFinalStatus);
+      }
+      if (row.formFinalStatus && isRowMatching(row, 'formFinalStatus')) {
+        formFinalSet.add(row.formFinalStatus);
+      }
+      if (row.gmailPendencyStatus && isRowMatching(row, 'gmailPendencyStatus')) {
+        gmailPendencySet.add(row.gmailPendencyStatus);
+      }
+      if (row.taskBucket && isRowMatching(row, 'taskBucket')) {
+        splitTasks(row.taskBucket).forEach(t => {
+          if (t && t.trim()) {
+            tasksSet.add(t.trim());
+          }
         });
-        
-        if (!matchesAny) return false;
       }
-
-      // Date ranges checking
-      if (filters.dateField !== 'All' && (filters.startDate || filters.endDate)) {
-        const dateMap: Record<string, keyof CaseRow> = {
-          tokenDate: 'tokenDate',
-          bookingDate: 'bookingDate',
-          expectedDeliveryDate: 'expectedDeliveryDate',
-          actualDeliveryDate: 'actualDeliveryDate',
-          lastPaymentDate: 'lastPaymentDate',
-          latestRemarkDate: 'latestRemarkDate',
-          cancellationDate: 'cancellationDate',
-          updatedAt: 'updatedAt',
-          expectedOdCompletionDate: 'expectedOdCompletionDate',
-          eddReviewerDate: 'eddReviewerDate',
-          tokenDateTime: 'tokenDateTime',
-          expectedDeliveryTime: 'expectedDeliveryTime',
-          cancelReqDate: 'cancelReqDate',
-          latestLeadCreationTimestamp: 'latestLeadCreationTimestamp',
-          latestLoginTime: 'latestLoginTime',
-          latestCreditAssessedTimestamp: 'latestCreditAssessedTimestamp',
-          latestDiligenceAssessedTimestamp: 'latestDiligenceAssessedTimestamp',
-          latestFcuAssessedTimestamp: 'latestFcuAssessedTimestamp',
-          tncGeneratedDate: 'tncGeneratedDate',
-          tncAcceptedTimestamp: 'tncAcceptedTimestamp',
-          fcuSentDate: 'fcuSentDate',
-          sentToRcuTimestamp: 'sentToRcuTimestamp',
-          sentToOpsTimestamp: 'sentToOpsTimestamp',
-          submitToOpsTimestamp: 'submitToOpsTimestamp',
-          opsDisbursalTimestamp: 'opsDisbursalTimestamp',
-          financeDisbursedTimestamp: 'financeDisbursedTimestamp',
-          lastCallAt: 'lastCallAt',
-          followupAt: 'followupAt',
-          sheetLoginTimestamp: 'sheetLoginTimestamp',
-          gmailPendencyDate: 'gmailPendencyDate',
-          mlEstimatedDeliveryDate: 'mlEstimatedDeliveryDate',
-          dealStatusUpdatedAt: 'dealStatusUpdatedAt',
-          tokenAutoCancellationExtendedDate: 'tokenAutoCancellationExtendedDate'
-        };
-        const dateKey = dateMap[filters.dateField];
-        if (dateKey) {
-          const rawVal = row[dateKey];
-          if (!rawVal) return false;
-          const rowDate = parseDateString(String(rawVal));
-          if (!rowDate) return false;
-
-          if (filters.startDate) {
-            const start = parseDateString(filters.startDate);
-            if (start) {
-              start.setHours(0, 0, 0, 0);
-              if (rowDate < start) return false;
+      if (isRowMatching(row, 'derivedStatus')) {
+        const flags = getDerivedFlags(row);
+        if (flags.isAlertCase) derivedSet.add('Alert Cases');
+        if (flags.isEddMissing) derivedSet.add('EDD Missing');
+        if (flags.isEddBreached) derivedSet.add('EDD Breached');
+        if (flags.isPmaxStuck) derivedSet.add('PMax Stuck');
+        if (flags.isCustomerConnectPending) derivedSet.add('Customer Connect Pending');
+        if (flags.isHighPaymentPendingDelivery) derivedSet.add('High Payment Pending Delivery');
+        if (flags.isCancelledAfterPayment) derivedSet.add('Cancelled After Payment');
+        if (flags.isOdPending) derivedSet.add('OD Pending');
+        if (flags.isBlankPaymentType) derivedSet.add('Blank Payment Type');
+        if (flags.isPaymentPending) derivedSet.add('Payment Pending');
+        if (row.taskBucket) {
+          derivedSet.add('Any Active Task');
+          splitTasks(row.taskBucket).forEach(t => {
+            if (t && t.trim()) {
+              derivedSet.add(t.trim());
             }
-          }
-          if (filters.endDate) {
-            const end = parseDateString(filters.endDate);
-            if (end) {
-              end.setHours(23, 59, 59, 999);
-              if (rowDate > end) return false;
-            }
-          }
+          });
         }
       }
-      // EDD Status filtering from click on chart
-      if (filters.eddStatus && filters.eddStatus !== 'All' && todayDate) {
-        let rowBucket = 'Blank / Empty';
-
-        if (row.expectedDeliveryDate) {
-          const edd = parseDateString(row.expectedDeliveryDate);
-          if (edd) {
-            const eddDate = new Date(edd.getFullYear(), edd.getMonth(), edd.getDate(), 0, 0, 0, 0);
-            const diffTime = eddDate.getTime() - todayDate.getTime();
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-            if (diffDays < 0) {
-              rowBucket = 'Overdue / Breached';
-            } else if (diffDays === 0) {
-              rowBucket = labelToday;
-            } else if (diffDays === 1) {
-              rowBucket = labelD1;
-            } else if (diffDays === 2) {
-              rowBucket = labelD2;
-            } else if (diffDays >= 3 && diffDays <= 6) {
-              rowBucket = labelD3_6;
-            } else {
-              rowBucket = labelD7Plus;
-            }
-          }
-        }
-
-        if (rowBucket !== filters.eddStatus) {
-          return false;
-        }
-      }
-
-      return true;
     });
-  }, [rows, filters]);
 
-  // KPIs
-  const kpis: DashboardKpis = useMemo(() => buildKpis(filteredRows), [filteredRows]);
-  
-  // Charts
-  const charts: DashboardCharts = useMemo(() => buildCharts(filteredRows), [filteredRows]);
-
-  // Executive Operations Matrix Ledger
-  const matrix = useMemo(() => calculateOperationsMatrix(filteredRows), [filteredRows]);
-
-  const derivedOptions = useMemo(() => {
-    const core = [
+    const coreOrder = [
       'Alert Cases',
       'EDD Missing',
       'EDD Breached',
@@ -5529,8 +5594,108 @@ export default function Dashboard({
       'Payment Pending',
       'Any Active Task'
     ];
-    return [...core, ...allUniqueTasks];
-  }, [allUniqueTasks]);
+
+    const sortedDerived = Array.from(derivedSet).sort((a, b) => {
+      const idxA = coreOrder.indexOf(a);
+      const idxB = coreOrder.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
+
+    return {
+      cities: Array.from(citiesSet).sort(),
+      hubs: Array.from(hubsSet).sort(),
+      tokenTypes: Array.from(tokenTypeSet).sort(),
+      rms: Array.from(rmSet).sort(),
+      dcs: Array.from(dcSet).sort(),
+      paymentTypes: Array.from(paymentSet).sort(),
+      leadStages: Array.from(stagesSet).sort(),
+      funnelStages: Array.from(funnelSet).sort(),
+      sheetFinalStatuses: Array.from(sheetFinalSet).sort(),
+      formFinalStatuses: Array.from(formFinalSet).sort(),
+      gmailPendencyStatuses: Array.from(gmailPendencySet).sort(),
+      tasks: Array.from(tasksSet).sort(),
+      derivedOptions: sortedDerived
+    };
+  }, [rows, filters, isRowMatching]);
+
+  // Auto-clear filters that are no longer valid under new selections (prevent empty matching lists)
+  useEffect(() => {
+    if (filters.searchQuery) return; // Skip during active search query matching
+
+    setFilters(prev => {
+      let updated = false;
+      const next = { ...prev };
+
+      const cleanFilterVal = (val: string, validOptions: string[]) => {
+        if (val === 'All') return val;
+        const selected = val.split(',').filter(Boolean);
+        const filtered = selected.filter(item => {
+          if (item === 'Blank') return true;
+          return validOptions.includes(item);
+        });
+        if (filtered.length === 0) return 'All';
+        if (filtered.length !== selected.length) return filtered.join(',');
+        return val;
+      };
+
+      const cityVal = cleanFilterVal(prev.city, dynamicFilterOptions.cities);
+      if (cityVal !== prev.city) { next.city = cityVal; updated = true; }
+
+      const hubVal = cleanFilterVal(prev.hubName, dynamicFilterOptions.hubs);
+      if (hubVal !== prev.hubName) { next.hubName = hubVal; updated = true; }
+
+      const tokenVal = cleanFilterVal(prev.tokenType, dynamicFilterOptions.tokenTypes);
+      if (tokenVal !== prev.tokenType) { next.tokenType = tokenVal; updated = true; }
+
+      const rmVal = cleanFilterVal(prev.rmName, dynamicFilterOptions.rms);
+      if (rmVal !== prev.rmName) { next.rmName = rmVal; updated = true; }
+
+      const dcVal = cleanFilterVal(prev.dcName, dynamicFilterOptions.dcs);
+      if (dcVal !== prev.dcName) { next.dcName = dcVal; updated = true; }
+
+      const paymentVal = cleanFilterVal(prev.paymentType, dynamicFilterOptions.paymentTypes);
+      if (paymentVal !== prev.paymentType) { next.paymentType = paymentVal; updated = true; }
+
+      const leadVal = cleanFilterVal(prev.leadStage, dynamicFilterOptions.leadStages);
+      if (leadVal !== prev.leadStage) { next.leadStage = leadVal; updated = true; }
+
+      const funnelVal = cleanFilterVal(prev.funnelStage, dynamicFilterOptions.funnelStages);
+      if (funnelVal !== prev.funnelStage) { next.funnelStage = funnelVal; updated = true; }
+
+      const sheetVal = cleanFilterVal(prev.sheetFinalStatus, dynamicFilterOptions.sheetFinalStatuses);
+      if (sheetVal !== prev.sheetFinalStatus) { next.sheetFinalStatus = sheetVal; updated = true; }
+
+      const formVal = cleanFilterVal(prev.formFinalStatus, dynamicFilterOptions.formFinalStatuses);
+      if (formVal !== prev.formFinalStatus) { next.formFinalStatus = formVal; updated = true; }
+
+      const gmailVal = cleanFilterVal(prev.gmailPendencyStatus, dynamicFilterOptions.gmailPendencyStatuses);
+      if (gmailVal !== prev.gmailPendencyStatus) { next.gmailPendencyStatus = gmailVal; updated = true; }
+
+      const taskVal = cleanFilterVal(prev.taskBucket, dynamicFilterOptions.tasks);
+      if (taskVal !== prev.taskBucket) { next.taskBucket = taskVal; updated = true; }
+
+      const derivedVal = cleanFilterVal(prev.derivedStatus, dynamicFilterOptions.derivedOptions);
+      if (derivedVal !== prev.derivedStatus) { next.derivedStatus = derivedVal; updated = true; }
+
+      if (updated) {
+        return next;
+      }
+      return prev;
+    });
+  }, [dynamicFilterOptions, filters.searchQuery]);
+
+  // KPIs
+  const kpis: DashboardKpis = useMemo(() => buildKpis(filteredRows), [filteredRows]);
+  
+  // Charts
+  const charts: DashboardCharts = useMemo(() => buildCharts(filteredRows), [filteredRows]);
+
+  // Executive Operations Matrix Ledger
+  const matrix = useMemo(() => calculateOperationsMatrix(filteredRows), [filteredRows]);
+
 
   const derivedLabels = useMemo(() => {
     const labels: Record<string, string> = {
@@ -5842,7 +6007,7 @@ export default function Dashboard({
           {/* City */}
           <MultiSelectDropdown
             label="City"
-            options={filterOptions.cities || []}
+            options={dynamicFilterOptions.cities}
             selectedString={filters.city}
             onChange={val => setFilters(p => ({ ...p, city: val, hubName: 'All' }))}
             placeholder="All Cities"
@@ -5854,7 +6019,7 @@ export default function Dashboard({
           {/* Hub */}
           <MultiSelectDropdown
             label="Hub Name"
-            options={filterOptions.hubs || []}
+            options={dynamicFilterOptions.hubs}
             selectedString={filters.hubName}
             onChange={val => setFilters(p => ({ ...p, hubName: val }))}
             placeholder="All Hubs"
@@ -5866,7 +6031,7 @@ export default function Dashboard({
           {/* TokenType */}
           <MultiSelectDropdown
             label="Token Type"
-            options={filterOptions.tokenTypes || []}
+            options={dynamicFilterOptions.tokenTypes}
             selectedString={filters.tokenType}
             onChange={val => setFilters(p => ({ ...p, tokenType: val }))}
             placeholder="All Tokens"
@@ -5878,7 +6043,7 @@ export default function Dashboard({
           {/* RM Name */}
           <MultiSelectDropdown
             label="Assigned RM"
-            options={filterOptions.rms || []}
+            options={dynamicFilterOptions.rms}
             selectedString={filters.rmName}
             onChange={val => setFilters(p => ({ ...p, rmName: val }))}
             placeholder="All RMs"
@@ -5891,7 +6056,7 @@ export default function Dashboard({
           {/* DC Name */}
           <MultiSelectDropdown
             label="Assigned DC"
-            options={filterOptions.dcs || []}
+            options={dynamicFilterOptions.dcs}
             selectedString={filters.dcName}
             onChange={val => setFilters(p => ({ ...p, dcName: val }))}
             placeholder="All DCs"
@@ -5904,7 +6069,7 @@ export default function Dashboard({
           {/* Payment Type */}
           <MultiSelectDropdown
             label="Payment Type"
-            options={filterOptions.paymentTypes || []}
+            options={dynamicFilterOptions.paymentTypes}
             selectedString={filters.paymentType}
             onChange={val => setFilters(p => ({ ...p, paymentType: val }))}
             placeholder="All Payments"
@@ -5917,7 +6082,7 @@ export default function Dashboard({
           {/* Lead Stage */}
           <MultiSelectDropdown
             label="Lead Stage"
-            options={filterOptions.leadStages || []}
+            options={dynamicFilterOptions.leadStages}
             selectedString={filters.leadStage}
             onChange={val => setFilters(p => ({ ...p, leadStage: val }))}
             placeholder="All Stages"
@@ -5929,7 +6094,7 @@ export default function Dashboard({
           {/* Funnel Stage */}
           <MultiSelectDropdown
             label="Funnel Stage"
-            options={filterOptions.funnelStages || []}
+            options={dynamicFilterOptions.funnelStages}
             selectedString={filters.funnelStage}
             onChange={val => setFilters(p => ({ ...p, funnelStage: val }))}
             placeholder="All Funnel Stages"
@@ -5941,7 +6106,7 @@ export default function Dashboard({
           {/* Sheet Final Status */}
           <MultiSelectDropdown
             label="Sheet Status"
-            options={filterOptions.sheetFinalStatuses || []}
+            options={dynamicFilterOptions.sheetFinalStatuses}
             selectedString={filters.sheetFinalStatus}
             onChange={val => setFilters(p => ({ ...p, sheetFinalStatus: val }))}
             placeholder="All Sheet Statuses"
@@ -5954,7 +6119,7 @@ export default function Dashboard({
           {/* Form Final Status */}
           <MultiSelectDropdown
             label="Form Status"
-            options={filterOptions.formFinalStatuses || []}
+            options={dynamicFilterOptions.formFinalStatuses}
             selectedString={filters.formFinalStatus}
             onChange={val => setFilters(p => ({ ...p, formFinalStatus: val }))}
             placeholder="All Form Statuses"
@@ -5967,7 +6132,7 @@ export default function Dashboard({
           {/* Gmail Pendency Status */}
           <MultiSelectDropdown
             label="Gmail Pendency"
-            options={filterOptions.gmailPendencyStatuses || []}
+            options={dynamicFilterOptions.gmailPendencyStatuses}
             selectedString={filters.gmailPendencyStatus}
             onChange={val => setFilters(p => ({ ...p, gmailPendencyStatus: val }))}
             placeholder="All Pendency Statuses"
@@ -5979,7 +6144,7 @@ export default function Dashboard({
           {/* Task Bucket */}
           <MultiSelectDropdown
             label="Task Bucket"
-            options={allUniqueTasks}
+            options={dynamicFilterOptions.tasks}
             selectedString={filters.taskBucket}
             onChange={val => setFilters(p => ({ ...p, taskBucket: val }))}
             placeholder="All Task Buckets"
@@ -5992,7 +6157,7 @@ export default function Dashboard({
           {/* Derived Status */}
           <MultiSelectDropdown
             label="Derived Issue"
-            options={derivedOptions}
+            options={dynamicFilterOptions.derivedOptions}
             selectedString={filters.derivedStatus}
             onChange={val => setFilters(p => ({ ...p, derivedStatus: val }))}
             placeholder="Clear Case / No Issue"

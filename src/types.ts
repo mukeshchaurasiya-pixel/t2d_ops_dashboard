@@ -201,6 +201,8 @@ export interface FilterState {
   filterBlankDates?: boolean;
   searchQuery: string;
   eddStatus?: string;
+  cancelReason?: string;
+  leadDsChannel?: string;
 }
 
 export interface DashboardKpis {
@@ -233,4 +235,5 @@ export interface DashboardCharts {
   sheetFinalStatus: Record<string, number>;
   formFinalStatus: Record<string, number>;
   eddDistribution: Record<string, number>;
+  leadDsChannel?: Record<string, number>;
 }

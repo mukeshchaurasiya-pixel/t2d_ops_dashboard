@@ -252,7 +252,8 @@ export function buildCharts(rows: CaseRow[]): DashboardCharts {
     cancellationReason: topN(groupCount(rows, 'cancelReason'), 15),
     sheetFinalStatus: groupCount(rows, 'sheetFinalStatus'),
     formFinalStatus: groupCount(rows, 'formFinalStatus'),
-    eddDistribution: buildEddDistribution(rows)
+    eddDistribution: buildEddDistribution(rows),
+    leadDsChannel: groupCount(rows.filter(r => r.leadStage === 'CANCELLED' || r.dealStatus === 'CANCEL' || r.cancelReason), 'leadDsChannel')
   };
 }
 

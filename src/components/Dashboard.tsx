@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Filter, Search, AlertCircle, FileSpreadsheet, Eye, ExternalLink, Calendar, 
@@ -198,8 +198,44 @@ export default function Dashboard({
     startDate: '',
     endDate: '',
     searchQuery: '',
-    eddStatus: 'All'
+    eddStatus: 'All',
+    cancelReason: 'All',
+    leadDsChannel: 'All'
   });
+
+  // Cancelled-to-Delivered (C2D) conversions detection
+  const c2dStats = useMemo(() => {
+    const userBookings: Record<string, CaseRow[]> = {};
+    rows.forEach(row => {
+      const id = row.userId || row.uid || row.leadId;
+      if (id) {
+        if (!userBookings[id]) userBookings[id] = [];
+        userBookings[id].push(row);
+      }
+    });
+
+    const c2dUserIds = new Set<string>();
+    const c2dBookingIds = new Set<string>();
+
+    Object.entries(userBookings).forEach(([userId, uRows]) => {
+      const hasCancelled = uRows.some(r => r.leadStage === 'CANCELLED' || r.dealStatus === 'CANCEL' || r.cancelReason);
+      const hasDelivered = uRows.some(r => r.leadStage === 'DELIVERED');
+      if (hasCancelled && hasDelivered) {
+        c2dUserIds.add(userId);
+        uRows.forEach(r => {
+          if (r.leadStage === 'CANCELLED' || r.dealStatus === 'CANCEL' || r.cancelReason) {
+            c2dBookingIds.add(r.bookingId);
+          }
+        });
+      }
+    });
+
+    return {
+      c2dUsersCount: c2dUserIds.size,
+      c2dBookingIds,
+      c2dBookingsCount: c2dBookingIds.size
+    };
+  }, [rows]);
 
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [sidebarTab, setSidebarTab] = useState<'actions' | 'journey' | 'pmax' | 'copilot' | 'raw_data'>('actions');
@@ -267,234 +303,315 @@ export default function Dashboard({
     setCurrentPage(1);
   }, [filters]);
 
-  // Filter logic
-  const filteredRows = useMemo(() => {
-    // Pre-calculate EDD labels if EDD Status filter is active to avoid re-defining them inside the loop
-    let labelToday = '';
-    let labelD1 = '';
-    let labelD2 = '';
-    let labelD3_6 = '';
-    let labelD7Plus = '';
-    let todayDate: Date | null = null;
+  // Pre-calculate all EDD labels once per mount / day
+  const eddLabels = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    if (filters.eddStatus && filters.eddStatus !== 'All') {
-      todayDate = new Date();
-      todayDate.setHours(0, 0, 0, 0);
+    const getOrdinalSuffix = (day: number) => {
+      if (day > 3 && day < 21) return 'th';
+      switch (day % 10) {
+        case 1:  return "st";
+        case 2:  return "nd";
+        case 3:  return "rd";
+        default: return "th";
+      }
+    };
 
-      const getOrdinalSuffix = (day: number) => {
-        if (day > 3 && day < 21) return 'th';
-        switch (day % 10) {
-          case 1:  return "st";
-          case 2:  return "nd";
-          case 3:  return "rd";
-          default: return "th";
-        }
-      };
+    const formatDateWithSuffix = (date: Date) => {
+      const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      const day = date.getDate();
+      const month = months[date.getMonth()];
+      return `${day}${getOrdinalSuffix(day)} ${month}`;
+    };
 
-      const formatDateWithSuffix = (date: Date) => {
-        const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-        const day = date.getDate();
-        const month = months[date.getMonth()];
-        return `${day}${getOrdinalSuffix(day)} ${month}`;
-      };
+    const addDays = (d: Date, n: number) => {
+      const newD = new Date(d.getTime());
+      newD.setDate(newD.getDate() + n);
+      return newD;
+    };
 
-      const addDays = (d: Date, n: number) => {
-        const newD = new Date(d.getTime());
-        newD.setDate(newD.getDate() + n);
-        return newD;
-      };
+    const formatRange = (start: Date, end: Date) => {
+      const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      const startDay = start.getDate();
+      const endDay = end.getDate();
+      const startMonth = months[start.getMonth()];
+      const endMonth = months[end.getMonth()];
+      
+      if (startMonth === endMonth) {
+        return `${startDay}${getOrdinalSuffix(startDay)} to ${endDay}${getOrdinalSuffix(endDay)} ${startMonth}`;
+      }
+      return `${startDay}${getOrdinalSuffix(startDay)} ${startMonth} to ${endDay}${getOrdinalSuffix(endDay)} ${endMonth}`;
+    };
 
-      const formatRange = (start: Date, end: Date) => {
-        const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-        const startDay = start.getDate();
-        const endDay = end.getDate();
-        const startMonth = months[start.getMonth()];
-        const endMonth = months[end.getMonth()];
-        
-        if (startMonth === endMonth) {
-          return `${startDay}${getOrdinalSuffix(startDay)} to ${endDay}${getOrdinalSuffix(endDay)} ${startMonth}`;
-        }
-        return `${startDay}${getOrdinalSuffix(startDay)} ${startMonth} to ${endDay}${getOrdinalSuffix(endDay)} ${endMonth}`;
-      };
+    return {
+      today,
+      labelToday: formatDateWithSuffix(today),
+      labelD1: formatDateWithSuffix(addDays(today, 1)),
+      labelD2: formatDateWithSuffix(addDays(today, 2)),
+      labelD3_6: formatRange(addDays(today, 3), addDays(today, 6)),
+      labelD7Plus: `${formatDateWithSuffix(addDays(today, 7))} +`
+    };
+  }, []);
 
-      labelToday = formatDateWithSuffix(todayDate);
-      labelD1 = formatDateWithSuffix(addDays(todayDate, 1));
-      labelD2 = formatDateWithSuffix(addDays(todayDate, 2));
-      labelD3_6 = formatRange(addDays(todayDate, 3), addDays(todayDate, 6));
-      labelD7Plus = `${formatDateWithSuffix(addDays(todayDate, 7))} +`;
+  // Helper to evaluate if a row matches the current filters, optionally ignoring one specific filter
+  const isRowMatching = useCallback((row: CaseRow, ignoreKey?: string) => {
+    // If fuzzy search query is active, ignore all other filters and only do fuzzy text search
+    if (filters.searchQuery) {
+      const query = filters.searchQuery.toLowerCase();
+      return (
+        String(row.bookingId || '').toLowerCase().includes(query) ||
+        String(row.carRegNo || '').toLowerCase().includes(query) ||
+        String(row.userId || '').toLowerCase().includes(query) ||
+        String(row.make || '').toLowerCase().includes(query) ||
+        String(row.model || '').toLowerCase().includes(query)
+      );
     }
 
-    return rows.filter(row => {
-      // Free text search
-      if (filters.searchQuery) {
-        const query = filters.searchQuery.toLowerCase();
-        const matchesQuery = 
-          String(row.bookingId || '').toLowerCase().includes(query) ||
-          String(row.carRegNo || '').toLowerCase().includes(query) ||
-          String(row.userId || '').toLowerCase().includes(query) ||
-          String(row.make || '').toLowerCase().includes(query) ||
-          String(row.model || '').toLowerCase().includes(query);
-        if (!matchesQuery) return false;
+    if (ignoreKey !== 'city' && !matchMulti(filters.city, row.city)) return false;
+    if (ignoreKey !== 'hubName' && !matchMulti(filters.hubName, row.hubName)) return false;
+    if (ignoreKey !== 'tokenType' && !matchMulti(filters.tokenType, row.tokenType)) return false;
+    if (ignoreKey !== 'tokenTypeWithNrt' && !matchMulti(filters.tokenTypeWithNrt, row.tokenTypeWithNrt)) return false;
+    if (ignoreKey !== 'rmName' && !matchMulti(filters.rmName, row.assignedRm)) return false;
+    if (ignoreKey !== 'dcName' && !matchMulti(filters.dcName, row.assignedDc)) return false;
+    if (ignoreKey !== 'paymentType' && !matchMulti(filters.paymentType, row.paymentType)) return false;
+    if (ignoreKey !== 'leadStage' && !matchMulti(filters.leadStage, row.leadStage)) return false;
+    if (ignoreKey !== 'dealStatus' && !matchMulti(filters.dealStatus, row.dealStatus)) return false;
+    if (ignoreKey !== 'funnelStage' && !matchMulti(filters.funnelStage, row.funnelStage)) return false;
+    if (ignoreKey !== 'sheetFinalStatus' && !matchMulti(filters.sheetFinalStatus, row.sheetFinalStatus)) return false;
+    if (ignoreKey !== 'formFinalStatus' && !matchMulti(filters.formFinalStatus, row.formFinalStatus)) return false;
+    if (ignoreKey !== 'gmailPendencyStatus' && !matchMulti(filters.gmailPendencyStatus, row.gmailPendencyStatus)) return false;
+
+    if (ignoreKey !== 'taskBucket' && filters.taskBucket !== 'All') {
+      const selectedTasks = filters.taskBucket.split(',').map(s => s.trim().toLowerCase());
+      const rowTasks = splitTasks(row.taskBucket || '').map(s => s.trim().toLowerCase());
+      
+      const matchesBlank = selectedTasks.includes('blank') && rowTasks.length === 0;
+      const matchesAnyTask = selectedTasks.some(t => rowTasks.includes(t));
+      
+      if (!matchesBlank && !matchesAnyTask) return false;
+    }
+
+    if (ignoreKey !== 'derivedStatus' && filters.derivedStatus !== 'All') {
+      const selectedIssues = filters.derivedStatus.split(',');
+      const flags = getDerivedFlags(row);
+      
+      const matchesAny = selectedIssues.some(issue => {
+        if (issue === 'Alert Cases' && flags.isAlertCase) return true;
+        if (issue === 'EDD Missing' && flags.isEddMissing) return true;
+        if (issue === 'EDD Breached' && flags.isEddBreached) return true;
+        if (issue === 'PMax Stuck' && flags.isPmaxStuck) return true;
+        if (issue === 'Customer Connect Pending' && flags.isCustomerConnectPending) return true;
+        if (issue === 'High Payment Pending Delivery' && flags.isHighPaymentPendingDelivery) return true;
+        if (issue === 'Cancelled After Payment' && flags.isCancelledAfterPayment) return true;
+        if (issue === 'OD Pending' && flags.isOdPending) return true;
+        if (issue === 'Blank Payment Type' && flags.isBlankPaymentType) return true;
+        if (issue === 'Payment Pending' && flags.isPaymentPending) return true;
+        if (issue === 'Any Active Task' && Boolean(row.taskBucket)) return true;
+        
+        if (row.taskBucket && String(row.taskBucket).toLowerCase().includes(issue.toLowerCase())) return true;
+        return false;
+      });
+      
+      if (!matchesAny) return false;
+    }
+
+    if (ignoreKey !== 'dateRange' && filters.dateField !== 'All' && (filters.startDate || filters.endDate)) {
+      const dateMap: Record<string, keyof CaseRow> = {
+        tokenDate: 'tokenDate',
+        bookingDate: 'bookingDate',
+        expectedDeliveryDate: 'expectedDeliveryDate',
+        actualDeliveryDate: 'actualDeliveryDate',
+        lastPaymentDate: 'lastPaymentDate',
+        latestRemarkDate: 'latestRemarkDate',
+        cancellationDate: 'cancellationDate',
+        updatedAt: 'updatedAt',
+        expectedOdCompletionDate: 'expectedOdCompletionDate',
+        eddReviewerDate: 'eddReviewerDate',
+        tokenDateTime: 'tokenDateTime',
+        expectedDeliveryTime: 'expectedDeliveryTime',
+        cancelReqDate: 'cancelReqDate',
+        latestLeadCreationTimestamp: 'latestLeadCreationTimestamp',
+        latestLoginTime: 'latestLoginTime',
+        latestCreditAssessedTimestamp: 'latestCreditAssessedTimestamp',
+        latestDiligenceAssessedTimestamp: 'latestDiligenceAssessedTimestamp',
+        latestFcuAssessedTimestamp: 'latestFcuAssessedTimestamp',
+        tncGeneratedDate: 'tncGeneratedDate',
+        tncAcceptedTimestamp: 'tncAcceptedTimestamp',
+        fcuSentDate: 'fcuSentDate',
+        sentToRcuTimestamp: 'sentToRcuTimestamp',
+        sentToOpsTimestamp: 'sentToOpsTimestamp',
+        submitToOpsTimestamp: 'submitToOpsTimestamp',
+        opsDisbursalTimestamp: 'opsDisbursalTimestamp',
+        financeDisbursedTimestamp: 'financeDisbursedTimestamp',
+        lastCallAt: 'lastCallAt',
+        followupAt: 'followupAt',
+        sheetLoginTimestamp: 'sheetLoginTimestamp',
+        gmailPendencyDate: 'gmailPendencyDate',
+        mlEstimatedDeliveryDate: 'mlEstimatedDeliveryDate',
+        dealStatusUpdatedAt: 'dealStatusUpdatedAt',
+        tokenAutoCancellationExtendedDate: 'tokenAutoCancellationExtendedDate'
+      };
+      const dateKey = dateMap[filters.dateField];
+      if (dateKey) {
+        const rawVal = row[dateKey];
+        if (!rawVal) return false;
+        const rowDate = parseDateString(String(rawVal));
+        if (!rowDate) return false;
+
+        if (filters.startDate) {
+          const start = parseDateString(filters.startDate);
+          if (start) {
+            start.setHours(0, 0, 0, 0);
+            if (rowDate < start) return false;
+          }
+        }
+        if (filters.endDate) {
+          const end = parseDateString(filters.endDate);
+          if (end) {
+            end.setHours(23, 59, 59, 999);
+            if (rowDate > end) return false;
+          }
+        }
+      }
+    }
+
+    if (ignoreKey !== 'eddStatus' && filters.eddStatus && filters.eddStatus !== 'All') {
+      let rowBucket = 'Blank / Empty';
+
+      if (row.expectedDeliveryDate) {
+        const edd = parseDateString(row.expectedDeliveryDate);
+        if (edd) {
+          const eddDate = new Date(edd.getFullYear(), edd.getMonth(), edd.getDate(), 0, 0, 0, 0);
+          const diffTime = eddDate.getTime() - eddLabels.today.getTime();
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+          if (diffDays < 0) {
+            rowBucket = 'Overdue / Breached';
+          } else if (diffDays === 0) {
+            rowBucket = eddLabels.labelToday;
+          } else if (diffDays === 1) {
+            rowBucket = eddLabels.labelD1;
+          } else if (diffDays === 2) {
+            rowBucket = eddLabels.labelD2;
+          } else if (diffDays >= 3 && diffDays <= 6) {
+            rowBucket = eddLabels.labelD3_6;
+          } else {
+            rowBucket = eddLabels.labelD7Plus;
+          }
+        }
       }
 
-      // Check simple mapping filters (Multi-Select support)
-      if (!matchMulti(filters.city, row.city)) return false;
-      if (!matchMulti(filters.hubName, row.hubName)) return false;
-      if (!matchMulti(filters.tokenType, row.tokenType)) return false;
-      if (!matchMulti(filters.tokenTypeWithNrt, row.tokenTypeWithNrt)) return false;
-      if (!matchMulti(filters.rmName, row.assignedRm)) return false;
-      if (!matchMulti(filters.dcName, row.assignedDc)) return false;
-      if (!matchMulti(filters.paymentType, row.paymentType)) return false;
-      if (!matchMulti(filters.leadStage, row.leadStage)) return false;
-      if (!matchMulti(filters.dealStatus, row.dealStatus)) return false;
-      if (!matchMulti(filters.funnelStage, row.funnelStage)) return false;
-      if (!matchMulti(filters.sheetFinalStatus, row.sheetFinalStatus)) return false;
-      if (!matchMulti(filters.formFinalStatus, row.formFinalStatus)) return false;
-      if (!matchMulti(filters.gmailPendencyStatus, row.gmailPendencyStatus)) return false;
-
-      // Task Bucket checking (Multi-Select support)
-      if (filters.taskBucket !== 'All') {
-        const selectedTasks = filters.taskBucket.split(',').map(s => s.trim().toLowerCase());
-        const rowTasks = splitTasks(row.taskBucket || '').map(s => s.trim().toLowerCase());
-        
-        const matchesBlank = selectedTasks.includes('blank') && rowTasks.length === 0;
-        const matchesAnyTask = selectedTasks.some(t => rowTasks.includes(t));
-        
-        if (!matchesBlank && !matchesAnyTask) return false;
+      if (rowBucket !== filters.eddStatus) {
+        return false;
       }
+    }
 
-      // Derived status checking (Multi-Select support)
-      if (filters.derivedStatus !== 'All') {
-        const selectedIssues = filters.derivedStatus.split(',');
-        const flags = getDerivedFlags(row);
-        
-        const matchesAny = selectedIssues.some(issue => {
-          if (issue === 'Alert Cases' && flags.isAlertCase) return true;
-          if (issue === 'EDD Missing' && flags.isEddMissing) return true;
-          if (issue === 'EDD Breached' && flags.isEddBreached) return true;
-          if (issue === 'PMax Stuck' && flags.isPmaxStuck) return true;
-          if (issue === 'Customer Connect Pending' && flags.isCustomerConnectPending) return true;
-          if (issue === 'High Payment Pending Delivery' && flags.isHighPaymentPendingDelivery) return true;
-          if (issue === 'Cancelled After Payment' && flags.isCancelledAfterPayment) return true;
-          if (issue === 'OD Pending' && flags.isOdPending) return true;
-          if (issue === 'Blank Payment Type' && flags.isBlankPaymentType) return true;
-          if (issue === 'Payment Pending' && flags.isPaymentPending) return true;
-          if (issue === 'Any Active Task' && Boolean(row.taskBucket)) return true;
-          
-          if (row.taskBucket && String(row.taskBucket).toLowerCase().includes(issue.toLowerCase())) return true;
-          return false;
+    if (ignoreKey !== 'cancelReason' && filters.cancelReason && filters.cancelReason !== 'All') {
+      if ((row.cancelReason || '') !== filters.cancelReason) return false;
+    }
+
+    if (ignoreKey !== 'leadDsChannel' && filters.leadDsChannel && filters.leadDsChannel !== 'All') {
+      if ((row.leadDsChannel || '') !== filters.leadDsChannel) return false;
+    }
+
+    return true;
+  }, [filters, eddLabels]);
+
+  // Filtered rows memoized
+  const filteredRows = useMemo(() => {
+    return rows.filter(row => isRowMatching(row));
+  }, [rows, isRowMatching]);
+
+  // Dynamic filter options based on other active filters (independent dimensional cross-filtering)
+  const dynamicFilterOptions = useMemo(() => {
+    const citiesSet = new Set<string>();
+    const hubsSet = new Set<string>();
+    const tokenTypeSet = new Set<string>();
+    const rmSet = new Set<string>();
+    const dcSet = new Set<string>();
+    const paymentSet = new Set<string>();
+    const stagesSet = new Set<string>();
+    const funnelSet = new Set<string>();
+    const sheetFinalSet = new Set<string>();
+    const formFinalSet = new Set<string>();
+    const gmailPendencySet = new Set<string>();
+    const tasksSet = new Set<string>();
+    const derivedSet = new Set<string>();
+    const cancelReasonsSet = new Set<string>();
+    const leadDsChannelsSet = new Set<string>();
+
+    rows.forEach(row => {
+      if (row.city && isRowMatching(row, 'city')) {
+        citiesSet.add(row.city);
+      }
+      if (row.hubName && isRowMatching(row, 'hubName')) {
+        hubsSet.add(row.hubName);
+      }
+      if (row.tokenType && isRowMatching(row, 'tokenType')) {
+        tokenTypeSet.add(row.tokenType);
+      }
+      if (row.assignedRm && isRowMatching(row, 'rmName')) {
+        rmSet.add(row.assignedRm);
+      }
+      if (row.assignedDc && isRowMatching(row, 'dcName')) {
+        dcSet.add(row.assignedDc);
+      }
+      if (row.paymentType && isRowMatching(row, 'paymentType')) {
+        paymentSet.add(row.paymentType);
+      }
+      if (row.leadStage && isRowMatching(row, 'leadStage')) {
+        stagesSet.add(row.leadStage);
+      }
+      if (row.funnelStage && isRowMatching(row, 'funnelStage')) {
+        funnelSet.add(row.funnelStage);
+      }
+      if (row.sheetFinalStatus && isRowMatching(row, 'sheetFinalStatus')) {
+        sheetFinalSet.add(row.sheetFinalStatus);
+      }
+      if (row.formFinalStatus && isRowMatching(row, 'formFinalStatus')) {
+        formFinalSet.add(row.formFinalStatus);
+      }
+      if (row.gmailPendencyStatus && isRowMatching(row, 'gmailPendencyStatus')) {
+        gmailPendencySet.add(row.gmailPendencyStatus);
+      }
+      if (row.taskBucket && isRowMatching(row, 'taskBucket')) {
+        splitTasks(row.taskBucket).forEach(t => {
+          if (t && t.trim()) {
+            tasksSet.add(t.trim());
+          }
         });
-        
-        if (!matchesAny) return false;
       }
-
-      // Date ranges checking
-      if (filters.dateField !== 'All' && (filters.startDate || filters.endDate)) {
-        const dateMap: Record<string, keyof CaseRow> = {
-          tokenDate: 'tokenDate',
-          bookingDate: 'bookingDate',
-          expectedDeliveryDate: 'expectedDeliveryDate',
-          actualDeliveryDate: 'actualDeliveryDate',
-          lastPaymentDate: 'lastPaymentDate',
-          latestRemarkDate: 'latestRemarkDate',
-          cancellationDate: 'cancellationDate',
-          updatedAt: 'updatedAt',
-          expectedOdCompletionDate: 'expectedOdCompletionDate',
-          eddReviewerDate: 'eddReviewerDate',
-          tokenDateTime: 'tokenDateTime',
-          expectedDeliveryTime: 'expectedDeliveryTime',
-          cancelReqDate: 'cancelReqDate',
-          latestLeadCreationTimestamp: 'latestLeadCreationTimestamp',
-          latestLoginTime: 'latestLoginTime',
-          latestCreditAssessedTimestamp: 'latestCreditAssessedTimestamp',
-          latestDiligenceAssessedTimestamp: 'latestDiligenceAssessedTimestamp',
-          latestFcuAssessedTimestamp: 'latestFcuAssessedTimestamp',
-          tncGeneratedDate: 'tncGeneratedDate',
-          tncAcceptedTimestamp: 'tncAcceptedTimestamp',
-          fcuSentDate: 'fcuSentDate',
-          sentToRcuTimestamp: 'sentToRcuTimestamp',
-          sentToOpsTimestamp: 'sentToOpsTimestamp',
-          submitToOpsTimestamp: 'submitToOpsTimestamp',
-          opsDisbursalTimestamp: 'opsDisbursalTimestamp',
-          financeDisbursedTimestamp: 'financeDisbursedTimestamp',
-          lastCallAt: 'lastCallAt',
-          followupAt: 'followupAt',
-          sheetLoginTimestamp: 'sheetLoginTimestamp',
-          gmailPendencyDate: 'gmailPendencyDate',
-          mlEstimatedDeliveryDate: 'mlEstimatedDeliveryDate',
-          dealStatusUpdatedAt: 'dealStatusUpdatedAt',
-          tokenAutoCancellationExtendedDate: 'tokenAutoCancellationExtendedDate'
-        };
-        const dateKey = dateMap[filters.dateField];
-        if (dateKey) {
-          const rawVal = row[dateKey];
-          if (!rawVal) return false;
-          const rowDate = parseDateString(String(rawVal));
-          if (!rowDate) return false;
-
-          if (filters.startDate) {
-            const start = parseDateString(filters.startDate);
-            if (start) {
-              start.setHours(0, 0, 0, 0);
-              if (rowDate < start) return false;
+      if (row.cancelReason && isRowMatching(row, 'cancelReason')) {
+        cancelReasonsSet.add(row.cancelReason);
+      }
+      if (row.leadDsChannel && isRowMatching(row, 'leadDsChannel')) {
+        leadDsChannelsSet.add(row.leadDsChannel);
+      }
+      if (isRowMatching(row, 'derivedStatus')) {
+        const flags = getDerivedFlags(row);
+        if (flags.isAlertCase) derivedSet.add('Alert Cases');
+        if (flags.isEddMissing) derivedSet.add('EDD Missing');
+        if (flags.isEddBreached) derivedSet.add('EDD Breached');
+        if (flags.isPmaxStuck) derivedSet.add('PMax Stuck');
+        if (flags.isCustomerConnectPending) derivedSet.add('Customer Connect Pending');
+        if (flags.isHighPaymentPendingDelivery) derivedSet.add('High Payment Pending Delivery');
+        if (flags.isCancelledAfterPayment) derivedSet.add('Cancelled After Payment');
+        if (flags.isOdPending) derivedSet.add('OD Pending');
+        if (flags.isBlankPaymentType) derivedSet.add('Blank Payment Type');
+        if (flags.isPaymentPending) derivedSet.add('Payment Pending');
+        if (row.taskBucket) {
+          derivedSet.add('Any Active Task');
+          splitTasks(row.taskBucket).forEach(t => {
+            if (t && t.trim()) {
+              derivedSet.add(t.trim());
             }
-          }
-          if (filters.endDate) {
-            const end = parseDateString(filters.endDate);
-            if (end) {
-              end.setHours(23, 59, 59, 999);
-              if (rowDate > end) return false;
-            }
-          }
+          });
         }
       }
-      // EDD Status filtering from click on chart
-      if (filters.eddStatus && filters.eddStatus !== 'All' && todayDate) {
-        let rowBucket = 'Blank / Empty';
-
-        if (row.expectedDeliveryDate) {
-          const edd = parseDateString(row.expectedDeliveryDate);
-          if (edd) {
-            const eddDate = new Date(edd.getFullYear(), edd.getMonth(), edd.getDate(), 0, 0, 0, 0);
-            const diffTime = eddDate.getTime() - todayDate.getTime();
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-            if (diffDays < 0) {
-              rowBucket = 'Overdue / Breached';
-            } else if (diffDays === 0) {
-              rowBucket = labelToday;
-            } else if (diffDays === 1) {
-              rowBucket = labelD1;
-            } else if (diffDays === 2) {
-              rowBucket = labelD2;
-            } else if (diffDays >= 3 && diffDays <= 6) {
-              rowBucket = labelD3_6;
-            } else {
-              rowBucket = labelD7Plus;
-            }
-          }
-        }
-
-        if (rowBucket !== filters.eddStatus) {
-          return false;
-        }
-      }
-
-      return true;
     });
-  }, [rows, filters]);
 
-  // KPIs
-  const kpis: DashboardKpis = useMemo(() => buildKpis(filteredRows), [filteredRows]);
-  
-  // Charts
-  const charts: DashboardCharts = useMemo(() => buildCharts(filteredRows), [filteredRows]);
-
-  // Executive Operations Matrix Ledger
-  const matrix = useMemo(() => calculateOperationsMatrix(filteredRows), [filteredRows]);
-
-  const derivedOptions = useMemo(() => {
-    const core = [
+    const coreOrder = [
       'Alert Cases',
       'EDD Missing',
       'EDD Breached',
@@ -507,8 +624,158 @@ export default function Dashboard({
       'Payment Pending',
       'Any Active Task'
     ];
-    return [...core, ...allUniqueTasks];
-  }, [allUniqueTasks]);
+
+    const sortedDerived = Array.from(derivedSet).sort((a, b) => {
+      const idxA = coreOrder.indexOf(a);
+      const idxB = coreOrder.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
+
+    return {
+      cities: Array.from(citiesSet).sort(),
+      hubs: Array.from(hubsSet).sort(),
+      tokenTypes: Array.from(tokenTypeSet).sort(),
+      rms: Array.from(rmSet).sort(),
+      dcs: Array.from(dcSet).sort(),
+      paymentTypes: Array.from(paymentSet).sort(),
+      leadStages: Array.from(stagesSet).sort(),
+      funnelStages: Array.from(funnelSet).sort(),
+      sheetFinalStatuses: Array.from(sheetFinalSet).sort(),
+      formFinalStatuses: Array.from(formFinalSet).sort(),
+      gmailPendencyStatuses: Array.from(gmailPendencySet).sort(),
+      tasks: Array.from(tasksSet).sort(),
+      derivedOptions: sortedDerived,
+      cancelReasons: Array.from(cancelReasonsSet).sort(),
+      leadDsChannels: Array.from(leadDsChannelsSet).sort()
+    };
+  }, [rows, filters, isRowMatching]);
+
+  // City-Hub compatibility resolver (prevents blank screen when mismatching City/Hub)
+  const prevFiltersRef = useRef(filters);
+  useEffect(() => {
+    const prev = prevFiltersRef.current;
+    if (prev) {
+      const cityChanged = prev.city !== filters.city;
+      const hubChanged = prev.hubName !== filters.hubName;
+      if (cityChanged || hubChanged) {
+        if (filters.city !== 'All' && filters.hubName !== 'All') {
+          // Check if the combination is valid in rows
+          const selectedCities = filters.city.split(',').map(s => s.trim().toLowerCase());
+          const selectedHubs = filters.hubName.split(',').map(s => s.trim().toLowerCase());
+          
+          const isCompatible = rows.some(r => {
+            const rCity = String(r.city || '').trim().toLowerCase();
+            const rHub = String(r.hubName || '').trim().toLowerCase();
+            return selectedCities.includes(rCity) && selectedHubs.includes(rHub);
+          });
+
+          if (!isCompatible) {
+            if (cityChanged && !hubChanged) {
+              // City was changed, reset Hub
+              setFilters(p => ({ ...p, hubName: 'All' }));
+            } else if (hubChanged && !cityChanged) {
+              // Hub was changed, reset City
+              setFilters(p => ({ ...p, city: 'All' }));
+            }
+          }
+        }
+      }
+    }
+    prevFiltersRef.current = filters;
+  }, [filters, rows]);
+
+  // Auto-clear filters that are no longer valid under new selections (prevent empty matching lists)
+  useEffect(() => {
+    if (filters.searchQuery) return; // Skip during active search query matching
+
+    setFilters(prev => {
+      let updated = false;
+      const next = { ...prev };
+
+      const cleanFilterVal = (val: string, validOptions: string[]) => {
+        if (val === 'All') return val;
+        const selected = val.split(',').filter(Boolean);
+        const filtered = selected.filter(item => {
+          if (item === 'Blank') return true;
+          return validOptions.includes(item);
+        });
+        if (filtered.length === 0) return 'All';
+        if (filtered.length !== selected.length) return filtered.join(',');
+        return val;
+      };
+
+      const cityVal = cleanFilterVal(prev.city, dynamicFilterOptions.cities);
+      if (cityVal !== prev.city) { next.city = cityVal; updated = true; }
+
+      const hubVal = cleanFilterVal(prev.hubName, dynamicFilterOptions.hubs);
+      if (hubVal !== prev.hubName) { next.hubName = hubVal; updated = true; }
+
+      const tokenVal = cleanFilterVal(prev.tokenType, dynamicFilterOptions.tokenTypes);
+      if (tokenVal !== prev.tokenType) { next.tokenType = tokenVal; updated = true; }
+
+      const rmVal = cleanFilterVal(prev.rmName, dynamicFilterOptions.rms);
+      if (rmVal !== prev.rmName) { next.rmName = rmVal; updated = true; }
+
+      const dcVal = cleanFilterVal(prev.dcName, dynamicFilterOptions.dcs);
+      if (dcVal !== prev.dcName) { next.dcName = dcVal; updated = true; }
+
+      const paymentVal = cleanFilterVal(prev.paymentType, dynamicFilterOptions.paymentTypes);
+      if (paymentVal !== prev.paymentType) { next.paymentType = paymentVal; updated = true; }
+
+      const leadVal = cleanFilterVal(prev.leadStage, dynamicFilterOptions.leadStages);
+      if (leadVal !== prev.leadStage) { next.leadStage = leadVal; updated = true; }
+
+      const funnelVal = cleanFilterVal(prev.funnelStage, dynamicFilterOptions.funnelStages);
+      if (funnelVal !== prev.funnelStage) { next.funnelStage = funnelVal; updated = true; }
+
+      const sheetVal = cleanFilterVal(prev.sheetFinalStatus, dynamicFilterOptions.sheetFinalStatuses);
+      if (sheetVal !== prev.sheetFinalStatus) { next.sheetFinalStatus = sheetVal; updated = true; }
+
+      const formVal = cleanFilterVal(prev.formFinalStatus, dynamicFilterOptions.formFinalStatuses);
+      if (formVal !== prev.formFinalStatus) { next.formFinalStatus = formVal; updated = true; }
+
+      const gmailVal = cleanFilterVal(prev.gmailPendencyStatus, dynamicFilterOptions.gmailPendencyStatuses);
+      if (gmailVal !== prev.gmailPendencyStatus) { next.gmailPendencyStatus = gmailVal; updated = true; }
+
+      const taskVal = cleanFilterVal(prev.taskBucket, dynamicFilterOptions.tasks);
+      if (taskVal !== prev.taskBucket) { next.taskBucket = taskVal; updated = true; }
+
+      const derivedVal = cleanFilterVal(prev.derivedStatus, dynamicFilterOptions.derivedOptions);
+      if (derivedVal !== prev.derivedStatus) { next.derivedStatus = derivedVal; updated = true; }
+
+      const cancelVal = cleanFilterVal(prev.cancelReason || 'All', dynamicFilterOptions.cancelReasons);
+      if (cancelVal !== prev.cancelReason) { next.cancelReason = cancelVal; updated = true; }
+
+      const dsChannelVal = cleanFilterVal(prev.leadDsChannel || 'All', dynamicFilterOptions.leadDsChannels);
+      if (dsChannelVal !== prev.leadDsChannel) { next.leadDsChannel = dsChannelVal; updated = true; }
+
+      if (updated) {
+        return next;
+      }
+      return prev;
+    });
+  }, [dynamicFilterOptions, filters.searchQuery]);
+
+  // KPIs
+  const kpis: DashboardKpis = useMemo(() => buildKpis(filteredRows), [filteredRows]);
+  
+  // Charts
+  const charts: DashboardCharts = useMemo(() => buildCharts(filteredRows), [filteredRows]);
+
+  // Filtered C2D bookings count in the current filtered set
+  const filteredCancelledC2dCount = useMemo(() => {
+    return filteredRows.filter(r => {
+      const flags = getDerivedFlags(r);
+      return flags.isCancelled && c2dStats.c2dBookingIds.has(r.bookingId);
+    }).length;
+  }, [filteredRows, c2dStats.c2dBookingIds]);
+
+  // Executive Operations Matrix Ledger
+  const matrix = useMemo(() => calculateOperationsMatrix(filteredRows), [filteredRows]);
+
 
   const derivedLabels = useMemo(() => {
     const labels: Record<string, string> = {
@@ -541,7 +808,9 @@ export default function Dashboard({
       startDate: '',
       endDate: '',
       searchQuery: '',
-      eddStatus: 'All'
+      eddStatus: 'All',
+      cancelReason: 'All',
+      leadDsChannel: 'All'
     });
   };
 
@@ -802,6 +1071,249 @@ export default function Dashboard({
   const isDateFieldActive = filters.dateField !== 'All';
   const isDateRangeActive = isDateFieldActive && (filters.startDate !== '' || filters.endDate !== '' || filters.filterBlankDates);
 
+  // Extracted reusable table component to render at the bottom of multiple tabs
+  const renderInteractiveTable = () => {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mt-6" id="interactive-dataset-panel">
+        <div className="p-5 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h3 className="font-sans font-semibold text-slate-800 text-sm">
+              Filtered Booking Cases List
+            </h3>
+            <p className="text-[11px] text-slate-400">
+              Showing {filteredRows.length} matches out of total {rows.length} operations.
+            </p>
+          </div>
+          
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                const csvContent = [
+                  ["Booking ID", "City", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"].join(","),
+                  ...filteredRows.map(row => [
+                    row.bookingId, row.city, row.hubName, row.assignedRm, row.tokenType, row.paymentType, row.leadStage, row.taskBucket, row.expectedDeliveryDate, row.readyToDeliver, row.expectedOdCompletionDate, row.reviewerRemarks
+                  ].map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(','))
+                ].join('\n');
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'cars24_ops_filtered_dataset.csv';
+                link.click();
+              }}
+              className="p-1.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all shadow-xs"
+            >
+              Export CSV Ledger
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-slate-50 font-sans border-b border-slate-100/80 text-slate-500 select-none">
+                <th className="p-3.5 pl-5 font-semibold">Booking ID</th>
+                <th className="p-3.5 font-semibold">City</th>
+                <th className="p-3.5 font-semibold text-slate-600">Hub</th>
+                <th className="p-3.5 font-semibold">RM Name</th>
+                <th className="p-3.5 font-semibold">Payment Type</th>
+                <th className="p-3.5 font-semibold">Lead Stage</th>
+                <th className="p-3.5 font-semibold">Task List</th>
+                <th className="p-3.5 font-semibold">Expected EDD</th>
+                <th className="p-3.5 font-semibold">Ready?</th>
+                <th className="p-3.5 font-semibold">OD Completion</th>
+                <th className="p-3.5 text-right pr-5 font-semibold">Control Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-slate-600">
+              {filteredRows.length === 0 ? (
+                <tr>
+                  <td colSpan={11} className="p-10 text-center text-slate-400 font-medium">
+                    No matching CARS24 rows fit the specified operational handshake filters.
+                  </td>
+                </tr>
+              ) : (
+                currentRows.map((row, subIndex) => {
+                  const index = (activePage - 1) * pageSize + subIndex;
+                  const flags = getDerivedFlags(row);
+                  return (
+                    <tr key={row.bookingId} className="hover:bg-slate-50/50 transition-all">
+                      <td className="p-3.5 pl-5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-slate-800">{row.bookingId}</span>
+                          {c2dStats.c2dBookingIds.has(row.bookingId) && (
+                            <span 
+                              className="p-0.5 px-1.5 text-[8px] bg-rose-50 text-rose-600 border border-rose-100 rounded font-extrabold uppercase tracking-wider select-none shrink-0"
+                              title="C2D: Cancelled booking but user converted to delivered on another Booking ID"
+                            >
+                              C2D
+                            </span>
+                          )}
+                        </div>
+                        {(row.userId || row.uid) && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            <a 
+                              href={`https://axle.c24.tech/b2c-lms/customer/${encodeURIComponent(row.userId || row.uid || '')}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[10px] text-indigo-500 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 px-1.5 py-0.5 rounded font-mono font-medium flex items-center gap-0.5 transition-all"
+                              title="View Customer WMF/LMS Profile"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              WMFACT <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3.5">{row.city}</td>
+                      <td className="p-3.5 truncate max-w-[130px]" title={row.hubName}>
+                        {row.hubName}
+                      </td>
+                      <td className="p-3.5">{row.assignedRm}</td>
+                      <td className="p-3.5">
+                        <span className="p-1 px-2 text-[10px] font-mono font-medium rounded-md bg-slate-100 text-slate-800">
+                          {row.paymentType || 'CASH'}
+                        </span>
+                      </td>
+                      <td className="p-3.5">
+                        <span className={`p-1 px-2.5 rounded-full text-[10px] font-bold ${
+                          row.leadStage === 'DELIVERED' 
+                            ? 'bg-emerald-50 text-emerald-700' 
+                            : row.leadStage === 'CANCELLED' 
+                            ? 'bg-rose-50 text-rose-700' 
+                            : 'bg-amber-50 text-amber-700'
+                        }`}>
+                          {row.leadStage}
+                        </span>
+                      </td>
+                      <td className="p-3.5">
+                        {row.taskBucket ? (
+                          <div className="flex gap-1.5 flex-wrap max-w-[200px]">
+                            {splitTasks(row.taskBucket).map(t => (
+                              <span key={t} className="p-1 px-2 rounded-md bg-indigo-50 text-indigo-700 text-[9px] font-semibold leading-relaxed">
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic">No Task</span>
+                        )}
+                      </td>
+                      <td className="p-3.5 font-mono">
+                        {row.expectedDeliveryDate ? (
+                          <span className={flags.isEddBreached ? 'text-rose-500 font-bold' : ''}>
+                            {row.expectedDeliveryDate}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic">Missing</span>
+                        )}
+                      </td>
+                      <td className="p-3.5 font-bold">
+                        {row.readyToDeliver || <span className="text-slate-400 font-normal">-</span>}
+                      </td>
+                      <td className="p-3.5 font-mono">
+                        {row.expectedOdCompletionDate || <span className="text-slate-400 italic">-</span>}
+                      </td>
+                      <td className="p-3.5 text-right pr-5 whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleEditRowClick(index)}
+                            className="p-1.5 px-3 rounded-lg text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 transition-all flex items-center gap-1 active:scale-95"
+                          >
+                            <Eye className="w-3.5 h-3.5" /> View & Sync
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination Toolbar */}
+        {filteredRows.length > 0 && (
+          <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 bg-slate-50/35">
+            <div className="flex items-center gap-2">
+              <span>Show</span>
+              <select
+                value={pageSize}
+                onChange={e => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="p-1 px-2 border border-slate-200 rounded-lg bg-white font-semibold text-slate-700 cursor-pointer focus:outline-none focus:ring-1 focus:ring-slate-900"
+              >
+                <option value={10}>10 rows</option>
+                <option value={15}>15 rows</option>
+                <option value={20}>20 rows</option>
+                <option value={50}>50 rows</option>
+                <option value={100}>100 rows</option>
+              </select>
+              <span>per page</span>
+            </div>
+            
+            <div className="font-medium text-slate-600">
+              Showing <span className="font-bold text-slate-800">{Math.min(filteredRows.length, (activePage - 1) * pageSize + 1)}</span> to{' '}
+              <span className="font-bold text-slate-800">{Math.min(filteredRows.length, activePage * pageSize)}</span> of{' '}
+              <span className="font-bold text-slate-800">{filteredRows.length}</span> records
+            </div>
+
+            <div className="flex items-center gap-1.5 font-sans">
+              <button
+                type="button"
+                disabled={activePage === 1}
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                className="p-1.5 px-3 rounded-lg border border-slate-200 font-semibold bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:hover:bg-white disabled:cursor-not-allowed transition-all cursor-pointer select-none"
+              >
+                Previous
+              </button>
+              
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum = activePage;
+                  if (activePage <= 3) {
+                    pageNum = i + 1;
+                  } else if (activePage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = activePage - 2 + i;
+                  }
+                  
+                  if (pageNum < 1 || pageNum > totalPages) return null;
+                  
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={`w-7.5 h-7.5 rounded-lg flex items-center justify-center font-bold text-xs cursor-pointer select-none transition-all ${
+                        activePage === pageNum
+                          ? 'bg-slate-950 text-white shadow-xs'
+                          : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                disabled={activePage === totalPages}
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                className="p-1.5 px-3 rounded-lg border border-slate-200 font-semibold bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:hover:bg-white disabled:cursor-not-allowed transition-all cursor-pointer select-none"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6" id="cars24-ops-dashboard-wrapper">
       {/* 1. Filtering System (Dense bento control area) */}
@@ -820,7 +1332,7 @@ export default function Dashboard({
           {/* City */}
           <MultiSelectDropdown
             label="City"
-            options={filterOptions.cities || []}
+            options={dynamicFilterOptions.cities}
             selectedString={filters.city}
             onChange={val => setFilters(p => ({ ...p, city: val, hubName: 'All' }))}
             placeholder="All Cities"
@@ -832,7 +1344,7 @@ export default function Dashboard({
           {/* Hub */}
           <MultiSelectDropdown
             label="Hub Name"
-            options={filterOptions.hubs || []}
+            options={dynamicFilterOptions.hubs}
             selectedString={filters.hubName}
             onChange={val => setFilters(p => ({ ...p, hubName: val }))}
             placeholder="All Hubs"
@@ -844,7 +1356,7 @@ export default function Dashboard({
           {/* TokenType */}
           <MultiSelectDropdown
             label="Token Type"
-            options={filterOptions.tokenTypes || []}
+            options={dynamicFilterOptions.tokenTypes}
             selectedString={filters.tokenType}
             onChange={val => setFilters(p => ({ ...p, tokenType: val }))}
             placeholder="All Tokens"
@@ -856,7 +1368,7 @@ export default function Dashboard({
           {/* RM Name */}
           <MultiSelectDropdown
             label="Assigned RM"
-            options={filterOptions.rms || []}
+            options={dynamicFilterOptions.rms}
             selectedString={filters.rmName}
             onChange={val => setFilters(p => ({ ...p, rmName: val }))}
             placeholder="All RMs"
@@ -869,7 +1381,7 @@ export default function Dashboard({
           {/* DC Name */}
           <MultiSelectDropdown
             label="Assigned DC"
-            options={filterOptions.dcs || []}
+            options={dynamicFilterOptions.dcs}
             selectedString={filters.dcName}
             onChange={val => setFilters(p => ({ ...p, dcName: val }))}
             placeholder="All DCs"
@@ -882,7 +1394,7 @@ export default function Dashboard({
           {/* Payment Type */}
           <MultiSelectDropdown
             label="Payment Type"
-            options={filterOptions.paymentTypes || []}
+            options={dynamicFilterOptions.paymentTypes}
             selectedString={filters.paymentType}
             onChange={val => setFilters(p => ({ ...p, paymentType: val }))}
             placeholder="All Payments"
@@ -895,7 +1407,7 @@ export default function Dashboard({
           {/* Lead Stage */}
           <MultiSelectDropdown
             label="Lead Stage"
-            options={filterOptions.leadStages || []}
+            options={dynamicFilterOptions.leadStages}
             selectedString={filters.leadStage}
             onChange={val => setFilters(p => ({ ...p, leadStage: val }))}
             placeholder="All Stages"
@@ -907,7 +1419,7 @@ export default function Dashboard({
           {/* Funnel Stage */}
           <MultiSelectDropdown
             label="Funnel Stage"
-            options={filterOptions.funnelStages || []}
+            options={dynamicFilterOptions.funnelStages}
             selectedString={filters.funnelStage}
             onChange={val => setFilters(p => ({ ...p, funnelStage: val }))}
             placeholder="All Funnel Stages"
@@ -919,7 +1431,7 @@ export default function Dashboard({
           {/* Sheet Final Status */}
           <MultiSelectDropdown
             label="Sheet Status"
-            options={filterOptions.sheetFinalStatuses || []}
+            options={dynamicFilterOptions.sheetFinalStatuses}
             selectedString={filters.sheetFinalStatus}
             onChange={val => setFilters(p => ({ ...p, sheetFinalStatus: val }))}
             placeholder="All Sheet Statuses"
@@ -932,7 +1444,7 @@ export default function Dashboard({
           {/* Form Final Status */}
           <MultiSelectDropdown
             label="Form Status"
-            options={filterOptions.formFinalStatuses || []}
+            options={dynamicFilterOptions.formFinalStatuses}
             selectedString={filters.formFinalStatus}
             onChange={val => setFilters(p => ({ ...p, formFinalStatus: val }))}
             placeholder="All Form Statuses"
@@ -945,7 +1457,7 @@ export default function Dashboard({
           {/* Gmail Pendency Status */}
           <MultiSelectDropdown
             label="Gmail Pendency"
-            options={filterOptions.gmailPendencyStatuses || []}
+            options={dynamicFilterOptions.gmailPendencyStatuses}
             selectedString={filters.gmailPendencyStatus}
             onChange={val => setFilters(p => ({ ...p, gmailPendencyStatus: val }))}
             placeholder="All Pendency Statuses"
@@ -957,7 +1469,7 @@ export default function Dashboard({
           {/* Task Bucket */}
           <MultiSelectDropdown
             label="Task Bucket"
-            options={allUniqueTasks}
+            options={dynamicFilterOptions.tasks}
             selectedString={filters.taskBucket}
             onChange={val => setFilters(p => ({ ...p, taskBucket: val }))}
             placeholder="All Task Buckets"
@@ -970,7 +1482,7 @@ export default function Dashboard({
           {/* Derived Status */}
           <MultiSelectDropdown
             label="Derived Issue"
-            options={derivedOptions}
+            options={dynamicFilterOptions.derivedOptions}
             selectedString={filters.derivedStatus}
             onChange={val => setFilters(p => ({ ...p, derivedStatus: val }))}
             placeholder="Clear Case / No Issue"
@@ -1154,11 +1666,20 @@ export default function Dashboard({
 
         {/* Cancelled cases */}
         <div className="bg-white p-4 rounded-2xl border border-slate-105 shadow-sm flex flex-col justify-between hover:scale-101 hover:shadow-md transition-all">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Cancelled</span>
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide flex justify-between items-center">
+            <span>Cancelled</span>
+            {filteredCancelledC2dCount > 0 && (
+              <span className="text-[9px] bg-rose-50 text-rose-600 border border-rose-100 rounded px-1.5 py-0.5 font-bold uppercase tracking-wider select-none shrink-0" title="C2D: Cancelled booking but user converted to delivered on another Booking ID">
+                C2D: {filteredCancelledC2dCount}
+              </span>
+            )}
+          </span>
           <h4 className="text-2xl font-sans font-bold text-rose-600 leading-none my-1">
             {kpis.cancelled}
           </h4>
-          <span className="text-[10px] text-slate-400">cancellation records</span>
+          <span className="text-[10px] text-slate-400">
+            cancellation records {filteredCancelledC2dCount > 0 && `(C2D: ${filteredCancelledC2dCount} recovered)`}
+          </span>
         </div>
       </div>
 
@@ -1259,234 +1780,7 @@ export default function Dashboard({
             </div>
           </div>
 
-          {/* 4. Active Dataset Spreadsheet Table */}
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden" id="interactive-dataset-panel">
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
-              <div>
-                <h3 className="font-sans font-semibold text-slate-800 text-sm">
-                  Filtered Booking Cases List
-                </h3>
-                <p className="text-[11px] text-slate-400">
-                  Showing {filteredRows.length} matches out of total {rows.length} operations.
-                </p>
-              </div>
-              
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    const csvContent = [
-                      ["Booking ID", "City", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"].join(","),
-                      ...filteredRows.map(row => [
-                        row.bookingId, row.city, row.hubName, row.assignedRm, row.tokenType, row.paymentType, row.leadStage, row.taskBucket, row.expectedDeliveryDate, row.readyToDeliver, row.expectedOdCompletionDate, row.reviewerRemarks
-                      ].map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(','))
-                    ].join('\n');
-                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                    const url = URL.createObjectURL(blob);
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.download = 'cars24_ops_filtered_dataset.csv';
-                    link.click();
-                  }}
-                  className="p-1.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all shadow-xs"
-                >
-                  Export CSV Ledger
-                </button>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 font-sans border-b border-slate-100/80 text-slate-500 select-none">
-                    <th className="p-3.5 pl-5 font-semibold">Booking ID</th>
-                    <th className="p-3.5 font-semibold">City</th>
-                    <th className="p-3.5 font-semibold text-slate-600">Hub</th>
-                    <th className="p-3.5 font-semibold">RM Name</th>
-                    <th className="p-3.5 font-semibold">Payment Type</th>
-                    <th className="p-3.5 font-semibold">Lead Stage</th>
-                    <th className="p-3.5 font-semibold">Task List</th>
-                    <th className="p-3.5 font-semibold">Expected EDD</th>
-                    <th className="p-3.5 font-semibold">Ready?</th>
-                    <th className="p-3.5 font-semibold">OD Completion</th>
-                    <th className="p-3.5 text-right pr-5 font-semibold">Control Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-slate-600">
-                  {filteredRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={11} className="p-10 text-center text-slate-400 font-medium">
-                        No matching CARS24 rows fit the specified operational handshake filters.
-                      </td>
-                    </tr>
-                  ) : (
-                    currentRows.map((row, subIndex) => {
-                      const index = (activePage - 1) * pageSize + subIndex;
-                      const flags = getDerivedFlags(row);
-                      return (
-                        <tr key={row.bookingId} className="hover:bg-slate-50/50 transition-all">
-                          <td className="p-3.5 pl-5">
-                            <div className="font-semibold text-slate-800">{row.bookingId}</div>
-                            {(row.userId || row.uid) && (
-                              <div className="mt-1 flex flex-wrap gap-1">
-                                <a 
-                                  href={`https://axle.c24.tech/b2c-lms/customer/${encodeURIComponent(row.userId || row.uid || '')}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-[10px] text-indigo-500 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 px-1.5 py-0.5 rounded font-mono font-medium flex items-center gap-0.5 transition-all"
-                                  title="View Customer WMF/LMS Profile"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  WMFACT <ExternalLink className="w-2.5 h-2.5" />
-                                </a>
-                              </div>
-                            )}
-                          </td>
-                          <td className="p-3.5">{row.city}</td>
-                          <td className="p-3.5 truncate max-w-[130px]" title={row.hubName}>
-                            {row.hubName}
-                          </td>
-                          <td className="p-3.5">{row.assignedRm}</td>
-                          <td className="p-3.5">
-                            <span className="p-1 px-2 text-[10px] font-mono font-medium rounded-md bg-slate-100 text-slate-800">
-                              {row.paymentType || 'CASH'}
-                            </span>
-                          </td>
-                          <td className="p-3.5">
-                            <span className={`p-1 px-2.5 rounded-full text-[10px] font-bold ${
-                              row.leadStage === 'DELIVERED' 
-                                ? 'bg-emerald-50 text-emerald-700' 
-                                : row.leadStage === 'CANCELLED' 
-                                ? 'bg-rose-50 text-rose-700' 
-                                : 'bg-amber-50 text-amber-700'
-                            }`}>
-                              {row.leadStage}
-                            </span>
-                          </td>
-                          <td className="p-3.5">
-                            {row.taskBucket ? (
-                              <div className="flex gap-1.5 flex-wrap max-w-[200px]">
-                                {splitTasks(row.taskBucket).map(t => (
-                                  <span key={t} className="p-1 px-2 rounded-md bg-indigo-50 text-indigo-700 text-[9px] font-semibold leading-relaxed">
-                                    {t}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 italic">No Task</span>
-                            )}
-                          </td>
-                          <td className="p-3.5 font-mono">
-                            {row.expectedDeliveryDate ? (
-                              <span className={flags.isEddBreached ? 'text-rose-500 font-bold' : ''}>
-                                {row.expectedDeliveryDate}
-                              </span>
-                            ) : (
-                              <span className="text-slate-400 italic">Missing</span>
-                            )}
-                          </td>
-                          <td className="p-3.5 font-bold">
-                            {row.readyToDeliver || <span className="text-slate-400 font-normal">-</span>}
-                          </td>
-                          <td className="p-3.5 font-mono">
-                            {row.expectedOdCompletionDate || <span className="text-slate-400 italic">-</span>}
-                          </td>
-                          <td className="p-3.5 text-right pr-5 whitespace-nowrap">
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                onClick={() => handleEditRowClick(index)}
-                                className="p-1.5 px-3 rounded-lg text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 transition-all flex items-center gap-1 active:scale-95"
-                              >
-                                <Eye className="w-3.5 h-3.5" /> View & Sync
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Pagination Toolbar */}
-            {filteredRows.length > 0 && (
-              <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 bg-slate-50/35">
-                <div className="flex items-center gap-2">
-                  <span>Show</span>
-                  <select
-                    value={pageSize}
-                    onChange={e => {
-                      setPageSize(Number(e.target.value));
-                      setCurrentPage(1);
-                    }}
-                    className="p-1 px-2 border border-slate-200 rounded-lg bg-white font-semibold text-slate-700 cursor-pointer focus:outline-none focus:ring-1 focus:ring-slate-900"
-                  >
-                    <option value={10}>10 rows</option>
-                    <option value={15}>15 rows</option>
-                    <option value={20}>20 rows</option>
-                    <option value={50}>50 rows</option>
-                    <option value={100}>100 rows</option>
-                  </select>
-                  <span>per page</span>
-                </div>
-                
-                <div className="font-medium text-slate-600">
-                  Showing <span className="font-bold text-slate-800">{Math.min(filteredRows.length, (activePage - 1) * pageSize + 1)}</span> to{' '}
-                  <span className="font-bold text-slate-800">{Math.min(filteredRows.length, activePage * pageSize)}</span> of{' '}
-                  <span className="font-bold text-slate-800">{filteredRows.length}</span> records
-                </div>
-
-                <div className="flex items-center gap-1.5 font-sans">
-                  <button
-                    type="button"
-                    disabled={activePage === 1}
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    className="p-1.5 px-3 rounded-lg border border-slate-200 font-semibold bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:hover:bg-white disabled:cursor-not-allowed transition-all cursor-pointer select-none"
-                  >
-                    Previous
-                  </button>
-                  
-                  <div className="flex items-center gap-1">
-                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                      let pageNum = activePage;
-                      if (activePage <= 3) {
-                        pageNum = i + 1;
-                      } else if (activePage >= totalPages - 2) {
-                        pageNum = totalPages - 4 + i;
-                      } else {
-                        pageNum = activePage - 2 + i;
-                      }
-                      
-                      if (pageNum < 1 || pageNum > totalPages) return null;
-                      
-                      return (
-                        <button
-                          key={pageNum}
-                          onClick={() => setCurrentPage(pageNum)}
-                          className={`w-7.5 h-7.5 rounded-lg flex items-center justify-center font-bold text-xs cursor-pointer select-none transition-all ${
-                            activePage === pageNum
-                              ? 'bg-slate-950 text-white shadow-xs'
-                              : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                          }`}
-                        >
-                          {pageNum}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <button
-                    type="button"
-                    disabled={activePage === totalPages}
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    className="p-1.5 px-3 rounded-lg border border-slate-200 font-semibold bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:hover:bg-white disabled:cursor-not-allowed transition-all cursor-pointer select-none"
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+          {renderInteractiveTable()}
         </>
       )}
 
@@ -1535,18 +1829,19 @@ export default function Dashboard({
               </p>
             </div>
           </div>
+          {renderInteractiveTable()}
         </div>
       )}
 
       {activeTab === 'loss' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {/* Cancellation Reason Split */}
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
               <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
                 Cancellation Reasons
               </h4>
-              {renderSvgBarChart('Cancellation Reason', charts.cancellationReason, "bg-rose-500")}
+              {renderSvgBarChart('Cancellation Reason', charts.cancellationReason, "bg-rose-500", "cancelReason")}
             </div>
 
             {/* Payment Type Split */}
@@ -1564,6 +1859,14 @@ export default function Dashboard({
               </h4>
               {renderSvgBarChart('Token Type', charts.tokenType, "bg-indigo-500", "tokenType")}
             </div>
+
+            {/* DS Channel Distribution */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+              <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+                DS Channel Distribution
+              </h4>
+              {renderSvgBarChart('DS Channel', charts.leadDsChannel || {}, "bg-sky-500", "leadDsChannel")}
+            </div>
           </div>
 
           <div className="bg-rose-50/50 border border-rose-150 p-4 rounded-2xl flex items-start gap-3">
@@ -1575,6 +1878,7 @@ export default function Dashboard({
               </p>
             </div>
           </div>
+          {renderInteractiveTable()}
         </div>
       )}
 
