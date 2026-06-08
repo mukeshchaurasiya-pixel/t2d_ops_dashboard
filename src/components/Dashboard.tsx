@@ -26,6 +26,150 @@ interface DashboardProps {
   accessToken: string | null;
 }
 
+interface MultiSelectDropdownProps {
+  label: string;
+  options: string[];
+  selectedString: string;
+  onChange: (val: string) => void;
+  placeholder: string;
+  showBlank?: boolean;
+  isActive: boolean;
+  isOpen: boolean;
+  onToggle: () => void;
+  optionLabels?: Record<string, string>;
+}
+
+function MultiSelectDropdown({
+  label,
+  options,
+  selectedString,
+  onChange,
+  placeholder,
+  showBlank = false,
+  isActive,
+  isOpen,
+  onToggle,
+  optionLabels
+}: MultiSelectDropdownProps) {
+  const selectedList = useMemo(() => {
+    if (selectedString === 'All') return [];
+    return selectedString.split(',').filter(Boolean);
+  }, [selectedString]);
+
+  const handleToggleOption = (val: string) => {
+    let newList: string[];
+    if (selectedList.includes(val)) {
+      newList = selectedList.filter(v => v !== val);
+    } else {
+      newList = [...selectedList, val];
+    }
+    
+    if (newList.length === 0) {
+      onChange('All');
+    } else {
+      onChange(newList.join(','));
+    }
+  };
+
+  const handleSelectAll = () => {
+    onChange('All');
+  };
+
+  const handleClear = () => {
+    onChange('All');
+  };
+
+  // Label display logic
+  const displayText = useMemo(() => {
+    if (selectedList.length === 0) return placeholder;
+    const getLabel = (val: string) => {
+      if (val === 'Blank') return 'Blank / Empty';
+      if (optionLabels && optionLabels[val]) return optionLabels[val];
+      return val;
+    };
+    if (selectedList.length === 1) {
+      return getLabel(selectedList[0]);
+    }
+    return `${getLabel(selectedList[0])} (+${selectedList.length - 1})`;
+  }, [selectedList, placeholder, optionLabels]);
+
+  return (
+    <div className="relative">
+      <label className={`block text-[10px] uppercase font-bold tracking-wider mb-1 transition-all duration-200 ${
+        isActive ? 'text-amber-700 font-extrabold' : 'text-slate-400'
+      }`}>
+        {label}
+      </label>
+      
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`w-full text-xs p-2 px-3 border rounded-xl cursor-pointer transition-all duration-200 flex items-center justify-between gap-1.5 focus:outline-none focus:ring-1 focus:ring-amber-500/20 ${
+          isActive 
+            ? 'border-amber-400 bg-amber-50/50 text-amber-900 font-semibold ring-1 ring-amber-400/30 shadow-sm' 
+            : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100/50'
+        }`}
+      >
+        <span className="truncate max-w-[120px]">{displayText}</span>
+        <span className="text-[10px] text-slate-400">▼</span>
+      </button>
+
+      {isOpen && (
+        <>
+          {/* Backdrop to close dropdown on click outside */}
+          <div className="fixed inset-0 z-20 cursor-default" onClick={onToggle} />
+          
+          <div className="absolute left-0 mt-1.5 w-56 max-h-60 bg-white border border-slate-150 rounded-xl shadow-lg z-30 flex flex-col overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
+            {/* Header controls */}
+            <div className="p-2 border-b border-slate-100 flex items-center justify-between text-[10px] font-bold text-slate-500 bg-slate-50/50">
+              <button 
+                type="button" 
+                onClick={handleSelectAll} 
+                className="hover:text-slate-800 cursor-pointer"
+              >
+                Select All
+              </button>
+              <button 
+                type="button" 
+                onClick={handleClear} 
+                className="hover:text-slate-800 cursor-pointer"
+              >
+                Clear
+              </button>
+            </div>
+            
+            {/* Options List */}
+            <div className="overflow-y-auto p-1.5 space-y-0.5 max-h-48 text-slate-700 text-xs">
+              {showBlank && (
+                <label className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer font-sans select-none">
+                  <input
+                    type="checkbox"
+                    checked={selectedList.includes('Blank')}
+                    onChange={() => handleToggleOption('Blank')}
+                    className="rounded text-amber-500 focus:ring-amber-500/20 w-3.5 h-3.5"
+                  />
+                  <span>Blank / Empty</span>
+                </label>
+              )}
+              {options.map(opt => (
+                <label key={opt} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer font-sans select-none">
+                  <input
+                    type="checkbox"
+                    checked={selectedList.includes(opt)}
+                    onChange={() => handleToggleOption(opt)}
+                    className="rounded text-amber-500 focus:ring-amber-500/20 w-3.5 h-3.5"
+                  />
+                  <span className="truncate">{optionLabels?.[opt] || opt}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard({ 
   rows, 
   setRows, 
@@ -82,6 +226,18 @@ export default function Dashboard({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
   const [activeTab, setActiveTab] = useState<'ops' | 'performance' | 'loss' | 'ledger'>('ops');
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+
+  const matchMulti = (filterVal: string, rowVal: any) => {
+    if (!filterVal || filterVal === 'All') return true;
+    const selected = filterVal.split(',').map(s => s.trim().toLowerCase());
+    const rowStr = String(rowVal || '').trim().toLowerCase();
+    
+    if (selected.includes('blank')) {
+      if (rowStr === '') return true;
+    }
+    return selected.includes(rowStr);
+  };
 
   // Debounced search text state
   const [localSearch, setLocalSearch] = useState(filters.searchQuery);
@@ -125,87 +281,55 @@ export default function Dashboard({
         if (!matchesQuery) return false;
       }
 
-      // Check simple mapping filters
-      if (filters.city !== 'All' && row.city !== filters.city) return false;
-      if (filters.hubName !== 'All' && row.hubName !== filters.hubName) return false;
-      if (filters.tokenType !== 'All' && row.tokenType !== filters.tokenType) return false;
-      if (filters.tokenTypeWithNrt !== 'All' && row.tokenTypeWithNrt !== filters.tokenTypeWithNrt) return false;
-      
-      if (filters.rmName !== 'All') {
-        if (filters.rmName === 'Blank') {
-          if (row.assignedRm && String(row.assignedRm).trim() !== '') return false;
-        } else if (row.assignedRm !== filters.rmName) {
-          return false;
-        }
-      }
+      // Check simple mapping filters (Multi-Select support)
+      if (!matchMulti(filters.city, row.city)) return false;
+      if (!matchMulti(filters.hubName, row.hubName)) return false;
+      if (!matchMulti(filters.tokenType, row.tokenType)) return false;
+      if (!matchMulti(filters.tokenTypeWithNrt, row.tokenTypeWithNrt)) return false;
+      if (!matchMulti(filters.rmName, row.assignedRm)) return false;
+      if (!matchMulti(filters.dcName, row.assignedDc)) return false;
+      if (!matchMulti(filters.paymentType, row.paymentType)) return false;
+      if (!matchMulti(filters.leadStage, row.leadStage)) return false;
+      if (!matchMulti(filters.dealStatus, row.dealStatus)) return false;
+      if (!matchMulti(filters.funnelStage, row.funnelStage)) return false;
+      if (!matchMulti(filters.sheetFinalStatus, row.sheetFinalStatus)) return false;
+      if (!matchMulti(filters.formFinalStatus, row.formFinalStatus)) return false;
+      if (!matchMulti(filters.gmailPendencyStatus, row.gmailPendencyStatus)) return false;
 
-      if (filters.dcName !== 'All') {
-        if (filters.dcName === 'Blank') {
-          if (row.assignedDc && String(row.assignedDc).trim() !== '') return false;
-        } else if (row.assignedDc !== filters.dcName) {
-          return false;
-        }
-      }
-
-      if (filters.paymentType !== 'All') {
-        if (filters.paymentType === 'Blank') {
-          if (row.paymentType && String(row.paymentType).trim() !== '') return false;
-        } else if (row.paymentType !== filters.paymentType) {
-          return false;
-        }
-      }
-
-      if (filters.leadStage !== 'All' && row.leadStage !== filters.leadStage) return false;
-      if (filters.dealStatus !== 'All' && row.dealStatus !== filters.dealStatus) return false;
-      if (filters.funnelStage !== 'All' && row.funnelStage !== filters.funnelStage) return false;
-
-      if (filters.sheetFinalStatus !== 'All') {
-        if (filters.sheetFinalStatus === 'Blank') {
-          if (row.sheetFinalStatus && String(row.sheetFinalStatus).trim() !== '') return false;
-        } else if (row.sheetFinalStatus !== filters.sheetFinalStatus) {
-          return false;
-        }
-      }
-
-      if (filters.formFinalStatus !== 'All') {
-        if (filters.formFinalStatus === 'Blank') {
-          if (row.formFinalStatus && String(row.formFinalStatus).trim() !== '') return false;
-        } else if (row.formFinalStatus !== filters.formFinalStatus) {
-          return false;
-        }
-      }
-
-      if (filters.gmailPendencyStatus !== 'All' && row.gmailPendencyStatus !== filters.gmailPendencyStatus) return false;
-
-      // Task Bucket checking
+      // Task Bucket checking (Multi-Select support)
       if (filters.taskBucket !== 'All') {
-        if (filters.taskBucket === 'Blank') {
-          if (row.taskBucket && String(row.taskBucket).trim() !== '') return false;
-        } else {
-          const tasks = String(row.taskBucket || '').toLowerCase();
-          if (!tasks.includes(filters.taskBucket.toLowerCase())) return false;
-        }
+        const selectedTasks = filters.taskBucket.split(',').map(s => s.trim().toLowerCase());
+        const rowTasks = splitTasks(row.taskBucket || '').map(s => s.trim().toLowerCase());
+        
+        const matchesBlank = selectedTasks.includes('blank') && rowTasks.length === 0;
+        const matchesAnyTask = selectedTasks.some(t => rowTasks.includes(t));
+        
+        if (!matchesBlank && !matchesAnyTask) return false;
       }
 
-      // Derived status checking
+      // Derived status checking (Multi-Select support)
       if (filters.derivedStatus !== 'All') {
+        const selectedIssues = filters.derivedStatus.split(',');
         const flags = getDerivedFlags(row);
-        let match = false;
-        if (filters.derivedStatus === 'Alert Cases' && flags.isAlertCase) match = true;
-        else if (filters.derivedStatus === 'EDD Missing' && flags.isEddMissing) match = true;
-        else if (filters.derivedStatus === 'EDD Breached' && flags.isEddBreached) match = true;
-        else if (filters.derivedStatus === 'PMax Stuck' && flags.isPmaxStuck) match = true;
-        else if (filters.derivedStatus === 'Customer Connect Pending' && flags.isCustomerConnectPending) match = true;
-        else if (filters.derivedStatus === 'High Payment Pending Delivery' && flags.isHighPaymentPendingDelivery) match = true;
-        else if (filters.derivedStatus === 'Cancelled After Payment' && flags.isCancelledAfterPayment) match = true;
-        else if (filters.derivedStatus === 'OD Pending' && flags.isOdPending) match = true;
-        else if (filters.derivedStatus === 'Blank Payment Type' && flags.isBlankPaymentType) match = true;
-        else if (filters.derivedStatus === 'Payment Pending' && flags.isPaymentPending) match = true;
-        else if (filters.derivedStatus === 'Any Active Task' && Boolean(row.taskBucket)) match = true;
-        // Search if matching dynamic spreadsheet task explicitly
-        else if (row.taskBucket && String(row.taskBucket).toLowerCase().includes(filters.derivedStatus.toLowerCase())) match = true;
         
-        if (!match) return false;
+        const matchesAny = selectedIssues.some(issue => {
+          if (issue === 'Alert Cases' && flags.isAlertCase) return true;
+          if (issue === 'EDD Missing' && flags.isEddMissing) return true;
+          if (issue === 'EDD Breached' && flags.isEddBreached) return true;
+          if (issue === 'PMax Stuck' && flags.isPmaxStuck) return true;
+          if (issue === 'Customer Connect Pending' && flags.isCustomerConnectPending) return true;
+          if (issue === 'High Payment Pending Delivery' && flags.isHighPaymentPendingDelivery) return true;
+          if (issue === 'Cancelled After Payment' && flags.isCancelledAfterPayment) return true;
+          if (issue === 'OD Pending' && flags.isOdPending) return true;
+          if (issue === 'Blank Payment Type' && flags.isBlankPaymentType) return true;
+          if (issue === 'Payment Pending' && flags.isPaymentPending) return true;
+          if (issue === 'Any Active Task' && Boolean(row.taskBucket)) return true;
+          
+          if (row.taskBucket && String(row.taskBucket).toLowerCase().includes(issue.toLowerCase())) return true;
+          return false;
+        });
+        
+        if (!matchesAny) return false;
       }
 
       // Date ranges checking
@@ -281,6 +405,33 @@ export default function Dashboard({
 
   // Executive Operations Matrix Ledger
   const matrix = useMemo(() => calculateOperationsMatrix(filteredRows), [filteredRows]);
+
+  const derivedOptions = useMemo(() => {
+    const core = [
+      'Alert Cases',
+      'EDD Missing',
+      'EDD Breached',
+      'PMax Stuck',
+      'Customer Connect Pending',
+      'High Payment Pending Delivery',
+      'Cancelled After Payment',
+      'OD Pending',
+      'Blank Payment Type',
+      'Payment Pending',
+      'Any Active Task'
+    ];
+    return [...core, ...allUniqueTasks];
+  }, [allUniqueTasks]);
+
+  const derivedLabels = useMemo(() => {
+    const labels: Record<string, string> = {
+      'Any Active Task': 'Any Active Task / Pending Item'
+    };
+    allUniqueTasks.forEach(task => {
+      labels[task] = `Task: ${task}`;
+    });
+    return labels;
+  }, [allUniqueTasks]);
 
   const resetFilters = () => {
     setFilters({
@@ -579,198 +730,167 @@ export default function Dashboard({
 
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
           {/* City */}
-          <div>
-            <label className={getFilterLabelClass(isCityActive)}>City</label>
-            <select
-              value={filters.city}
-              onChange={e => setFilters(p => ({ ...p, city: e.target.value, hubName: 'All' }))}
-              className={getFilterSelectClass(isCityActive)}
-            >
-              <option value="All">All Cities</option>
-              {filterOptions.cities?.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
+          <MultiSelectDropdown
+            label="City"
+            options={filterOptions.cities || []}
+            selectedString={filters.city}
+            onChange={val => setFilters(p => ({ ...p, city: val, hubName: 'All' }))}
+            placeholder="All Cities"
+            isActive={isCityActive}
+            isOpen={openDropdown === 'city'}
+            onToggle={() => setOpenDropdown(p => p === 'city' ? null : 'city')}
+          />
 
           {/* Hub */}
-          <div>
-            <label className={getFilterLabelClass(isHubActive)}>Hub Name</label>
-            <select
-              value={filters.hubName}
-              onChange={e => setFilters(p => ({ ...p, hubName: e.target.value }))}
-              className={getFilterSelectClass(isHubActive)}
-            >
-              <option value="All">All Hubs</option>
-              {filterOptions.hubs?.map(h => <option key={h} value={h}>{h}</option>)}
-            </select>
-          </div>
+          <MultiSelectDropdown
+            label="Hub Name"
+            options={filterOptions.hubs || []}
+            selectedString={filters.hubName}
+            onChange={val => setFilters(p => ({ ...p, hubName: val }))}
+            placeholder="All Hubs"
+            isActive={isHubActive}
+            isOpen={openDropdown === 'hubName'}
+            onToggle={() => setOpenDropdown(p => p === 'hubName' ? null : 'hubName')}
+          />
 
           {/* TokenType */}
-          <div>
-            <label className={getFilterLabelClass(isTokenTypeActive)}>Token Type</label>
-            <select
-              value={filters.tokenType}
-              onChange={e => setFilters(p => ({ ...p, tokenType: e.target.value }))}
-              className={getFilterSelectClass(isTokenTypeActive)}
-            >
-              <option value="All">All Tokens</option>
-              {filterOptions.tokenTypes?.map(tt => <option key={tt} value={tt}>{tt}</option>)}
-            </select>
-          </div>
+          <MultiSelectDropdown
+            label="Token Type"
+            options={filterOptions.tokenTypes || []}
+            selectedString={filters.tokenType}
+            onChange={val => setFilters(p => ({ ...p, tokenType: val }))}
+            placeholder="All Tokens"
+            isActive={isTokenTypeActive}
+            isOpen={openDropdown === 'tokenType'}
+            onToggle={() => setOpenDropdown(p => p === 'tokenType' ? null : 'tokenType')}
+          />
 
           {/* RM Name */}
-          <div>
-            <label className={getFilterLabelClass(isRmActive)}>Assigned RM</label>
-            <select
-              value={filters.rmName}
-              onChange={e => setFilters(p => ({ ...p, rmName: e.target.value }))}
-              className={getFilterSelectClass(isRmActive)}
-            >
-              <option value="All">All RMs</option>
-              <option value="Blank">Blank / Empty</option>
-              {filterOptions.rms?.map(rm => <option key={rm} value={rm}>{rm}</option>)}
-            </select>
-          </div>
+          <MultiSelectDropdown
+            label="Assigned RM"
+            options={filterOptions.rms || []}
+            selectedString={filters.rmName}
+            onChange={val => setFilters(p => ({ ...p, rmName: val }))}
+            placeholder="All RMs"
+            showBlank={true}
+            isActive={isRmActive}
+            isOpen={openDropdown === 'rmName'}
+            onToggle={() => setOpenDropdown(p => p === 'rmName' ? null : 'rmName')}
+          />
 
           {/* DC Name */}
-          <div>
-            <label className={getFilterLabelClass(isDcActive)}>Assigned DC</label>
-            <select
-              value={filters.dcName}
-              onChange={e => setFilters(p => ({ ...p, dcName: e.target.value }))}
-              className={getFilterSelectClass(isDcActive)}
-            >
-              <option value="All">All DCs</option>
-              <option value="Blank">Blank / Empty</option>
-              {filterOptions.dcs?.map(dc => <option key={dc} value={dc}>{dc}</option>)}
-            </select>
-          </div>
+          <MultiSelectDropdown
+            label="Assigned DC"
+            options={filterOptions.dcs || []}
+            selectedString={filters.dcName}
+            onChange={val => setFilters(p => ({ ...p, dcName: val }))}
+            placeholder="All DCs"
+            showBlank={true}
+            isActive={isDcActive}
+            isOpen={openDropdown === 'dcName'}
+            onToggle={() => setOpenDropdown(p => p === 'dcName' ? null : 'dcName')}
+          />
 
           {/* Payment Type */}
-          <div>
-            <label className={getFilterLabelClass(isPaymentActive)}>Payment Type</label>
-            <select
-              value={filters.paymentType}
-              onChange={e => setFilters(p => ({ ...p, paymentType: e.target.value }))}
-              className={getFilterSelectClass(isPaymentActive)}
-            >
-              <option value="All">All Payments</option>
-              <option value="Blank">Blank / Empty</option>
-              {filterOptions.paymentTypes?.map(pt => <option key={pt} value={pt}>{pt}</option>)}
-            </select>
-          </div>
+          <MultiSelectDropdown
+            label="Payment Type"
+            options={filterOptions.paymentTypes || []}
+            selectedString={filters.paymentType}
+            onChange={val => setFilters(p => ({ ...p, paymentType: val }))}
+            placeholder="All Payments"
+            showBlank={true}
+            isActive={isPaymentActive}
+            isOpen={openDropdown === 'paymentType'}
+            onToggle={() => setOpenDropdown(p => p === 'paymentType' ? null : 'paymentType')}
+          />
 
           {/* Lead Stage */}
-          <div>
-            <label className={getFilterLabelClass(isLeadStageActive)}>Lead Stage</label>
-            <select
-              value={filters.leadStage}
-              onChange={e => setFilters(p => ({ ...p, leadStage: e.target.value }))}
-              className={getFilterSelectClass(isLeadStageActive)}
-            >
-              <option value="All">All Stages</option>
-              {filterOptions.leadStages?.map(ls => <option key={ls} value={ls}>{ls}</option>)}
-            </select>
-          </div>
+          <MultiSelectDropdown
+            label="Lead Stage"
+            options={filterOptions.leadStages || []}
+            selectedString={filters.leadStage}
+            onChange={val => setFilters(p => ({ ...p, leadStage: val }))}
+            placeholder="All Stages"
+            isActive={isLeadStageActive}
+            isOpen={openDropdown === 'leadStage'}
+            onToggle={() => setOpenDropdown(p => p === 'leadStage' ? null : 'leadStage')}
+          />
 
           {/* Funnel Stage */}
-          <div>
-            <label className={getFilterLabelClass(isFunnelStageActive)}>Funnel Stage</label>
-            <select
-              value={filters.funnelStage}
-              onChange={e => setFilters(p => ({ ...p, funnelStage: e.target.value }))}
-              className={getFilterSelectClass(isFunnelStageActive)}
-            >
-              <option value="All">All Funnel Stages</option>
-              {filterOptions.funnelStages?.map(fs => <option key={fs} value={fs}>{fs}</option>)}
-            </select>
-          </div>
+          <MultiSelectDropdown
+            label="Funnel Stage"
+            options={filterOptions.funnelStages || []}
+            selectedString={filters.funnelStage}
+            onChange={val => setFilters(p => ({ ...p, funnelStage: val }))}
+            placeholder="All Funnel Stages"
+            isActive={isFunnelStageActive}
+            isOpen={openDropdown === 'funnelStage'}
+            onToggle={() => setOpenDropdown(p => p === 'funnelStage' ? null : 'funnelStage')}
+          />
 
           {/* Sheet Final Status */}
-          <div>
-            <label className={getFilterLabelClass(isSheetStatusActive)}>Sheet Status</label>
-            <select
-              value={filters.sheetFinalStatus}
-              onChange={e => setFilters(p => ({ ...p, sheetFinalStatus: e.target.value }))}
-              className={getFilterSelectClass(isSheetStatusActive)}
-            >
-              <option value="All">All Sheet Statuses</option>
-              <option value="Blank">Blank / Empty</option>
-              {filterOptions.sheetFinalStatuses?.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
+          <MultiSelectDropdown
+            label="Sheet Status"
+            options={filterOptions.sheetFinalStatuses || []}
+            selectedString={filters.sheetFinalStatus}
+            onChange={val => setFilters(p => ({ ...p, sheetFinalStatus: val }))}
+            placeholder="All Sheet Statuses"
+            showBlank={true}
+            isActive={isSheetStatusActive}
+            isOpen={openDropdown === 'sheetFinalStatus'}
+            onToggle={() => setOpenDropdown(p => p === 'sheetFinalStatus' ? null : 'sheetFinalStatus')}
+          />
 
           {/* Form Final Status */}
-          <div>
-            <label className={getFilterLabelClass(isFormStatusActive)}>Form Status</label>
-            <select
-              value={filters.formFinalStatus}
-              onChange={e => setFilters(p => ({ ...p, formFinalStatus: e.target.value }))}
-              className={getFilterSelectClass(isFormStatusActive)}
-            >
-              <option value="All">All Form Statuses</option>
-              <option value="Blank">Blank / Empty</option>
-              {filterOptions.formFinalStatuses?.map(f => <option key={f} value={f}>{f}</option>)}
-            </select>
-          </div>
+          <MultiSelectDropdown
+            label="Form Status"
+            options={filterOptions.formFinalStatuses || []}
+            selectedString={filters.formFinalStatus}
+            onChange={val => setFilters(p => ({ ...p, formFinalStatus: val }))}
+            placeholder="All Form Statuses"
+            showBlank={true}
+            isActive={isFormStatusActive}
+            isOpen={openDropdown === 'formFinalStatus'}
+            onToggle={() => setOpenDropdown(p => p === 'formFinalStatus' ? null : 'formFinalStatus')}
+          />
 
           {/* Gmail Pendency Status */}
-          <div>
-            <label className={getFilterLabelClass(isGmailActive)}>Gmail Pendency</label>
-            <select
-              value={filters.gmailPendencyStatus}
-              onChange={e => setFilters(p => ({ ...p, gmailPendencyStatus: e.target.value }))}
-              className={getFilterSelectClass(isGmailActive)}
-            >
-              <option value="All">All Pendency Statuses</option>
-              {filterOptions.gmailPendencyStatuses?.map(g => <option key={g} value={g}>{g}</option>)}
-            </select>
-          </div>
+          <MultiSelectDropdown
+            label="Gmail Pendency"
+            options={filterOptions.gmailPendencyStatuses || []}
+            selectedString={filters.gmailPendencyStatus}
+            onChange={val => setFilters(p => ({ ...p, gmailPendencyStatus: val }))}
+            placeholder="All Pendency Statuses"
+            isActive={isGmailActive}
+            isOpen={openDropdown === 'gmailPendencyStatus'}
+            onToggle={() => setOpenDropdown(p => p === 'gmailPendencyStatus' ? null : 'gmailPendencyStatus')}
+          />
 
           {/* Task Bucket */}
-          <div>
-            <label className={getFilterLabelClass(isTaskActive)}>Task Bucket</label>
-            <select
-              value={filters.taskBucket}
-              onChange={e => setFilters(p => ({ ...p, taskBucket: e.target.value }))}
-              className={getFilterSelectClass(isTaskActive)}
-            >
-              <option value="All">All Task Buckets</option>
-              <option value="Blank">Blank / Empty</option>
-              {allUniqueTasks.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
+          <MultiSelectDropdown
+            label="Task Bucket"
+            options={allUniqueTasks}
+            selectedString={filters.taskBucket}
+            onChange={val => setFilters(p => ({ ...p, taskBucket: val }))}
+            placeholder="All Task Buckets"
+            showBlank={true}
+            isActive={isTaskActive}
+            isOpen={openDropdown === 'taskBucket'}
+            onToggle={() => setOpenDropdown(p => p === 'taskBucket' ? null : 'taskBucket')}
+          />
 
           {/* Derived Status */}
-          <div>
-            <label className={getFilterLabelClass(isDerivedActive)}>Derived Issue</label>
-            <select
-              value={filters.derivedStatus}
-              onChange={e => setFilters(p => ({ ...p, derivedStatus: e.target.value }))}
-              className={getFilterSelectClass(isDerivedActive)}
-            >
-              <option value="All">Clear Case / No Issue</option>
-              <optgroup label="Derived Alerts & Issues">
-                <option value="Alert Cases">Alert Cases</option>
-                <option value="EDD Missing">EDD Missing</option>
-                <option value="EDD Breached">EDD Breached</option>
-                <option value="PMax Stuck">PMax Stuck</option>
-                <option value="Customer Connect Pending">Customer Connect Pending</option>
-                <option value="High Payment Pending Delivery">High Payment Pending Delivery</option>
-                <option value="Cancelled After Payment">Cancelled After Payment</option>
-                <option value="OD Pending">OD Pending</option>
-                <option value="Blank Payment Type">Blank Payment Type</option>
-                <option value="Payment Pending">Payment Pending</option>
-                <option value="Any Active Task">Any Active Task / Pending Item</option>
-              </optgroup>
-              {allUniqueTasks.length > 0 && (
-                <optgroup label="Spreadsheet Task Buckets">
-                  {allUniqueTasks.map(task => (
-                    <option key={task} value={task}>Task: {task}</option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-          </div>
+          <MultiSelectDropdown
+            label="Derived Issue"
+            options={derivedOptions}
+            selectedString={filters.derivedStatus}
+            onChange={val => setFilters(p => ({ ...p, derivedStatus: val }))}
+            placeholder="Clear Case / No Issue"
+            isActive={isDerivedActive}
+            isOpen={openDropdown === 'derivedStatus'}
+            onToggle={() => setOpenDropdown(p => p === 'derivedStatus' ? null : 'derivedStatus')}
+            optionLabels={derivedLabels}
+          />
 
           {/* Date Selector Field */}
           <div>
