@@ -45,7 +45,12 @@ export function mapCsvRows(parsed: string[][]): CaseRow[] {
     throw new Error('Dataset must contain a header row and at least one data row.');
   }
 
-  const rawHeaders = parsed[0].map(h => h.trim().toLowerCase());
+  const rawHeaders = parsed[0].map(h => 
+    h.trim()
+     .toLowerCase()
+     .replace(/[\r\n\t]+/g, ' ')
+     .replace(/\s+/g, ' ')
+  );
   
   // Standard header mappings
   const mappingTable: Record<string, keyof CaseRow> = {
