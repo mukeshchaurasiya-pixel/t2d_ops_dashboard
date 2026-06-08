@@ -368,8 +368,8 @@ export default function Dashboard({
       );
     }
 
-    if (ignoreKey !== 'city' && !matchMulti(filters.city, row.city)) return false;
-    if (ignoreKey !== 'hubName' && !matchMulti(filters.hubName, row.hubName)) return false;
+    if (ignoreKey !== 'city' && ignoreKey !== 'city_and_hub' && !matchMulti(filters.city, row.city)) return false;
+    if (ignoreKey !== 'hubName' && ignoreKey !== 'city_and_hub' && !matchMulti(filters.hubName, row.hubName)) return false;
     if (ignoreKey !== 'tokenType' && !matchMulti(filters.tokenType, row.tokenType)) return false;
     if (ignoreKey !== 'tokenTypeWithNrt' && !matchMulti(filters.tokenTypeWithNrt, row.tokenTypeWithNrt)) return false;
     if (ignoreKey !== 'rmName' && !matchMulti(filters.rmName, row.assignedRm)) return false;
@@ -542,10 +542,10 @@ export default function Dashboard({
     const leadDsChannelsSet = new Set<string>();
 
     rows.forEach(row => {
-      if (row.city && isRowMatching(row, 'city')) {
+      if (row.city && isRowMatching(row, 'city_and_hub')) {
         citiesSet.add(row.city);
       }
-      if (row.hubName && isRowMatching(row, 'hubName')) {
+      if (row.hubName && isRowMatching(row, 'city_and_hub')) {
         hubsSet.add(row.hubName);
       }
       if (row.tokenType && isRowMatching(row, 'tokenType')) {
@@ -653,48 +653,6 @@ export default function Dashboard({
     };
   }, [rows, filters, isRowMatching]);
 
-  // City-Hub compatibility resolver (prevents blank screen when mismatching City/Hub)
-  const prevFiltersRef = useRef(filters);
-  useEffect(() => {
-    const prev = prevFiltersRef.current;
-    if (prev) {
-      const cityChanged = prev.city !== filters.city;
-      const hubChanged = prev.hubName !== filters.hubName;
-      if (cityChanged || hubChanged) {
-        if (filters.city !== 'All' && filters.hubName !== 'All') {
-          // Check if the combination is valid in rows
-          const selectedCities = filters.city.split(',').map(s => s.trim().toLowerCase());
-          const selectedHubs = filters.hubName.split(',').map(s => s.trim().toLowerCase());
-          
-          const isCompatible = rows.some(r => {
-            const rCity = String(r.city || '').trim().toLowerCase();
-            const rHub = String(r.hubName || '').trim().toLowerCase();
-            return selectedCities.includes(rCity) && selectedHubs.includes(rHub);
-          });
-
-          if (!isCompatible) {
-            if (cityChanged && !hubChanged) {
-              // City was changed, reset Hub
-              setFilters(p => ({ ...p, hubName: 'All' }));
-            } else if (hubChanged && !cityChanged) {
-              // Hub was changed. Resolve City to the cities of the selected Hubs
-              const selectedHubsLower = filters.hubName.split(',').map(s => s.trim().toLowerCase());
-              const cities = new Set<string>();
-              rows.forEach(r => {
-                if (r.hubName && selectedHubsLower.includes(r.hubName.trim().toLowerCase()) && r.city) {
-                  cities.add(r.city);
-                }
-              });
-              const newCityVal = cities.size > 0 ? Array.from(cities).join(',') : 'All';
-              setFilters(p => ({ ...p, city: newCityVal }));
-            }
-          }
-        }
-      }
-    }
-    prevFiltersRef.current = filters;
-  }, [filters, rows]);
-
   // Auto-clear filters that are no longer valid under new selections (prevent empty matching lists)
   useEffect(() => {
     if (filters.searchQuery) return; // Skip during active search query matching
@@ -714,12 +672,6 @@ export default function Dashboard({
         if (filtered.length !== selected.length) return filtered.join(',');
         return val;
       };
-
-      const cityVal = cleanFilterVal(prev.city, dynamicFilterOptions.cities);
-      if (cityVal !== prev.city) { next.city = cityVal; updated = true; }
-
-      const hubVal = cleanFilterVal(prev.hubName, dynamicFilterOptions.hubs);
-      if (hubVal !== prev.hubName) { next.hubName = hubVal; updated = true; }
 
       const tokenVal = cleanFilterVal(prev.tokenType, dynamicFilterOptions.tokenTypes);
       if (tokenVal !== prev.tokenType) { next.tokenType = tokenVal; updated = true; }
