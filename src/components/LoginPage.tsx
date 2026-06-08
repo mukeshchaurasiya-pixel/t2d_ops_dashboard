@@ -7,7 +7,8 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Database, ShieldCheck, ArrowRight, HelpCircle, FileSpreadsheet, Lock, 
-  Car, DollarSign, Activity, CheckCircle, Clock, Sparkles, AlertCircle, ArrowLeft
+  Car, DollarSign, Activity, CheckCircle, Clock, Sparkles, AlertCircle, ArrowLeft,
+  Home
 } from 'lucide-react';
 import { getCleanSpreadsheetId } from '../lib/sheetsService';
 
@@ -73,8 +74,9 @@ export default function LoginPage({
       >
         {/* Branding header */}
         <div className="text-center mb-6">
-          <div className="inline-flex p-3 rounded-2xl bg-gradient-to-br from-orange-500 to-amber-600 shadow-lg shadow-orange-500/20 mb-3 flex items-center justify-center">
-            <Car className="w-7 h-7 text-white" />
+          <div className="inline-flex p-3 rounded-2xl bg-gradient-to-br from-orange-500 to-amber-600 shadow-lg shadow-orange-500/20 mb-3 flex items-center justify-center gap-2">
+            <Home className="w-6 h-6 text-white" />
+            <Car className="w-6 h-6 text-white/90" />
           </div>
           <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl">
             CARS24 <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 via-amber-400 to-amber-500">T2D Journey</span>
