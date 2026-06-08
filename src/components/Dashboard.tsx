@@ -515,6 +515,19 @@ export default function Dashboard({
             </select>
           </div>
 
+          {/* Token Type with NRT */}
+          <div>
+            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Token with NRT</label>
+            <select
+              value={filters.tokenTypeWithNrt}
+              onChange={e => setFilters(p => ({ ...p, tokenTypeWithNrt: e.target.value }))}
+              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+            >
+              <option value="All">All Tokens with NRT</option>
+              {filterOptions.tokenTypesWithNrt?.map(ttn => <option key={ttn} value={ttn}>{ttn}</option>)}
+            </select>
+          </div>
+
           {/* RM Name */}
           <div>
             <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Assigned RM</label>
@@ -525,6 +538,19 @@ export default function Dashboard({
             >
               <option value="All">All RMs</option>
               {filterOptions.rms?.map(rm => <option key={rm} value={rm}>{rm}</option>)}
+            </select>
+          </div>
+
+          {/* DC Name */}
+          <div>
+            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Assigned DC</label>
+            <select
+              value={filters.dcName}
+              onChange={e => setFilters(p => ({ ...p, dcName: e.target.value }))}
+              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+            >
+              <option value="All">All DCs</option>
+              {filterOptions.dcs?.map(dc => <option key={dc} value={dc}>{dc}</option>)}
             </select>
           </div>
 
@@ -551,6 +577,84 @@ export default function Dashboard({
             >
               <option value="All">All Stages</option>
               {filterOptions.leadStages?.map(ls => <option key={ls} value={ls}>{ls}</option>)}
+            </select>
+          </div>
+
+          {/* Deal Status */}
+          <div>
+            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Deal Status</label>
+            <select
+              value={filters.dealStatus}
+              onChange={e => setFilters(p => ({ ...p, dealStatus: e.target.value }))}
+              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+            >
+              <option value="All">All Deal Statuses</option>
+              {filterOptions.dealStatuses?.map(ds => <option key={ds} value={ds}>{ds}</option>)}
+            </select>
+          </div>
+
+          {/* Funnel Stage */}
+          <div>
+            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Funnel Stage</label>
+            <select
+              value={filters.funnelStage}
+              onChange={e => setFilters(p => ({ ...p, funnelStage: e.target.value }))}
+              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+            >
+              <option value="All">All Funnel Stages</option>
+              {filterOptions.funnelStages?.map(fs => <option key={fs} value={fs}>{fs}</option>)}
+            </select>
+          </div>
+
+          {/* Sheet Final Status */}
+          <div>
+            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Sheet Status</label>
+            <select
+              value={filters.sheetFinalStatus}
+              onChange={e => setFilters(p => ({ ...p, sheetFinalStatus: e.target.value }))}
+              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+            >
+              <option value="All">All Sheet Statuses</option>
+              {filterOptions.sheetFinalStatuses?.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+
+          {/* Form Final Status */}
+          <div>
+            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Form Status</label>
+            <select
+              value={filters.formFinalStatus}
+              onChange={e => setFilters(p => ({ ...p, formFinalStatus: e.target.value }))}
+              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+            >
+              <option value="All">All Form Statuses</option>
+              {filterOptions.formFinalStatuses?.map(f => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </div>
+
+          {/* Gmail Pendency Status */}
+          <div>
+            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Gmail Pendency</label>
+            <select
+              value={filters.gmailPendencyStatus}
+              onChange={e => setFilters(p => ({ ...p, gmailPendencyStatus: e.target.value }))}
+              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+            >
+              <option value="All">All Pendency Statuses</option>
+              {filterOptions.gmailPendencyStatuses?.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+          </div>
+
+          {/* Task Bucket */}
+          <div>
+            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Task Bucket</label>
+            <select
+              value={filters.taskBucket}
+              onChange={e => setFilters(p => ({ ...p, taskBucket: e.target.value }))}
+              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+            >
+              <option value="All">All Task Buckets</option>
+              {allUniqueTasks.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
 

@@ -150,6 +150,7 @@ export default function App() {
     const citiesSet = new Set<string>();
     const hubsSet = new Set<string>();
     const tokenTypeSet = new Set<string>();
+    const tokenTypeWithNrtSet = new Set<string>();
     const rmSet = new Set<string>();
     const dcSet = new Set<string>();
     const paymentSet = new Set<string>();
@@ -164,6 +165,7 @@ export default function App() {
       if (row.city) citiesSet.add(row.city);
       if (row.hubName) hubsSet.add(row.hubName);
       if (row.tokenType) tokenTypeSet.add(row.tokenType);
+      if (row.tokenTypeWithNrt) tokenTypeWithNrtSet.add(row.tokenTypeWithNrt);
       if (row.assignedRm) rmSet.add(row.assignedRm);
       if (row.assignedDc) dcSet.add(row.assignedDc);
       if (row.paymentType) paymentSet.add(row.paymentType);
@@ -179,6 +181,7 @@ export default function App() {
       cities: Array.from(citiesSet).sort(),
       hubs: Array.from(hubsSet).sort(),
       tokenTypes: Array.from(tokenTypeSet).sort(),
+      tokenTypesWithNrt: Array.from(tokenTypeWithNrtSet).sort(),
       rms: Array.from(rmSet).sort(),
       dcs: Array.from(dcSet).sort(),
       paymentTypes: Array.from(paymentSet).sort(),
