@@ -200,6 +200,7 @@ export interface FilterState {
   endDate: string;
   filterBlankDates?: boolean;
   searchQuery: string;
+  eddStatus?: string;
 }
 
 export interface DashboardKpis {

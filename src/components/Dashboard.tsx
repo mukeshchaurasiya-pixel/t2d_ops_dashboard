@@ -197,7 +197,8 @@ export default function Dashboard({
     dateField: 'All',
     startDate: '',
     endDate: '',
-    searchQuery: ''
+    searchQuery: '',
+    eddStatus: 'All'
   });
 
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
@@ -268,6 +269,61 @@ export default function Dashboard({
 
   // Filter logic
   const filteredRows = useMemo(() => {
+    // Pre-calculate EDD labels if EDD Status filter is active to avoid re-defining them inside the loop
+    let labelToday = '';
+    let labelD1 = '';
+    let labelD2 = '';
+    let labelD3_6 = '';
+    let labelD7Plus = '';
+    let todayDate: Date | null = null;
+
+    if (filters.eddStatus && filters.eddStatus !== 'All') {
+      todayDate = new Date();
+      todayDate.setHours(0, 0, 0, 0);
+
+      const getOrdinalSuffix = (day: number) => {
+        if (day > 3 && day < 21) return 'th';
+        switch (day % 10) {
+          case 1:  return "st";
+          case 2:  return "nd";
+          case 3:  return "rd";
+          default: return "th";
+        }
+      };
+
+      const formatDateWithSuffix = (date: Date) => {
+        const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        const day = date.getDate();
+        const month = months[date.getMonth()];
+        return `${day}${getOrdinalSuffix(day)} ${month}`;
+      };
+
+      const addDays = (d: Date, n: number) => {
+        const newD = new Date(d.getTime());
+        newD.setDate(newD.getDate() + n);
+        return newD;
+      };
+
+      const formatRange = (start: Date, end: Date) => {
+        const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        const startDay = start.getDate();
+        const endDay = end.getDate();
+        const startMonth = months[start.getMonth()];
+        const endMonth = months[end.getMonth()];
+        
+        if (startMonth === endMonth) {
+          return `${startDay}${getOrdinalSuffix(startDay)} to ${endDay}${getOrdinalSuffix(endDay)} ${startMonth}`;
+        }
+        return `${startDay}${getOrdinalSuffix(startDay)} ${startMonth} to ${endDay}${getOrdinalSuffix(endDay)} ${endMonth}`;
+      };
+
+      labelToday = formatDateWithSuffix(todayDate);
+      labelD1 = formatDateWithSuffix(addDays(todayDate, 1));
+      labelD2 = formatDateWithSuffix(addDays(todayDate, 2));
+      labelD3_6 = formatRange(addDays(todayDate, 3), addDays(todayDate, 6));
+      labelD7Plus = `${formatDateWithSuffix(addDays(todayDate, 7))} +`;
+    }
+
     return rows.filter(row => {
       // Free text search
       if (filters.searchQuery) {
@@ -392,6 +448,37 @@ export default function Dashboard({
           }
         }
       }
+      // EDD Status filtering from click on chart
+      if (filters.eddStatus && filters.eddStatus !== 'All' && todayDate) {
+        let rowBucket = 'Blank / Empty';
+
+        if (row.expectedDeliveryDate) {
+          const edd = parseDateString(row.expectedDeliveryDate);
+          if (edd) {
+            const eddDate = new Date(edd.getFullYear(), edd.getMonth(), edd.getDate(), 0, 0, 0, 0);
+            const diffTime = eddDate.getTime() - todayDate.getTime();
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            if (diffDays < 0) {
+              rowBucket = 'Overdue / Breached';
+            } else if (diffDays === 0) {
+              rowBucket = labelToday;
+            } else if (diffDays === 1) {
+              rowBucket = labelD1;
+            } else if (diffDays === 2) {
+              rowBucket = labelD2;
+            } else if (diffDays >= 3 && diffDays <= 6) {
+              rowBucket = labelD3_6;
+            } else {
+              rowBucket = labelD7Plus;
+            }
+          }
+        }
+
+        if (rowBucket !== filters.eddStatus) {
+          return false;
+        }
+      }
 
       return true;
     });
@@ -453,7 +540,8 @@ export default function Dashboard({
       dateField: 'All',
       startDate: '',
       endDate: '',
-      searchQuery: ''
+      searchQuery: '',
+      eddStatus: 'All'
     });
   };
 
@@ -1167,7 +1255,7 @@ export default function Dashboard({
               <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
                 EDD Distribution
               </h4>
-              {renderSvgBarChart('EDD Distribution', charts.eddDistribution, "bg-rose-500")}
+              {renderSvgBarChart('EDD Distribution', charts.eddDistribution, "bg-rose-500", "eddStatus")}
             </div>
           </div>
 
