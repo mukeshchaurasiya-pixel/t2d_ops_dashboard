@@ -80,6 +80,7 @@ export default function Dashboard({
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
+  const [activeTab, setActiveTab] = useState<'ops' | 'performance' | 'loss'>('ops');
 
   // Debounced search text state
   const [localSearch, setLocalSearch] = useState(filters.searchQuery);
@@ -455,9 +456,14 @@ export default function Dashboard({
     return '₹' + val.toLocaleString('en-IN');
   };
 
-  // Bespoke responsive SVG bar-chart renderer
-  const renderSvgBarChart = (title: string, dataObj: Record<string, number>, colorClass: string = "fill-amber-500") => {
-    const entries = Object.entries(dataObj).filter(([k]) => k !== 'Blank');
+  // Bespoke responsive SVG bar-chart renderer with click-to-filter support
+  const renderSvgBarChart = (
+    title: string, 
+    dataObj: Record<string, number>, 
+    colorClass: string = "bg-amber-500",
+    filterKey?: keyof FilterState
+  ) => {
+    const entries = Object.entries(dataObj).filter(([k]) => k !== 'Blank' && k !== 'All' && k !== '');
     if (!entries.length) {
       return (
         <div className="flex h-36 items-center justify-center text-xs text-slate-400 font-medium">
@@ -469,18 +475,40 @@ export default function Dashboard({
     const maxVal = Math.max(...entries.map(([, v]) => v)) || 1;
     
     return (
-      <div className="space-y-2 mt-2">
+      <div className="space-y-1.5 mt-2 select-none">
         {entries.slice(0, 8).map(([label, val]) => {
           const pct = Math.min(100, Math.max(4, (val / maxVal) * 100));
+          const isCurrentFilter = filterKey && filters[filterKey] === label;
+          
           return (
-            <div key={label} className="text-xs">
-              <div className="flex justify-between text-[11px] font-semibold text-slate-600 mb-1">
-                <span className="truncate max-w-[140px]">{label}</span>
-                <span>{val} cases</span>
+            <div 
+              key={label} 
+              className={`text-xs p-1.5 px-2 rounded-xl transition-all ${
+                filterKey ? 'cursor-pointer hover:bg-slate-50 active:scale-[0.99]' : ''
+              } ${isCurrentFilter ? 'bg-amber-50 border border-amber-200 shadow-2xs' : 'border border-transparent'}`}
+              onClick={() => {
+                if (filterKey) {
+                  setFilters(prev => {
+                    const currentVal = prev[filterKey];
+                    const newVal = currentVal === label ? 'All' : label;
+                    return { ...prev, [filterKey]: newVal };
+                  });
+                  setCurrentPage(1);
+                }
+              }}
+            >
+              <div className="flex justify-between text-[11px] font-semibold text-slate-650 mb-1">
+                <span className="truncate max-w-[140px] flex items-center gap-1.5">
+                  {label}
+                  {isCurrentFilter && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block animate-pulse" />
+                  )}
+                </span>
+                <span className={isCurrentFilter ? 'text-amber-700 font-bold' : ''}>{val} cases</span>
               </div>
-              <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+              <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                 <motion.div 
-                  className={`h-full rounded-full ${colorClass}`}
+                  className={`h-full rounded-full ${isCurrentFilter ? 'bg-amber-500' : colorClass}`}
                   initial={{ width: 0 }}
                   animate={{ width: `${pct}%` }}
                   transition={{ duration: 0.6, ease: "easeOut" }}
@@ -922,261 +950,405 @@ export default function Dashboard({
         </div>
       </div>
 
-      {/* 3. Visual Charts Grid (Bento columns) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6" id="bento-charts">
-        {/* Lead Stage Split */}
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-            Lead Stage Split
-          </h4>
-          {renderSvgBarChart('Lead Stage', charts.leadStage, "bg-amber-500")}
-        </div>
-
-        {/* Task Bucket Split */}
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-            Task Bucket Distribution
-          </h4>
-          {renderSvgBarChart('Task Bucket', charts.taskBucket, "bg-indigo-500")}
-        </div>
-
-        {/* Derived status split */}
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-            Derived Status Distribution
-          </h4>
-          {renderSvgBarChart('Derived Status', charts.derivedStatus, "bg-rose-500")}
-        </div>
+      {/* Tab Navigation Bar */}
+      <div className="flex border-b border-slate-200 mt-6 mb-5 gap-2 select-none overflow-x-auto whitespace-nowrap scrollbar-none">
+        <button
+          onClick={() => setActiveTab('ops')}
+          className={`pb-2.5 px-4 text-xs font-bold transition-all relative cursor-pointer active:scale-98 ${
+            activeTab === 'ops'
+              ? 'text-slate-900 font-extrabold font-sans'
+              : 'text-slate-400 hover:text-slate-700 font-sans'
+          }`}
+        >
+          📁 Operations Console
+          {activeTab === 'ops' && (
+            <motion.div
+              layoutId="activeTabUnderline"
+              className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900"
+            />
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('performance')}
+          className={`pb-2.5 px-4 text-xs font-bold transition-all relative cursor-pointer active:scale-98 ${
+            activeTab === 'performance'
+              ? 'text-slate-900 font-extrabold font-sans'
+              : 'text-slate-400 hover:text-slate-700 font-sans'
+          }`}
+        >
+          📊 Performance & Hubs
+          {activeTab === 'performance' && (
+            <motion.div
+              layoutId="activeTabUnderline"
+              className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900"
+            />
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('loss')}
+          className={`pb-2.5 px-4 text-xs font-bold transition-all relative cursor-pointer active:scale-98 ${
+            activeTab === 'loss'
+              ? 'text-slate-900 font-extrabold font-sans'
+              : 'text-slate-400 hover:text-slate-700 font-sans'
+          }`}
+        >
+          ⚠️ Loss & Cancellations
+          {activeTab === 'loss' && (
+            <motion.div
+              layoutId="activeTabUnderline"
+              className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900"
+            />
+          )}
+        </button>
       </div>
 
-      {/* 4. Active Dataset Spreadsheet Table */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden" id="interactive-dataset-panel">
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <h3 className="font-sans font-semibold text-slate-800 text-sm">
-              Filtered Booking Cases List
-            </h3>
-            <p className="text-[11px] text-slate-400">
-              Showing {filteredRows.length} matches out of total {rows.length} operations.
-            </p>
-          </div>
-          
-          <div className="flex gap-2">
-            <button
-              onClick={() => {
-                const csvContent = [
-                  ["Booking ID", "City", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"].join(","),
-                  ...filteredRows.map(row => [
-                    row.bookingId, row.city, row.hubName, row.assignedRm, row.tokenType, row.paymentType, row.leadStage, row.taskBucket, row.expectedDeliveryDate, row.readyToDeliver, row.expectedOdCompletionDate, row.reviewerRemarks
-                  ].map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(','))
-                ].join('\n');
-                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = 'cars24_ops_filtered_dataset.csv';
-                link.click();
-              }}
-              className="p-1.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all shadow-xs"
-            >
-              Export CSV Ledger
-            </button>
-          </div>
-        </div>
+      {activeTab === 'ops' && (
+        <>
+          {/* 3. Visual Charts Grid (Bento columns) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6" id="bento-charts">
+            {/* Lead Stage Split */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+              <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+                Lead Stage Split
+              </h4>
+              {renderSvgBarChart('Lead Stage', charts.leadStage, "bg-amber-500", "leadStage")}
+            </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-slate-50 font-sans border-b border-slate-100/80 text-slate-500 select-none">
-                <th className="p-3.5 pl-5 font-semibold">Booking ID</th>
-                <th className="p-3.5 font-semibold">City</th>
-                <th className="p-3.5 font-semibold text-slate-600">Hub</th>
-                <th className="p-3.5 font-semibold">RM Name</th>
-                <th className="p-3.5 font-semibold">Payment Type</th>
-                <th className="p-3.5 font-semibold">Lead Stage</th>
-                <th className="p-3.5 font-semibold">Task List</th>
-                <th className="p-3.5 font-semibold">Expected EDD</th>
-                <th className="p-3.5 font-semibold">Ready?</th>
-                <th className="p-3.5 font-semibold">OD Completion</th>
-                <th className="p-3.5 text-right pr-5 font-semibold">Control Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-600">
-              {filteredRows.length === 0 ? (
-                <tr>
-                  <td colSpan={11} className="p-10 text-center text-slate-400 font-medium">
-                    No matching CARS24 rows fit the specified operational handshake filters.
-                  </td>
-                </tr>
-              ) : (
-                currentRows.map((row, subIndex) => {
-                  const index = (activePage - 1) * pageSize + subIndex;
-                  const flags = getDerivedFlags(row);
-                  return (
-                    <tr key={row.bookingId} className="hover:bg-slate-50/50 transition-all">
-                      <td className="p-3.5 pl-5">
-                        <div className="font-semibold text-slate-800">{row.bookingId}</div>
-                        {(row.userId || row.uid) && (
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            <a 
-                              href={`https://axle.c24.tech/b2c-lms/customer/${encodeURIComponent(row.userId || row.uid || '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[10px] text-indigo-500 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 px-1.5 py-0.5 rounded font-mono font-medium flex items-center gap-0.5 transition-all"
-                              title="View Customer WMF/LMS Profile"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              WMFACT <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          </div>
-                        )}
-                      </td>
-                      <td className="p-3.5">{row.city}</td>
-                      <td className="p-3.5 truncate max-w-[130px]" title={row.hubName}>
-                        {row.hubName}
-                      </td>
-                      <td className="p-3.5">{row.assignedRm}</td>
-                      <td className="p-3.5">
-                        <span className="p-1 px-2 text-[10px] font-mono font-medium rounded-md bg-slate-100 text-slate-800">
-                          {row.paymentType || 'CASH'}
-                        </span>
-                      </td>
-                      <td className="p-3.5">
-                        <span className={`p-1 px-2.5 rounded-full text-[10px] font-bold ${
-                          row.leadStage === 'DELIVERED' 
-                            ? 'bg-emerald-50 text-emerald-700' 
-                            : row.leadStage === 'CANCELLED' 
-                            ? 'bg-rose-50 text-rose-700' 
-                            : 'bg-amber-50 text-amber-700'
-                        }`}>
-                          {row.leadStage}
-                        </span>
-                      </td>
-                      <td className="p-3.5">
-                        {row.taskBucket ? (
-                          <div className="flex gap-1.5 flex-wrap max-w-[200px]">
-                            {splitTasks(row.taskBucket).map(t => (
-                              <span key={t} className="p-1 px-2 rounded-md bg-indigo-50 text-indigo-700 text-[9px] font-semibold leading-relaxed">
-                                {t}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 italic">No Task</span>
-                        )}
-                      </td>
-                      <td className="p-3.5 font-mono">
-                        {row.expectedDeliveryDate ? (
-                          <span className={flags.isEddBreached ? 'text-rose-500 font-bold' : ''}>
-                            {row.expectedDeliveryDate}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400 italic">Missing</span>
-                        )}
-                      </td>
-                      <td className="p-3.5 font-bold">
-                        {row.readyToDeliver || <span className="text-slate-400 font-normal">-</span>}
-                      </td>
-                      <td className="p-3.5 font-mono">
-                        {row.expectedOdCompletionDate || <span className="text-slate-400 italic">-</span>}
-                      </td>
-                      <td className="p-3.5 text-right pr-5 whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => handleEditRowClick(index)}
-                            className="p-1.5 px-3 rounded-lg text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 transition-all flex items-center gap-1 active:scale-95"
-                          >
-                            <Eye className="w-3.5 h-3.5" /> View & Sync
-                          </button>
-                        </div>
+            {/* Task Bucket Split */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+              <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+                Task Bucket Distribution
+              </h4>
+              {renderSvgBarChart('Task Bucket', charts.taskBucket, "bg-indigo-500", "taskBucket")}
+            </div>
+
+            {/* Derived status split */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+              <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+                Derived Status Distribution
+              </h4>
+              {renderSvgBarChart('Derived Status', charts.derivedStatus, "bg-rose-500", "derivedStatus")}
+            </div>
+          </div>
+
+          {/* 4. Active Dataset Spreadsheet Table */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden" id="interactive-dataset-panel">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h3 className="font-sans font-semibold text-slate-800 text-sm">
+                  Filtered Booking Cases List
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  Showing {filteredRows.length} matches out of total {rows.length} operations.
+                </p>
+              </div>
+              
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const csvContent = [
+                      ["Booking ID", "City", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"].join(","),
+                      ...filteredRows.map(row => [
+                        row.bookingId, row.city, row.hubName, row.assignedRm, row.tokenType, row.paymentType, row.leadStage, row.taskBucket, row.expectedDeliveryDate, row.readyToDeliver, row.expectedOdCompletionDate, row.reviewerRemarks
+                      ].map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(','))
+                    ].join('\n');
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = 'cars24_ops_filtered_dataset.csv';
+                    link.click();
+                  }}
+                  className="p-1.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all shadow-xs"
+                >
+                  Export CSV Ledger
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 font-sans border-b border-slate-100/80 text-slate-500 select-none">
+                    <th className="p-3.5 pl-5 font-semibold">Booking ID</th>
+                    <th className="p-3.5 font-semibold">City</th>
+                    <th className="p-3.5 font-semibold text-slate-600">Hub</th>
+                    <th className="p-3.5 font-semibold">RM Name</th>
+                    <th className="p-3.5 font-semibold">Payment Type</th>
+                    <th className="p-3.5 font-semibold">Lead Stage</th>
+                    <th className="p-3.5 font-semibold">Task List</th>
+                    <th className="p-3.5 font-semibold">Expected EDD</th>
+                    <th className="p-3.5 font-semibold">Ready?</th>
+                    <th className="p-3.5 font-semibold">OD Completion</th>
+                    <th className="p-3.5 text-right pr-5 font-semibold">Control Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-600">
+                  {filteredRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="p-10 text-center text-slate-400 font-medium">
+                        No matching CARS24 rows fit the specified operational handshake filters.
                       </td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination Toolbar */}
-        {filteredRows.length > 0 && (
-          <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 bg-slate-50/35">
-            <div className="flex items-center gap-2">
-              <span>Show</span>
-              <select
-                value={pageSize}
-                onChange={e => {
-                  setPageSize(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="p-1 px-2 border border-slate-200 rounded-lg bg-white font-semibold text-slate-700 cursor-pointer focus:outline-none focus:ring-1 focus:ring-slate-900"
-              >
-                <option value={10}>10 rows</option>
-                <option value={15}>15 rows</option>
-                <option value={20}>20 rows</option>
-                <option value={50}>50 rows</option>
-                <option value={100}>100 rows</option>
-              </select>
-              <span>per page</span>
+                  ) : (
+                    currentRows.map((row, subIndex) => {
+                      const index = (activePage - 1) * pageSize + subIndex;
+                      const flags = getDerivedFlags(row);
+                      return (
+                        <tr key={row.bookingId} className="hover:bg-slate-50/50 transition-all">
+                          <td className="p-3.5 pl-5">
+                            <div className="font-semibold text-slate-800">{row.bookingId}</div>
+                            {(row.userId || row.uid) && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                <a 
+                                  href={`https://axle.c24.tech/b2c-lms/customer/${encodeURIComponent(row.userId || row.uid || '')}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10px] text-indigo-500 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 px-1.5 py-0.5 rounded font-mono font-medium flex items-center gap-0.5 transition-all"
+                                  title="View Customer WMF/LMS Profile"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  WMFACT <ExternalLink className="w-2.5 h-2.5" />
+                                </a>
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-3.5">{row.city}</td>
+                          <td className="p-3.5 truncate max-w-[130px]" title={row.hubName}>
+                            {row.hubName}
+                          </td>
+                          <td className="p-3.5">{row.assignedRm}</td>
+                          <td className="p-3.5">
+                            <span className="p-1 px-2 text-[10px] font-mono font-medium rounded-md bg-slate-100 text-slate-800">
+                              {row.paymentType || 'CASH'}
+                            </span>
+                          </td>
+                          <td className="p-3.5">
+                            <span className={`p-1 px-2.5 rounded-full text-[10px] font-bold ${
+                              row.leadStage === 'DELIVERED' 
+                                ? 'bg-emerald-50 text-emerald-700' 
+                                : row.leadStage === 'CANCELLED' 
+                                ? 'bg-rose-50 text-rose-700' 
+                                : 'bg-amber-50 text-amber-700'
+                            }`}>
+                              {row.leadStage}
+                            </span>
+                          </td>
+                          <td className="p-3.5">
+                            {row.taskBucket ? (
+                              <div className="flex gap-1.5 flex-wrap max-w-[200px]">
+                                {splitTasks(row.taskBucket).map(t => (
+                                  <span key={t} className="p-1 px-2 rounded-md bg-indigo-50 text-indigo-700 text-[9px] font-semibold leading-relaxed">
+                                    {t}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 italic">No Task</span>
+                            )}
+                          </td>
+                          <td className="p-3.5 font-mono">
+                            {row.expectedDeliveryDate ? (
+                              <span className={flags.isEddBreached ? 'text-rose-500 font-bold' : ''}>
+                                {row.expectedDeliveryDate}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 italic">Missing</span>
+                            )}
+                          </td>
+                          <td className="p-3.5 font-bold">
+                            {row.readyToDeliver || <span className="text-slate-400 font-normal">-</span>}
+                          </td>
+                          <td className="p-3.5 font-mono">
+                            {row.expectedOdCompletionDate || <span className="text-slate-400 italic">-</span>}
+                          </td>
+                          <td className="p-3.5 text-right pr-5 whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => handleEditRowClick(index)}
+                                className="p-1.5 px-3 rounded-lg text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 transition-all flex items-center gap-1 active:scale-95"
+                              >
+                                <Eye className="w-3.5 h-3.5" /> View & Sync
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
             </div>
-            
-            <div className="font-medium text-slate-600">
-              Showing <span className="font-bold text-slate-800">{Math.min(filteredRows.length, (activePage - 1) * pageSize + 1)}</span> to{' '}
-              <span className="font-bold text-slate-800">{Math.min(filteredRows.length, activePage * pageSize)}</span> of{' '}
-              <span className="font-bold text-slate-800">{filteredRows.length}</span> records
-            </div>
 
-            <div className="flex items-center gap-1.5 font-sans">
-              <button
-                type="button"
-                disabled={activePage === 1}
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                className="p-1.5 px-3 rounded-lg border border-slate-200 font-semibold bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:hover:bg-white disabled:cursor-not-allowed transition-all cursor-pointer select-none"
-              >
-                Previous
-              </button>
-              
-              <div className="flex items-center gap-1">
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  let pageNum = activePage;
-                  if (activePage <= 3) {
-                    pageNum = i + 1;
-                  } else if (activePage >= totalPages - 2) {
-                    pageNum = totalPages - 4 + i;
-                  } else {
-                    pageNum = activePage - 2 + i;
-                  }
+            {/* Pagination Toolbar */}
+            {filteredRows.length > 0 && (
+              <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 bg-slate-50/35">
+                <div className="flex items-center gap-2">
+                  <span>Show</span>
+                  <select
+                    value={pageSize}
+                    onChange={e => {
+                      setPageSize(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="p-1 px-2 border border-slate-200 rounded-lg bg-white font-semibold text-slate-700 cursor-pointer focus:outline-none focus:ring-1 focus:ring-slate-900"
+                  >
+                    <option value={10}>10 rows</option>
+                    <option value={15}>15 rows</option>
+                    <option value={20}>20 rows</option>
+                    <option value={50}>50 rows</option>
+                    <option value={100}>100 rows</option>
+                  </select>
+                  <span>per page</span>
+                </div>
+                
+                <div className="font-medium text-slate-600">
+                  Showing <span className="font-bold text-slate-800">{Math.min(filteredRows.length, (activePage - 1) * pageSize + 1)}</span> to{' '}
+                  <span className="font-bold text-slate-800">{Math.min(filteredRows.length, activePage * pageSize)}</span> of{' '}
+                  <span className="font-bold text-slate-800">{filteredRows.length}</span> records
+                </div>
+
+                <div className="flex items-center gap-1.5 font-sans">
+                  <button
+                    type="button"
+                    disabled={activePage === 1}
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    className="p-1.5 px-3 rounded-lg border border-slate-200 font-semibold bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:hover:bg-white disabled:cursor-not-allowed transition-all cursor-pointer select-none"
+                  >
+                    Previous
+                  </button>
                   
-                  if (pageNum < 1 || pageNum > totalPages) return null;
-                  
-                  return (
-                    <button
-                      key={pageNum}
-                      onClick={() => setCurrentPage(pageNum)}
-                      className={`w-7.5 h-7.5 rounded-lg flex items-center justify-center font-bold text-xs cursor-pointer select-none transition-all ${
-                        activePage === pageNum
-                          ? 'bg-slate-950 text-white shadow-xs'
-                          : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum = activePage;
+                      if (activePage <= 3) {
+                        pageNum = i + 1;
+                      } else if (activePage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i;
+                      } else {
+                        pageNum = activePage - 2 + i;
+                      }
+                      
+                      if (pageNum < 1 || pageNum > totalPages) return null;
+                      
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`w-7.5 h-7.5 rounded-lg flex items-center justify-center font-bold text-xs cursor-pointer select-none transition-all ${
+                            activePage === pageNum
+                              ? 'bg-slate-950 text-white shadow-xs'
+                              : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={activePage === totalPages}
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    className="p-1.5 px-3 rounded-lg border border-slate-200 font-semibold bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:hover:bg-white disabled:cursor-not-allowed transition-all cursor-pointer select-none"
+                  >
+                    Next
+                  </button>
+                </div>
               </div>
+            )}
+          </div>
+        </>
+      )}
 
-              <button
-                type="button"
-                disabled={activePage === totalPages}
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                className="p-1.5 px-3 rounded-lg border border-slate-200 font-semibold bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:hover:bg-white disabled:cursor-not-allowed transition-all cursor-pointer select-none"
-              >
-                Next
-              </button>
+      {activeTab === 'performance' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* City Split */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+              <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+                City Distribution
+              </h4>
+              {renderSvgBarChart('City', charts.city, "bg-sky-500", "city")}
+            </div>
+
+            {/* Hub Split */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+              <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+                Top Hubs (Volume)
+              </h4>
+              {renderSvgBarChart('Hub', charts.hub, "bg-violet-500", "hubName")}
+            </div>
+
+            {/* RM Split */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+              <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+                Relationship Managers (RM)
+              </h4>
+              {renderSvgBarChart('RM', charts.rm, "bg-emerald-500", "rmName")}
+            </div>
+
+            {/* DC Split */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+              <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+                Delivery Coordinators (DC)
+              </h4>
+              {renderSvgBarChart('DC', charts.dc, "bg-teal-500", "dcName")}
             </div>
           </div>
-        )}
-      </div>
+          
+          <div className="bg-indigo-50/40 border border-indigo-150 p-4 rounded-2xl flex items-start gap-3">
+            <Activity className="w-4 h-4 text-indigo-600 mt-0.5 shrink-0" />
+            <div>
+              <h5 className="text-xs font-bold text-indigo-950">Performance Insights</h5>
+              <p className="text-[11px] text-indigo-800 mt-0.5 leading-relaxed">
+                Click on any location (City/Hub) or personnel (RM/DC) bar above to immediately filter the entire dashboard view. If a filter is currently active, a pulsing indicator will appear next to the label and the bar will turn orange.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'loss' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Cancellation Reason Split */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+              <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+                Cancellation Reasons
+              </h4>
+              {renderSvgBarChart('Cancellation Reason', charts.cancellationReason, "bg-rose-500")}
+            </div>
+
+            {/* Payment Type Split */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+              <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+                Payment Type Split
+              </h4>
+              {renderSvgBarChart('Payment Type', charts.paymentType, "bg-amber-500", "paymentType")}
+            </div>
+
+            {/* Token Type Split */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+              <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+                Token Type Split
+              </h4>
+              {renderSvgBarChart('Token Type', charts.tokenType, "bg-indigo-500", "tokenType")}
+            </div>
+          </div>
+
+          <div className="bg-rose-50/50 border border-rose-150 p-4 rounded-2xl flex items-start gap-3">
+            <AlertCircle className="w-4 h-4 text-rose-600 mt-0.5 shrink-0" />
+            <div>
+              <h5 className="text-xs font-bold text-rose-950">Loss Analytics Insights</h5>
+              <p className="text-[11px] text-rose-800 mt-0.5 leading-relaxed">
+                This panel highlights cancelled deal profiles. High concentration in specific payment types or token types can point to pipeline vulnerabilities. Use the date filters above to analyze cancellation trends over time.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 5. Detail Control Sidebar Slider Drawer */}
       <AnimatePresence>
