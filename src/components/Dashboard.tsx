@@ -1162,12 +1162,12 @@ export default function Dashboard({
               {renderSvgBarChart('Task Bucket', charts.taskBucket, "bg-indigo-500", "taskBucket")}
             </div>
 
-            {/* Derived status split */}
+            {/* EDD Distribution */}
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
               <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-                Derived Status Distribution
+                EDD Distribution
               </h4>
-              {renderSvgBarChart('Derived Status', charts.derivedStatus, "bg-rose-500", "derivedStatus")}
+              {renderSvgBarChart('EDD Distribution', charts.eddDistribution, "bg-rose-500")}
             </div>
           </div>
 

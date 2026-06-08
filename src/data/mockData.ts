@@ -147,32 +147,48 @@ export function buildKpis(rows: CaseRow[]): DashboardKpis {
   };
 }
 
-export function buildDerivedStatusCount(rows: CaseRow[]): Record<string, number> {
-  const result = {
-    'Alert Cases': 0,
-    'EDD Missing': 0,
-    'EDD Breached': 0,
-    'PMax Stuck': 0,
-    'Customer Connect Pending': 0,
-    'High Payment Pending Delivery': 0,
-    'Cancelled After Payment': 0,
-    'OD Pending': 0,
-    'Blank Payment Type': 0,
-    'Payment Pending': 0
+export function buildEddDistribution(rows: CaseRow[]): Record<string, number> {
+  const result: Record<string, number> = {
+    'Overdue / Breached': 0,
+    'Today': 0,
+    'Tomorrow': 0,
+    'Next 2-3 Days': 0,
+    'Next 4-7 Days': 0,
+    'Beyond 7 Days': 0,
+    'Missing EDD': 0
   };
 
-  rows.forEach(row => {
-    const flags = getDerivedFlags(row);
-    if (flags.isAlertCase) result['Alert Cases']++;
-    if (flags.isEddMissing) result['EDD Missing']++;
-    if (flags.isEddBreached) result['EDD Breached']++;
-    if (flags.isPmaxStuck) result['PMax Stuck']++;
-    if (flags.isCustomerConnectPending) result['Customer Connect Pending']++;
-    if (flags.isHighPaymentPendingDelivery) result['High Payment Pending Delivery']++;
-    if (flags.isCancelledAfterPayment) result['Cancelled After Payment']++;
-    if (flags.isOdPending) result['OD Pending']++;
-    if (flags.isBlankPaymentType) result['Blank Payment Type']++;
-    if (flags.isPaymentPending) result['Payment Pending']++;
+  const today = getTodayStart();
+
+  rows.forEach(r => {
+    if (!r.expectedDeliveryDate) {
+      result['Missing EDD']++;
+      return;
+    }
+
+    const edd = parseDateString(r.expectedDeliveryDate);
+    if (!edd) {
+      result['Missing EDD']++;
+      return;
+    }
+
+    const eddDate = new Date(edd.getFullYear(), edd.getMonth(), edd.getDate(), 0, 0, 0, 0);
+    const diffTime = eddDate.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) {
+      result['Overdue / Breached']++;
+    } else if (diffDays === 0) {
+      result['Today']++;
+    } else if (diffDays === 1) {
+      result['Tomorrow']++;
+    } else if (diffDays >= 2 && diffDays <= 3) {
+      result['Next 2-3 Days']++;
+    } else if (diffDays >= 4 && diffDays <= 7) {
+      result['Next 4-7 Days']++;
+    } else {
+      result['Beyond 7 Days']++;
+    }
   });
 
   return result;
@@ -194,7 +210,7 @@ export function buildCharts(rows: CaseRow[]): DashboardCharts {
     cancellationReason: topN(groupCount(rows, 'cancelReason'), 15),
     sheetFinalStatus: groupCount(rows, 'sheetFinalStatus'),
     formFinalStatus: groupCount(rows, 'formFinalStatus'),
-    derivedStatus: buildDerivedStatusCount(rows)
+    eddDistribution: buildEddDistribution(rows)
   };
 }
 

@@ -231,5 +231,5 @@ export interface DashboardCharts {
   cancellationReason: Record<string, number>;
   sheetFinalStatus: Record<string, number>;
   formFinalStatus: Record<string, number>;
-  derivedStatus: Record<string, number>;
+  eddDistribution: Record<string, number>;
 }
