@@ -502,6 +502,35 @@ export default function Dashboard({
     return filteredRows.slice(start, start + pageSize);
   }, [filteredRows, activePage, pageSize]);
 
+  // Helper styling functions
+  const getFilterSelectClass = (isActive: boolean) => 
+    `w-full text-xs p-2 border rounded-xl cursor-pointer transition-all duration-200 focus:outline-none focus:ring-1 focus:ring-amber-500/20 ${
+      isActive 
+        ? 'border-amber-400 bg-amber-50/50 text-amber-900 font-semibold ring-1 ring-amber-400/30 shadow-sm' 
+        : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100/50'
+    }`;
+
+  const getFilterLabelClass = (isActive: boolean) =>
+    `block text-[10px] uppercase font-bold tracking-wider mb-1 transition-all duration-200 ${
+      isActive ? 'text-amber-700 font-extrabold' : 'text-slate-400'
+    }`;
+
+  const isCityActive = filters.city !== 'All';
+  const isHubActive = filters.hubName !== 'All';
+  const isTokenTypeActive = filters.tokenType !== 'All';
+  const isRmActive = filters.rmName !== 'All';
+  const isDcActive = filters.dcName !== 'All';
+  const isPaymentActive = filters.paymentType !== 'All';
+  const isLeadStageActive = filters.leadStage !== 'All';
+  const isFunnelStageActive = filters.funnelStage !== 'All';
+  const isSheetStatusActive = filters.sheetFinalStatus !== 'All';
+  const isFormStatusActive = filters.formFinalStatus !== 'All';
+  const isGmailActive = filters.gmailPendencyStatus !== 'All';
+  const isTaskActive = filters.taskBucket !== 'All';
+  const isDerivedActive = filters.derivedStatus !== 'All';
+  const isDateFieldActive = filters.dateField !== 'All';
+  const isDateRangeActive = isDateFieldActive && (filters.startDate !== '' || filters.endDate !== '' || filters.filterBlankDates);
+
   return (
     <div className="space-y-6" id="cars24-ops-dashboard-wrapper">
       {/* 1. Filtering System (Dense bento control area) */}
@@ -519,11 +548,11 @@ export default function Dashboard({
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
           {/* City */}
           <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">City</label>
+            <label className={getFilterLabelClass(isCityActive)}>City</label>
             <select
               value={filters.city}
               onChange={e => setFilters(p => ({ ...p, city: e.target.value, hubName: 'All' }))}
-              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+              className={getFilterSelectClass(isCityActive)}
             >
               <option value="All">All Cities</option>
               {filterOptions.cities?.map(c => <option key={c} value={c}>{c}</option>)}
@@ -532,11 +561,11 @@ export default function Dashboard({
 
           {/* Hub */}
           <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Hub Name</label>
+            <label className={getFilterLabelClass(isHubActive)}>Hub Name</label>
             <select
               value={filters.hubName}
               onChange={e => setFilters(p => ({ ...p, hubName: e.target.value }))}
-              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+              className={getFilterSelectClass(isHubActive)}
             >
               <option value="All">All Hubs</option>
               {filterOptions.hubs?.map(h => <option key={h} value={h}>{h}</option>)}
@@ -545,11 +574,11 @@ export default function Dashboard({
 
           {/* TokenType */}
           <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Token Type</label>
+            <label className={getFilterLabelClass(isTokenTypeActive)}>Token Type</label>
             <select
               value={filters.tokenType}
               onChange={e => setFilters(p => ({ ...p, tokenType: e.target.value }))}
-              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+              className={getFilterSelectClass(isTokenTypeActive)}
             >
               <option value="All">All Tokens</option>
               {filterOptions.tokenTypes?.map(tt => <option key={tt} value={tt}>{tt}</option>)}
@@ -558,11 +587,11 @@ export default function Dashboard({
 
           {/* RM Name */}
           <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Assigned RM</label>
+            <label className={getFilterLabelClass(isRmActive)}>Assigned RM</label>
             <select
               value={filters.rmName}
               onChange={e => setFilters(p => ({ ...p, rmName: e.target.value }))}
-              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+              className={getFilterSelectClass(isRmActive)}
             >
               <option value="All">All RMs</option>
               <option value="Blank">Blank / Empty</option>
@@ -572,11 +601,11 @@ export default function Dashboard({
 
           {/* DC Name */}
           <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Assigned DC</label>
+            <label className={getFilterLabelClass(isDcActive)}>Assigned DC</label>
             <select
               value={filters.dcName}
               onChange={e => setFilters(p => ({ ...p, dcName: e.target.value }))}
-              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+              className={getFilterSelectClass(isDcActive)}
             >
               <option value="All">All DCs</option>
               <option value="Blank">Blank / Empty</option>
@@ -586,11 +615,11 @@ export default function Dashboard({
 
           {/* Payment Type */}
           <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Payment Type</label>
+            <label className={getFilterLabelClass(isPaymentActive)}>Payment Type</label>
             <select
               value={filters.paymentType}
               onChange={e => setFilters(p => ({ ...p, paymentType: e.target.value }))}
-              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+              className={getFilterSelectClass(isPaymentActive)}
             >
               <option value="All">All Payments</option>
               <option value="Blank">Blank / Empty</option>
@@ -600,11 +629,11 @@ export default function Dashboard({
 
           {/* Lead Stage */}
           <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Lead Stage</label>
+            <label className={getFilterLabelClass(isLeadStageActive)}>Lead Stage</label>
             <select
               value={filters.leadStage}
               onChange={e => setFilters(p => ({ ...p, leadStage: e.target.value }))}
-              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+              className={getFilterSelectClass(isLeadStageActive)}
             >
               <option value="All">All Stages</option>
               {filterOptions.leadStages?.map(ls => <option key={ls} value={ls}>{ls}</option>)}
@@ -613,11 +642,11 @@ export default function Dashboard({
 
           {/* Funnel Stage */}
           <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Funnel Stage</label>
+            <label className={getFilterLabelClass(isFunnelStageActive)}>Funnel Stage</label>
             <select
               value={filters.funnelStage}
               onChange={e => setFilters(p => ({ ...p, funnelStage: e.target.value }))}
-              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+              className={getFilterSelectClass(isFunnelStageActive)}
             >
               <option value="All">All Funnel Stages</option>
               {filterOptions.funnelStages?.map(fs => <option key={fs} value={fs}>{fs}</option>)}
@@ -626,11 +655,11 @@ export default function Dashboard({
 
           {/* Sheet Final Status */}
           <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Sheet Status</label>
+            <label className={getFilterLabelClass(isSheetStatusActive)}>Sheet Status</label>
             <select
               value={filters.sheetFinalStatus}
               onChange={e => setFilters(p => ({ ...p, sheetFinalStatus: e.target.value }))}
-              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+              className={getFilterSelectClass(isSheetStatusActive)}
             >
               <option value="All">All Sheet Statuses</option>
               <option value="Blank">Blank / Empty</option>
@@ -640,11 +669,11 @@ export default function Dashboard({
 
           {/* Form Final Status */}
           <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Form Status</label>
+            <label className={getFilterLabelClass(isFormStatusActive)}>Form Status</label>
             <select
               value={filters.formFinalStatus}
               onChange={e => setFilters(p => ({ ...p, formFinalStatus: e.target.value }))}
-              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+              className={getFilterSelectClass(isFormStatusActive)}
             >
               <option value="All">All Form Statuses</option>
               <option value="Blank">Blank / Empty</option>
@@ -654,11 +683,11 @@ export default function Dashboard({
 
           {/* Gmail Pendency Status */}
           <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Gmail Pendency</label>
+            <label className={getFilterLabelClass(isGmailActive)}>Gmail Pendency</label>
             <select
               value={filters.gmailPendencyStatus}
               onChange={e => setFilters(p => ({ ...p, gmailPendencyStatus: e.target.value }))}
-              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+              className={getFilterSelectClass(isGmailActive)}
             >
               <option value="All">All Pendency Statuses</option>
               {filterOptions.gmailPendencyStatuses?.map(g => <option key={g} value={g}>{g}</option>)}
@@ -667,11 +696,11 @@ export default function Dashboard({
 
           {/* Task Bucket */}
           <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Task Bucket</label>
+            <label className={getFilterLabelClass(isTaskActive)}>Task Bucket</label>
             <select
               value={filters.taskBucket}
               onChange={e => setFilters(p => ({ ...p, taskBucket: e.target.value }))}
-              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+              className={getFilterSelectClass(isTaskActive)}
             >
               <option value="All">All Task Buckets</option>
               <option value="Blank">Blank / Empty</option>
@@ -681,11 +710,11 @@ export default function Dashboard({
 
           {/* Derived Status */}
           <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Derived Issue</label>
+            <label className={getFilterLabelClass(isDerivedActive)}>Derived Issue</label>
             <select
               value={filters.derivedStatus}
               onChange={e => setFilters(p => ({ ...p, derivedStatus: e.target.value }))}
-              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+              className={getFilterSelectClass(isDerivedActive)}
             >
               <option value="All">Clear Case / No Issue</option>
               <optgroup label="Derived Alerts & Issues">
@@ -713,11 +742,11 @@ export default function Dashboard({
 
           {/* Date Selector Field */}
           <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Date Parameter</label>
+            <label className={getFilterLabelClass(isDateFieldActive)}>Date Parameter</label>
             <select
               value={filters.dateField}
-              onChange={e => setFilters(p => ({ ...p, dateField: e.target.value }))}
-              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer"
+              onChange={e => setFilters(p => ({ ...p, dateField: e.target.value, filterBlankDates: false }))}
+              className={getFilterSelectClass(isDateFieldActive)}
             >
               <option value="All">No Date Filter</option>
               <optgroup label="Core Case Dates">
@@ -768,34 +797,65 @@ export default function Dashboard({
 
           {/* Date Bounds */}
           <div className="col-span-2">
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Date Range</label>
+            <div className="flex justify-between items-center mb-1">
+              <label className={getFilterLabelClass(isDateRangeActive)}>Date Range</label>
+              {isDateFieldActive && (
+                <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 cursor-pointer select-none animate-fade-in">
+                  <input
+                    type="checkbox"
+                    checked={filters.filterBlankDates || false}
+                    onChange={e => setFilters(p => ({ ...p, filterBlankDates: e.target.checked }))}
+                    className="rounded border-slate-300 text-amber-500 focus:ring-amber-500 w-3 h-3 cursor-pointer"
+                  />
+                  <span>Blank Dates Only</span>
+                </label>
+              )}
+            </div>
             <div className="flex gap-1.5 items-center">
               <input
                 type="date"
+                disabled={!isDateFieldActive || filters.filterBlankDates}
                 value={filters.startDate}
                 onChange={e => setFilters(p => ({ ...p, startDate: e.target.value }))}
-                className="w-full text-xs p-1.5 border border-slate-200 rounded-xl bg-slate-50"
+                className={`w-full text-xs p-1.5 border rounded-xl transition-all duration-200 ${
+                  !isDateFieldActive || filters.filterBlankDates
+                    ? 'border-slate-100 bg-slate-100/50 text-slate-300 cursor-not-allowed'
+                    : filters.startDate
+                      ? 'border-amber-300 bg-amber-50/40 text-amber-900 font-semibold shadow-sm'
+                      : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100/50'
+                }`}
               />
               <span className="text-[10px] text-slate-400">to</span>
               <input
                 type="date"
+                disabled={!isDateFieldActive || filters.filterBlankDates}
                 value={filters.endDate}
                 onChange={e => setFilters(p => ({ ...p, endDate: e.target.value }))}
-                className="w-full text-xs p-1.5 border border-slate-200 rounded-xl bg-slate-50"
+                className={`w-full text-xs p-1.5 border rounded-xl transition-all duration-200 ${
+                  !isDateFieldActive || filters.filterBlankDates
+                    ? 'border-slate-100 bg-slate-100/50 text-slate-300 cursor-not-allowed'
+                    : filters.endDate
+                      ? 'border-amber-300 bg-amber-50/40 text-amber-900 font-semibold shadow-sm'
+                      : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100/50'
+                }`}
               />
             </div>
           </div>
 
           {/* Query Search */}
           <div className="col-span-2">
-            <label className="block text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1">Fuzzy Text Query</label>
+            <label className={getFilterLabelClass(Boolean(localSearch))}>Fuzzy Text Query</label>
             <div className="relative">
               <input
                 type="text"
                 value={localSearch}
                 onChange={e => setLocalSearch(e.target.value)}
                 placeholder="Search Booking, car, user..."
-                className="w-full text-xs p-2 pl-8 border border-slate-200 rounded-xl bg-slate-50 focus:ring-1 focus:ring-slate-900 focus:outline-none"
+                className={`w-full text-xs p-2 pl-8 border rounded-xl focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all duration-200 ${
+                  localSearch
+                    ? 'border-amber-300 bg-amber-50/40 text-amber-900 font-semibold shadow-sm'
+                    : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100/50'
+                }`}
               />
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-3" />
               {localSearch && (

@@ -198,6 +198,7 @@ export interface FilterState {
   dateField: string;
   startDate: string;
   endDate: string;
+  filterBlankDates?: boolean;
   searchQuery: string;
 }
 
