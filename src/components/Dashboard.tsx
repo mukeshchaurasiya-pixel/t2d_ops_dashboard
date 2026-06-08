@@ -528,7 +528,6 @@ export default function Dashboard({
   // Static filter options built from all rows — no cross-filtering to avoid render loops
   const dynamicFilterOptions = useMemo(() => {
     const citiesSet = new Set<string>();
-    const hubsSet = new Set<string>();
     const tokenTypeSet = new Set<string>();
     const rmSet = new Set<string>();
     const dcSet = new Set<string>();
@@ -545,7 +544,7 @@ export default function Dashboard({
 
     rows.forEach(row => {
       if (row.city)                citiesSet.add(row.city.trim());
-      if (row.hubName)             hubsSet.add(row.hubName.trim());
+      // hubs computed separately (city-aware) — see cityFilteredHubs below
       if (row.tokenType)           tokenTypeSet.add(row.tokenType);
       if (row.assignedRm)          rmSet.add(row.assignedRm);
       if (row.assignedDc)          dcSet.add(row.assignedDc);
@@ -594,7 +593,6 @@ export default function Dashboard({
 
     return {
       cities:               Array.from(citiesSet).sort(),
-      hubs:                 Array.from(hubsSet).sort(),
       tokenTypes:           Array.from(tokenTypeSet).sort(),
       rms:                  Array.from(rmSet).sort(),
       dcs:                  Array.from(dcSet).sort(),
@@ -610,6 +608,36 @@ export default function Dashboard({
       leadDsChannels:       Array.from(leadDsChannelsSet).sort()
     };
   }, [rows]); // ← only rows, never filters — prevents render loops
+
+  // City-aware hub options: only show hubs belonging to rows in the selected city.
+  // Safe: pure derivation from [rows, filters.city] — never calls setFilters.
+  const cityFilteredHubs = useMemo(() => {
+    const selectedCities = filters.city === 'All'
+      ? null
+      : filters.city.split('|||').map(s => s.trim().toLowerCase());
+    const hubsSet = new Set<string>();
+    rows.forEach(row => {
+      if (!row.hubName) return;
+      if (selectedCities === null) {
+        hubsSet.add(row.hubName.trim());
+      } else {
+        const rowCity = String(row.city || '').trim().toLowerCase();
+        if (selectedCities.includes(rowCity)) {
+          hubsSet.add(row.hubName.trim());
+        }
+      }
+    });
+    return Array.from(hubsSet).sort();
+  }, [rows, filters.city]);
+
+  // When city filter changes, clear hub selection (hub from old city is irrelevant)
+  const prevCityRef = React.useRef(filters.city);
+  useEffect(() => {
+    if (prevCityRef.current !== filters.city) {
+      prevCityRef.current = filters.city;
+      setFilters(prev => ({ ...prev, hubName: 'All' }));
+    }
+  }, [filters.city]);
 
   // KPIs
   const kpis: DashboardKpis = useMemo(() => buildKpis(filteredRows), [filteredRows]);
@@ -1196,7 +1224,7 @@ export default function Dashboard({
           {/* Hub */}
           <MultiSelectDropdown
             label="Hub Name"
-            options={dynamicFilterOptions.hubs}
+            options={cityFilteredHubs}
             selectedString={filters.hubName}
             onChange={val => setFilters(p => ({ ...p, hubName: val }))}
             placeholder="All Hubs"
