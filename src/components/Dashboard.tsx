@@ -884,7 +884,7 @@ export default function Dashboard({
       </div>
 
       {/* 2. Bento Ticker Metrics Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5" id="bento-kpis">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5" id="bento-kpis">
         {/* Total Cases */}
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:scale-101 hover:shadow-md transition-all">
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Total cases</span>
@@ -912,22 +912,13 @@ export default function Dashboard({
           <span className="text-[10px] text-slate-400">completed handovers</span>
         </div>
 
-        {/* Total Pending Amount */}
+        {/* Cancelled cases */}
         <div className="bg-white p-4 rounded-2xl border border-slate-105 shadow-sm flex flex-col justify-between hover:scale-101 hover:shadow-md transition-all">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Pending Amount</span>
-          <h4 className="text-2xl font-sans font-bold text-indigo-600 leading-none my-1 truncate">
-            {formatCurrency(kpis.totalPending)}
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Cancelled</span>
+          <h4 className="text-2xl font-sans font-bold text-rose-600 leading-none my-1">
+            {kpis.cancelled}
           </h4>
-          <span className="text-[10px] text-slate-400">receivables pending</span>
-        </div>
-
-        {/* Collected Amount */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:scale-101 hover:shadow-md transition-all">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Collected Amount</span>
-          <h4 className="text-2xl font-sans font-bold text-emerald-700 leading-none my-1 truncate">
-            {formatCurrency(kpis.totalCollected)}
-          </h4>
-          <span className="text-[10px] text-slate-400">confirmed in ledger</span>
+          <span className="text-[10px] text-slate-400">cancellation records</span>
         </div>
       </div>
 
