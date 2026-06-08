@@ -15,6 +15,7 @@ import { CaseRow, FilterState, DashboardKpis, DashboardCharts } from '../types';
 import { getDerivedFlags, buildKpis, buildCharts, splitTasks } from '../data/mockData';
 import { auth } from '../lib/firebaseAuth';
 import { parseDateString } from '../lib/dateUtils';
+import { calculateOperationsMatrix, MatrixRow } from '../lib/matrixCalculator';
 
 interface DashboardProps {
   rows: CaseRow[];
@@ -80,7 +81,7 @@ export default function Dashboard({
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
-  const [activeTab, setActiveTab] = useState<'ops' | 'performance' | 'loss'>('ops');
+  const [activeTab, setActiveTab] = useState<'ops' | 'performance' | 'loss' | 'ledger'>('ops');
 
   // Debounced search text state
   const [localSearch, setLocalSearch] = useState(filters.searchQuery);
@@ -277,6 +278,9 @@ export default function Dashboard({
   
   // Charts
   const charts: DashboardCharts = useMemo(() => buildCharts(filteredRows), [filteredRows]);
+
+  // Executive Operations Matrix Ledger
+  const matrix = useMemo(() => calculateOperationsMatrix(filteredRows), [filteredRows]);
 
   const resetFilters = () => {
     setFilters({
@@ -1000,6 +1004,22 @@ export default function Dashboard({
             />
           )}
         </button>
+        <button
+          onClick={() => setActiveTab('ledger')}
+          className={`pb-2.5 px-4 text-xs font-bold transition-all relative cursor-pointer active:scale-98 ${
+            activeTab === 'ledger'
+              ? 'text-slate-900 font-extrabold font-sans'
+              : 'text-slate-400 hover:text-slate-700 font-sans'
+          }`}
+        >
+          📈 Executive Ledger
+          {activeTab === 'ledger' && (
+            <motion.div
+              layoutId="activeTabUnderline"
+              className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900"
+            />
+          )}
+        </button>
       </div>
 
       {activeTab === 'ops' && (
@@ -1346,6 +1366,90 @@ export default function Dashboard({
                 This panel highlights cancelled deal profiles. High concentration in specific payment types or token types can point to pipeline vulnerabilities. Use the date filters above to analyze cancellation trends over time.
               </p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'ledger' && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden" id="executive-summary-panel">
+          <div className="p-5 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2 bg-slate-50/50">
+            <div>
+              <h3 className="font-sans font-semibold text-slate-800 text-sm">
+                📈 Executive Operations Ledger
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                Dynamic cohort comparison of targets vs actuals, inflow volumes, and turnaround times (TAT).
+              </p>
+            </div>
+            <div className="text-[10px] bg-slate-100 text-slate-650 px-3 py-1 rounded-md font-mono">
+              Auto-Calculated relative to base date
+            </div>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs select-none">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 font-sans text-slate-500 font-semibold">
+                  <th className="p-3 pl-5 border-r border-slate-200 font-bold sticky left-0 bg-slate-50 z-10">Metric Name</th>
+                  {matrix.columns.map(col => (
+                    <th key={col.key} className="p-3 text-center border-r border-slate-100 font-bold min-w-[95px]">
+                      <div>{col.label}</div>
+                      <div className="text-[9px] font-normal text-slate-450 mt-0.5">{col.subLabel}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700 font-mono">
+                {/* Group rows by category */}
+                {Object.entries(
+                  matrix.rows.reduce<Record<string, MatrixRow[]>>((acc, row) => {
+                    if (!acc[row.category]) acc[row.category] = [];
+                    acc[row.category].push(row);
+                    return acc;
+                  }, {})
+                ).map(([category, catRows]) => {
+                  const rowsList = catRows as MatrixRow[];
+                  return (
+                    <React.Fragment key={category}>
+                      {/* Category Header Row */}
+                      <tr className="bg-slate-50/75 font-sans font-bold text-slate-700">
+                        <td 
+                          className="p-2.5 pl-5 border-r border-slate-200 sticky left-0 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500" 
+                          colSpan={matrix.columns.length + 1}
+                        >
+                          📁 {category}
+                        </td>
+                      </tr>
+                      {rowsList.map(row => (
+                      <tr key={row.name} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="p-2.5 pl-8 border-r border-slate-200 sticky left-0 bg-white font-sans font-semibold text-slate-650 min-w-[200px]">
+                          {row.name}
+                        </td>
+                        {matrix.columns.map(col => {
+                          const val = row.values[col.key];
+                          const displayVal = val === undefined || val === null ? '-' :
+                            row.isPercent ? `${(Number(val) * 100).toFixed(2)}%` : val;
+                          
+                          // Style target columns
+                          const isTarget = col.key.startsWith('target');
+                          
+                          return (
+                            <td 
+                              key={col.key} 
+                              className={`p-2.5 text-center border-r border-slate-100 text-[11px] ${
+                                isTarget ? 'text-slate-400 bg-slate-50/20' : 'text-slate-800'
+                              }`}
+                            >
+                              {displayVal}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                ); })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
