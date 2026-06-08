@@ -200,17 +200,17 @@ export function buildEddDistribution(rows: CaseRow[]): Record<string, number> {
   result[labelD2] = 0;
   result[labelD3_6] = 0;
   result[labelD7Plus] = 0;
-  result['Blank'] = 0;
+  result['Blank / Empty'] = 0;
 
   rows.forEach(r => {
     if (!r.expectedDeliveryDate) {
-      result['Blank']++;
+      result['Blank / Empty']++;
       return;
     }
 
     const edd = parseDateString(r.expectedDeliveryDate);
     if (!edd) {
-      result['Blank']++;
+      result['Blank / Empty']++;
       return;
     }
 
