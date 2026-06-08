@@ -53,15 +53,17 @@ function MultiSelectDropdown({
 }: MultiSelectDropdownProps) {
   const selectedList = useMemo(() => {
     if (selectedString === 'All') return [];
-    return selectedString.split(',').filter(Boolean);
+    return selectedString.split(',').map(s => s.trim()).filter(Boolean);
   }, [selectedString]);
 
   const handleToggleOption = (val: string) => {
+    const trimmedVal = val.trim();
+    const trimmedList = selectedList.map(s => s.trim());
     let newList: string[];
-    if (selectedList.includes(val)) {
-      newList = selectedList.filter(v => v !== val);
+    if (trimmedList.includes(trimmedVal)) {
+      newList = trimmedList.filter(v => v !== trimmedVal);
     } else {
-      newList = [...selectedList, val];
+      newList = [...trimmedList, trimmedVal];
     }
     
     if (newList.length === 0) {
@@ -144,7 +146,7 @@ function MultiSelectDropdown({
                 <label className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer font-sans select-none">
                   <input
                     type="checkbox"
-                    checked={selectedList.includes('Blank')}
+                    checked={selectedList.map(s => s.trim()).includes('Blank')}
                     onChange={() => handleToggleOption('Blank')}
                     className="rounded text-amber-500 focus:ring-amber-500/20 w-3.5 h-3.5"
                   />
@@ -155,7 +157,7 @@ function MultiSelectDropdown({
                 <label key={opt} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer font-sans select-none">
                   <input
                     type="checkbox"
-                    checked={selectedList.includes(opt)}
+                    checked={selectedList.map(s => s.trim()).includes(opt.trim())}
                     onChange={() => handleToggleOption(opt)}
                     className="rounded text-amber-500 focus:ring-amber-500/20 w-3.5 h-3.5"
                   />
