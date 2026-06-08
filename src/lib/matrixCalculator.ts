@@ -78,37 +78,21 @@ export function calculateOperationsMatrix(rows: CaseRow[]): {
   columns: { key: string; label: string; subLabel: string }[];
   rows: MatrixRow[];
 } {
-  // 1. Detect baseDate (latest date in dataset)
-  let latestDate = new Date(2026, 5, 3); // Default to June 3, 2026 if empty
-  let found = false;
-
-  rows.forEach(r => {
-    const dates = [r.tokenDate, r.bookingDate, r.actualDeliveryDate, r.cancelReqDate, r.cancellationDate];
-    dates.forEach(dStr => {
-      if (dStr) {
-        const parsed = parseDateString(dStr);
-        if (parsed && (!found || parsed > latestDate)) {
-          latestDate = parsed;
-          found = true;
-        }
-      }
-    });
-  });
-
-  const baseDate = setStartOfDay(latestDate);
+  // 1. Set baseDate to yesterday (today - 1 day) relative to system local time
+  const baseDate = setStartOfDay(subDays(new Date(), 1));
 
   // Helper formatting for dates
   const formatDateLabel = (d: Date) => {
     return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
   };
 
-  // 2. Define Timeframes
+  // 2. Define Timeframes MTD and Last MTD (relative to yesterday)
   const MTD_Start = startOfMonth(baseDate);
   const MTD_End = setEndOfDay(baseDate);
 
   const prevMonthBase = subMonths(baseDate, 1);
   const LastMTD_Start = startOfMonth(prevMonthBase);
-  // Last MTD goes up to the same relative day of the month
+  // Last MTD goes up to the same relative day of the month as yesterday
   const LastMTD_End = setEndOfDay(new Date(prevMonthBase.getFullYear(), prevMonthBase.getMonth(), Math.min(baseDate.getDate(), prevMonthBase.getDate())));
 
   const LLM_Start = startOfMonth(prevMonthBase);
@@ -131,17 +115,15 @@ export function calculateOperationsMatrix(rows: CaseRow[]): {
   const D3_Date = subDays(baseDate, 2);
 
   const timeframes = [
-    { key: 'target_m', label: 'Targets M', subLabel: 'Month Target', start: MTD_Start, end: endOfMonth(baseDate), isTarget: true },
-    { key: 'target_mtd', label: 'Targets MTD', subLabel: 'MTD Target', start: MTD_Start, end: MTD_End, isTarget: true },
     { key: 'mtd', label: 'MTD', subLabel: `${formatDateLabel(MTD_Start)} - ${formatDateLabel(MTD_End)}`, start: MTD_Start, end: MTD_End },
     { key: 'last_mtd', label: 'Last MTD', subLabel: `${formatDateLabel(LastMTD_Start)} - ${formatDateLabel(LastMTD_End)}`, start: LastMTD_Start, end: LastMTD_End },
     { key: 'llm', label: 'LLM', subLabel: `${formatDateLabel(LLM_Start)} - ${formatDateLabel(LLM_End)}`, start: LLM_Start, end: LLM_End },
     { key: 'w', label: 'W', subLabel: `${formatDateLabel(W_Start)} - ${formatDateLabel(W_End)}`, start: W_Start, end: W_End },
     { key: 'lw', label: 'LW', subLabel: `${formatDateLabel(LW_Start)} - ${formatDateLabel(LW_End)}`, start: LW_Start, end: LW_End },
     { key: 'llw', label: 'LLW', subLabel: `${formatDateLabel(LLW_Start)} - ${formatDateLabel(LLW_End)}`, start: LLW_Start, end: LLW_End },
-    { key: 'd1', label: formatDateLabel(D1_Date), subLabel: 'Daily T-1', start: setStartOfDay(D1_Date), end: setEndOfDay(D1_Date) },
-    { key: 'd2', label: formatDateLabel(D2_Date), subLabel: 'Daily T-2', start: setStartOfDay(D2_Date), end: setEndOfDay(D2_Date) },
-    { key: 'd3', label: formatDateLabel(D3_Date), subLabel: 'Daily T-3', start: setStartOfDay(D3_Date), end: setEndOfDay(D3_Date) },
+    { key: 'd1', label: formatDateLabel(D1_Date), subLabel: 'Yesterday', start: setStartOfDay(D1_Date), end: setEndOfDay(D1_Date) },
+    { key: 'd2', label: formatDateLabel(D2_Date), subLabel: 'T-2', start: setStartOfDay(D2_Date), end: setEndOfDay(D2_Date) },
+    { key: 'd3', label: formatDateLabel(D3_Date), subLabel: 'T-3', start: setStartOfDay(D3_Date), end: setEndOfDay(D3_Date) },
   ];
 
   // 3. Columns configuration for UI
@@ -150,36 +132,6 @@ export function calculateOperationsMatrix(rows: CaseRow[]): {
     label: tf.label,
     subLabel: tf.subLabel
   }));
-
-  // Define static target scales based on average dataset sizes to look realistic
-  const getTargetValue = (rowName: string, isM: boolean) => {
-    const scale = isM ? 1.0 : 0.25; // Targets M is 4x Targets MTD
-    switch (rowName) {
-      case 'GD': return Math.round(1200 * scale);
-      case 'ND': return Math.round(1120 * scale);
-      case 'Unique Token (Inflow)': return Math.round(2200 * scale);
-      case 'RT Share (Overall)': return 0.65;
-      case 'NRT Share (Overall)': return 0.15;
-      case 'PVT Share (Overall)': return 0.20;
-      case 'GCBL Share (Overall)': return 0.00;
-      case 'Active token (Till End Date)': return Math.round(300 * scale);
-      case 'Token Age': return 3.5;
-      case 'RT Share': return 0.68;
-      case 'RT Share (>4 Days)': return 0.12;
-      case 'NRT Upgrade': return 0.22;
-      case 'PVT Upgrade': return 0.25;
-      case 'Login on Token base': return 0.60;
-      case 'Login >=(T+1)': return 0.003;
-      case 'CF attached (%)': return 0.52;
-      case 'Unique Token Cancellation %': return 0.50;
-      case 'RT - Token base': return 0.35;
-      case 'NRT - Token Base': return 0.80;
-      case 'PVT - Token Base': return 0.85;
-      case 'Delivery TAT': return 3.0;
-      case 'Cancellation TAT': return 3.5;
-      default: return 0;
-    }
-  };
 
   // 4. Initialize rows mapping
   const rowSpecs = [
@@ -222,14 +174,6 @@ export function calculateOperationsMatrix(rows: CaseRow[]): {
 
   // 5. Populate values for each timeframe
   timeframes.forEach(tf => {
-    if (tf.isTarget) {
-      // Set static target values
-      const isM = tf.key === 'target_m';
-      resultRows.forEach(r => {
-        r.values[tf.key] = getTargetValue(r.name, isM);
-      });
-      return;
-    }
 
     // Filter relevant rows for this timeframe
     const inflowCases = rows.filter(r => {

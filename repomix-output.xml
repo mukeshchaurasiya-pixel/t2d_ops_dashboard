@@ -1181,426 +1181,6 @@ export function parseDateString(dateStr: string): Date | null {
 }
 </file>
 
-<file path="src/lib/matrixCalculator.ts">
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import { CaseRow } from '../types';
-import { parseDateString } from './dateUtils';
-
-export interface MatrixRow {
-  category: string;
-  name: string;
-  isPercent: boolean;
-  indent: boolean;
-  values: Record<string, string | number>;
-}
-
-// ----------------------------------------------------
-// Native JavaScript Date Helpers (to keep zero-dep)
-// ----------------------------------------------------
-function setStartOfDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
-}
-
-function setEndOfDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-}
-
-function startOfMonth(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
-}
-
-function endOfMonth(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
-}
-
-function subMonths(d: Date, n: number): Date {
-  // Safe month subtraction
-  const newDate = new Date(d.getFullYear(), d.getMonth() - n, 1);
-  const maxDays = new Date(newDate.getFullYear(), newDate.getMonth() + 1, 0).getDate();
-  newDate.setDate(Math.min(d.getDate(), maxDays));
-  return newDate;
-}
-
-function subDays(d: Date, n: number): Date {
-  return new Date(d.getTime() - n * 24 * 60 * 60 * 1000);
-}
-
-function getMonday(d: Date): Date {
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  return new Date(d.getFullYear(), d.getMonth(), diff, 0, 0, 0, 0);
-}
-
-// ----------------------------------------------------
-// Categorization Helpers matching raw columns
-// ----------------------------------------------------
-const isRT = (type: string) => {
-  const t = String(type || '').toUpperCase();
-  return t.includes('RT') || t.includes('PAID') || t.includes('REFUNDABLE');
-};
-const isNRT = (type: string) => {
-  const t = String(type || '').toUpperCase();
-  return t.includes('NRT');
-};
-const isPVT = (type: string) => {
-  const t = String(type || '').toUpperCase();
-  return t.includes('PVT') || t.includes('PRIVATE');
-};
-const isGCBL = (type: string) => {
-  const t = String(type || '').toUpperCase();
-  return t.includes('GCBL') || (t.includes('GREEN') && t.includes('BL')) || (t.includes('GC') && t.includes('BL'));
-};
-
-// ----------------------------------------------------
-// Core Calculation Logic
-// ----------------------------------------------------
-export function calculateOperationsMatrix(rows: CaseRow[]): {
-  columns: { key: string; label: string; subLabel: string }[];
-  rows: MatrixRow[];
-} {
-  // 1. Detect baseDate (latest date in dataset)
-  let latestDate = new Date(2026, 5, 3); // Default to June 3, 2026 if empty
-  let found = false;
-
-  rows.forEach(r => {
-    const dates = [r.tokenDate, r.bookingDate, r.actualDeliveryDate, r.cancelReqDate, r.cancellationDate];
-    dates.forEach(dStr => {
-      if (dStr) {
-        const parsed = parseDateString(dStr);
-        if (parsed && (!found || parsed > latestDate)) {
-          latestDate = parsed;
-          found = true;
-        }
-      }
-    });
-  });
-
-  const baseDate = setStartOfDay(latestDate);
-
-  // Helper formatting for dates
-  const formatDateLabel = (d: Date) => {
-    return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
-  };
-
-  // 2. Define Timeframes
-  const MTD_Start = startOfMonth(baseDate);
-  const MTD_End = setEndOfDay(baseDate);
-
-  const prevMonthBase = subMonths(baseDate, 1);
-  const LastMTD_Start = startOfMonth(prevMonthBase);
-  // Last MTD goes up to the same relative day of the month
-  const LastMTD_End = setEndOfDay(new Date(prevMonthBase.getFullYear(), prevMonthBase.getMonth(), Math.min(baseDate.getDate(), prevMonthBase.getDate())));
-
-  const LLM_Start = startOfMonth(prevMonthBase);
-  const LLM_End = endOfMonth(prevMonthBase);
-
-  const W_Start = getMonday(baseDate);
-  const W_End = setEndOfDay(baseDate);
-
-  const LW_Start = getMonday(subDays(baseDate, 7));
-  const LW_End = setEndOfDay(addDays(LW_Start, 6));
-  function addDays(d: Date, n: number): Date {
-    return new Date(d.getTime() + n * 24 * 60 * 60 * 1000);
-  }
-
-  const LLW_Start = getMonday(subDays(baseDate, 14));
-  const LLW_End = setEndOfDay(addDays(LLW_Start, 6));
-
-  const D1_Date = baseDate;
-  const D2_Date = subDays(baseDate, 1);
-  const D3_Date = subDays(baseDate, 2);
-
-  const timeframes = [
-    { key: 'target_m', label: 'Targets M', subLabel: 'Month Target', start: MTD_Start, end: endOfMonth(baseDate), isTarget: true },
-    { key: 'target_mtd', label: 'Targets MTD', subLabel: 'MTD Target', start: MTD_Start, end: MTD_End, isTarget: true },
-    { key: 'mtd', label: 'MTD', subLabel: `${formatDateLabel(MTD_Start)} - ${formatDateLabel(MTD_End)}`, start: MTD_Start, end: MTD_End },
-    { key: 'last_mtd', label: 'Last MTD', subLabel: `${formatDateLabel(LastMTD_Start)} - ${formatDateLabel(LastMTD_End)}`, start: LastMTD_Start, end: LastMTD_End },
-    { key: 'llm', label: 'LLM', subLabel: `${formatDateLabel(LLM_Start)} - ${formatDateLabel(LLM_End)}`, start: LLM_Start, end: LLM_End },
-    { key: 'w', label: 'W', subLabel: `${formatDateLabel(W_Start)} - ${formatDateLabel(W_End)}`, start: W_Start, end: W_End },
-    { key: 'lw', label: 'LW', subLabel: `${formatDateLabel(LW_Start)} - ${formatDateLabel(LW_End)}`, start: LW_Start, end: LW_End },
-    { key: 'llw', label: 'LLW', subLabel: `${formatDateLabel(LLW_Start)} - ${formatDateLabel(LLW_End)}`, start: LLW_Start, end: LLW_End },
-    { key: 'd1', label: formatDateLabel(D1_Date), subLabel: 'Daily T-1', start: setStartOfDay(D1_Date), end: setEndOfDay(D1_Date) },
-    { key: 'd2', label: formatDateLabel(D2_Date), subLabel: 'Daily T-2', start: setStartOfDay(D2_Date), end: setEndOfDay(D2_Date) },
-    { key: 'd3', label: formatDateLabel(D3_Date), subLabel: 'Daily T-3', start: setStartOfDay(D3_Date), end: setEndOfDay(D3_Date) },
-  ];
-
-  // 3. Columns configuration for UI
-  const columns = timeframes.map(tf => ({
-    key: tf.key,
-    label: tf.label,
-    subLabel: tf.subLabel
-  }));
-
-  // Define static target scales based on average dataset sizes to look realistic
-  const getTargetValue = (rowName: string, isM: boolean) => {
-    const scale = isM ? 1.0 : 0.25; // Targets M is 4x Targets MTD
-    switch (rowName) {
-      case 'GD': return Math.round(1200 * scale);
-      case 'ND': return Math.round(1120 * scale);
-      case 'Unique Token (Inflow)': return Math.round(2200 * scale);
-      case 'RT Share (Overall)': return 0.65;
-      case 'NRT Share (Overall)': return 0.15;
-      case 'PVT Share (Overall)': return 0.20;
-      case 'GCBL Share (Overall)': return 0.00;
-      case 'Active token (Till End Date)': return Math.round(300 * scale);
-      case 'Token Age': return 3.5;
-      case 'RT Share': return 0.68;
-      case 'RT Share (>4 Days)': return 0.12;
-      case 'NRT Upgrade': return 0.22;
-      case 'PVT Upgrade': return 0.25;
-      case 'Login on Token base': return 0.60;
-      case 'Login >=(T+1)': return 0.003;
-      case 'CF attached (%)': return 0.52;
-      case 'Unique Token Cancellation %': return 0.50;
-      case 'RT - Token base': return 0.35;
-      case 'NRT - Token Base': return 0.80;
-      case 'PVT - Token Base': return 0.85;
-      case 'Delivery TAT': return 3.0;
-      case 'Cancellation TAT': return 3.5;
-      default: return 0;
-    }
-  };
-
-  // 4. Initialize rows mapping
-  const rowSpecs = [
-    { category: 'Overall', name: 'GD', isPercent: false, indent: true },
-    { category: 'Overall', name: 'ND', isPercent: false, indent: true },
-    { category: 'Overall', name: 'Unique Token (Inflow)', isPercent: false, indent: true },
-    { category: 'Overall', name: 'RT Share (Overall)', isPercent: true, indent: true },
-    { category: 'Overall', name: 'NRT Share (Overall)', isPercent: true, indent: true },
-    { category: 'Overall', name: 'PVT Share (Overall)', isPercent: true, indent: true },
-    { category: 'Overall', name: 'GCBL Share (Overall)', isPercent: true, indent: true },
-
-    { category: 'Token', name: 'Active token (Till End Date)', isPercent: false, indent: true },
-    { category: 'Token', name: 'Token Age', isPercent: false, indent: true },
-    { category: 'Token', name: 'RT Share', isPercent: true, indent: true },
-    { category: 'Token', name: 'RT Share (>4 Days)', isPercent: true, indent: true },
-
-    { category: 'Upgrade', name: 'NRT Upgrade', isPercent: true, indent: true },
-    { category: 'Upgrade', name: 'PVT Upgrade', isPercent: true, indent: true },
-
-    { category: 'CF', name: 'Login on Token base', isPercent: true, indent: true },
-    { category: 'CF', name: 'Login >=(T+1)', isPercent: true, indent: true },
-    { category: 'CF', name: 'CF attached (%)', isPercent: true, indent: true },
-
-    { category: 'Cancellation', name: 'Unique Token Cancellation %', isPercent: true, indent: true },
-    { category: 'Cancellation', name: 'RT - Token base', isPercent: true, indent: true },
-    { category: 'Cancellation', name: 'NRT - Token Base', isPercent: true, indent: true },
-    { category: 'Cancellation', name: 'PVT - Token Base', isPercent: true, indent: true },
-
-    { category: 'TAT', name: 'Delivery TAT', isPercent: false, indent: true },
-    { category: 'TAT', name: 'Cancellation TAT', isPercent: false, indent: true },
-  ];
-
-  const resultRows: MatrixRow[] = rowSpecs.map(spec => ({
-    category: spec.category,
-    name: spec.name,
-    isPercent: spec.isPercent,
-    indent: spec.indent,
-    values: {}
-  }));
-
-  // 5. Populate values for each timeframe
-  timeframes.forEach(tf => {
-    if (tf.isTarget) {
-      // Set static target values
-      const isM = tf.key === 'target_m';
-      resultRows.forEach(r => {
-        r.values[tf.key] = getTargetValue(r.name, isM);
-      });
-      return;
-    }
-
-    // Filter relevant rows for this timeframe
-    const inflowCases = rows.filter(r => {
-      if (!r.tokenDate) return false;
-      const d = parseDateString(r.tokenDate);
-      return d && d >= tf.start && d <= tf.end;
-    });
-
-    const deliveryCases = rows.filter(r => {
-      if (!r.actualDeliveryDate) return false;
-      const d = parseDateString(r.actualDeliveryDate);
-      return d && d >= tf.start && d <= tf.end;
-    });
-
-    const cancellationCases = rows.filter(r => {
-      if (!r.cancelReqDate) return false;
-      const d = parseDateString(r.cancelReqDate);
-      return d && d >= tf.start && d <= tf.end;
-    });
-
-    // Active tokens logic: Token date <= end date AND (actualDeliveryDate > end date or blank) AND (cancelReqDate > end date or blank)
-    const activeTokens = rows.filter(r => {
-      if (!r.tokenDate) return false;
-      const tD = parseDateString(r.tokenDate);
-      if (!tD || tD > tf.end) return false;
-
-      const delD = r.actualDeliveryDate ? parseDateString(r.actualDeliveryDate) : null;
-      if (delD && delD <= tf.end) return false;
-
-      const cancD = r.cancelReqDate ? parseDateString(r.cancelReqDate) : null;
-      if (cancD && cancD <= tf.end) return false;
-
-      return true;
-    });
-
-    // Compute metrics
-    const gd = deliveryCases.length;
-    const nd = gd - cancellationCases.length;
-    const inflowCount = inflowCases.length;
-
-    // Token Type splits
-    const rtInflow = inflowCases.filter(r => isRT(r.tokenType)).length;
-    const nrtInflow = inflowCases.filter(r => isNRT(r.tokenType)).length;
-    const pvtInflow = inflowCases.filter(r => isPVT(r.tokenType)).length;
-    const gcblInflow = inflowCases.filter(r => isGCBL(r.tokenType || r.leadDsChannel)).length;
-
-    const rtShare = inflowCount ? rtInflow / inflowCount : 0;
-    const nrtShare = inflowCount ? nrtInflow / inflowCount : 0;
-    const pvtShare = inflowCount ? pvtInflow / inflowCount : 0;
-    const gcblShare = inflowCount ? gcblInflow / inflowCount : 0;
-
-    // Active token calculations
-    const activeCount = activeTokens.length;
-    let avgAge = 0;
-    let activeRTCount = 0;
-    let activeRTOver4Count = 0;
-
-    if (activeCount > 0) {
-      let totalAge = 0;
-      activeTokens.forEach(r => {
-        const tD = parseDateString(r.tokenDate || '');
-        if (tD) {
-          const ageDiff = tf.end.getTime() - tD.getTime();
-          const ageDays = ageDiff / (1000 * 60 * 60 * 24);
-          totalAge += Math.max(0, ageDays);
-          
-          if (isRT(r.tokenType)) {
-            activeRTCount++;
-            if (ageDays > 4) activeRTOver4Count++;
-          }
-        }
-      });
-      avgAge = totalAge / activeCount;
-    }
-
-    // Upgrades
-    const nrtUpgrades = inflowCases.filter(r => isNRT(r.tokenTypeWithNrt || r.tokenType)).length;
-    const nrtUpgradePct = inflowCount ? nrtUpgrades / inflowCount : 0;
-
-    const pvtUpgrades = inflowCases.filter(r => isPVT(r.tokenType || r.tokenTypeWithNrt)).length;
-    const pvtUpgradePct = inflowCount ? pvtUpgrades / inflowCount : 0;
-
-    // Customer Finance (CF)
-    const loginCases = inflowCases.filter(r => {
-      return Boolean(r.latestLoginTime || r.sheetLoginTimestamp || r.sheetLoginPartner || r.leadStage === 'LOGIN_COMPLETED');
-    });
-    const loginCount = loginCases.length;
-    const loginPct = inflowCount ? loginCount / inflowCount : 0;
-
-    const loginT1 = loginCases.filter(r => {
-      const tD = parseDateString(r.tokenDate || '');
-      const lD = parseDateString(r.latestLoginTime || r.sheetLoginTimestamp || '');
-      if (tD && lD) {
-        return (lD.getTime() - tD.getTime()) >= 24 * 60 * 60 * 1000;
-      }
-      return false;
-    }).length;
-    const loginT1Pct = inflowCount ? loginT1 / inflowCount : 0;
-
-    const cfAttachedCases = inflowCases.filter(r => {
-      return Boolean(r.loanId || String(r.paymentType).toUpperCase().includes('PMAX') || String(r.paymentType).toUpperCase().includes('LOAN'));
-    }).length;
-    const cfAttachedPct = inflowCount ? cfAttachedCases / inflowCount : 0;
-
-    // Cohort-based cancellations (for percentages and TAT)
-    const cohortCancelledCases = inflowCases.filter(r => Boolean(r.cancelReqDate));
-    const cohortCancelPct = inflowCount ? cohortCancelledCases.length / inflowCount : 0;
-    
-    const cohortRtInflow = inflowCases.filter(r => isRT(r.tokenType)).length;
-    const cohortRtCancelled = cohortCancelledCases.filter(r => isRT(r.tokenType)).length;
-    const cohortRtCancelPct = cohortRtInflow ? cohortRtCancelled / cohortRtInflow : 0;
-
-    const cohortNrtInflow = inflowCases.filter(r => isNRT(r.tokenType)).length;
-    const cohortNrtCancelled = cohortCancelledCases.filter(r => isNRT(r.tokenType)).length;
-    const cohortNrtCancelPct = cohortNrtInflow ? cohortNrtCancelled / cohortNrtInflow : 0;
-
-    const cohortPvtInflow = inflowCases.filter(r => isPVT(r.tokenType)).length;
-    const cohortPvtCancelled = cohortCancelledCases.filter(r => isPVT(r.tokenType)).length;
-    const cohortPvtCancelPct = cohortPvtInflow ? cohortPvtCancelled / cohortPvtInflow : 0;
-
-    // TAT
-    let delTat = 0;
-    if (gd > 0) {
-      let sum = 0;
-      deliveryCases.forEach(r => {
-        const tD = parseDateString(r.tokenDate || '');
-        const dD = parseDateString(r.actualDeliveryDate || '');
-        if (tD && dD) {
-          sum += (dD.getTime() - tD.getTime()) / (1000 * 60 * 60 * 24);
-        }
-      });
-      delTat = sum / gd;
-    }
-
-    let cancTat = 0;
-    if (cohortCancelledCases.length > 0) {
-      let sum = 0;
-      cohortCancelledCases.forEach(r => {
-        const tD = parseDateString(r.tokenDate || '');
-        const cD = parseDateString(r.cancelReqDate || '');
-        if (tD && cD) {
-          sum += (cD.getTime() - tD.getTime()) / (1000 * 60 * 60 * 24);
-        }
-      });
-      cancTat = sum / cohortCancelledCases.length;
-    }
-
-    // Map computed values to correct row indices
-    resultRows.forEach(r => {
-      let val: number | string = 0;
-      switch (r.name) {
-        case 'GD': val = gd; break;
-        case 'ND': val = nd; break;
-        case 'Unique Token (Inflow)': val = inflowCount; break;
-        case 'RT Share (Overall)': val = rtShare; break;
-        case 'NRT Share (Overall)': val = nrtShare; break;
-        case 'PVT Share (Overall)': val = pvtShare; break;
-        case 'GCBL Share (Overall)': val = gcblShare; break;
-
-        case 'Active token (Till End Date)': val = activeCount; break;
-        case 'Token Age': val = Number(avgAge.toFixed(2)); break;
-        case 'RT Share': val = activeCount ? activeRTCount / activeCount : 0; break;
-        case 'RT Share (>4 Days)': val = activeRTCount ? activeRTOver4Count / activeRTCount : 0; break;
-
-        case 'NRT Upgrade': val = nrtUpgradePct; break;
-        case 'PVT Upgrade': val = pvtUpgradePct; break;
-
-        case 'Login on Token base': val = loginPct; break;
-        case 'Login >=(T+1)': val = loginT1Pct; break;
-        case 'CF attached (%)': val = cfAttachedPct; break;
-
-        case 'Unique Token Cancellation %': val = cohortCancelPct; break;
-        case 'RT - Token base': val = cohortRtCancelPct; break;
-        case 'NRT - Token Base': val = cohortNrtCancelPct; break;
-        case 'PVT - Token Base': val = cohortPvtCancelPct; break;
-
-        case 'Delivery TAT': val = Number(delTat.toFixed(2)); break;
-        case 'Cancellation TAT': val = Number(cancTat.toFixed(2)); break;
-      }
-      r.values[tf.key] = val;
-    });
-  });
-
-  return { columns, rows: resultRows };
-}
-</file>
-
 <file path="src/lib/sheetsService.ts">
 /**
  * @license
@@ -2694,441 +2274,6 @@ VITE_SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_KEY"
 }
 </file>
 
-<file path="src/data/csvParser.ts">
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import { CaseRow } from '../types';
-
-// Robust client-side CSV parser that handles quotes, line-breaks, and commas correctly
-export function parseCsvRaw(text: string): string[][] {
-  const lines: string[][] = [];
-  let row: string[] = [''];
-  let inQuotes = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    const nextChar = text[i + 1];
-
-    if (char === '"') {
-      if (inQuotes && nextChar === '"') {
-        row[row.length - 1] += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (char === ',' && !inQuotes) {
-      row.push('');
-    } else if ((char === '\r' || char === '\n') && !inQuotes) {
-      if (char === '\r' && nextChar === '\n') {
-        i++;
-      }
-      lines.push(row);
-      row = [''];
-    } else {
-      row[row.length - 1] += char;
-    }
-  }
-  if (row.length > 1 || row[0] !== '') {
-    lines.push(row);
-  }
-  return lines;
-}
-
-export function mapCsvRows(parsed: string[][]): CaseRow[] {
-  if (parsed.length < 2) {
-    throw new Error('Dataset must contain a header row and at least one data row.');
-  }
-
-  const rawHeaders = parsed[0].map(h => 
-    h.trim()
-     .toLowerCase()
-     .replace(/[\r\n\t]+/g, ' ')
-     .replace(/\s+/g, ' ')
-  );
-  
-  // Standard header mappings
-  const mappingTable: Record<string, keyof CaseRow> = {
-    'booking_id': 'bookingId',
-    'bookingid': 'bookingId',
-    'booking': 'bookingId',
-    'uid': 'uid',
-    'lead_id': 'leadId',
-    'leadid': 'leadId',
-    'user_id': 'userId',
-    'userid': 'userId',
-    'loan_id': 'loanId',
-    'loanid': 'loanId',
-    'appointmentid': 'appointmentId',
-    'appointment_id': 'appointmentId',
-    'car_reg_no': 'carRegNo',
-    'carregno': 'carRegNo',
-    'hub_code': 'hubCode',
-    'hubname': 'hubName',
-    'hub_name': 'hubName',
-    'city': 'city',
-    'assigned_rm': 'assignedRm',
-    'assignedrm': 'assignedRm',
-    'assigned_dc': 'assignedDc',
-    'assigneddc': 'assignedDc',
-    'lead_stage': 'leadStage',
-    'leadstage': 'leadStage',
-    'deal_status': 'dealStatus',
-    'dealstatus': 'dealStatus',
-    'token_type': 'tokenType',
-    'tokentype': 'tokenType',
-    'payment_type': 'paymentType',
-    'paymenttype': 'paymentType',
-    'funnel_stage': 'funnelStage',
-    'funnelstage': 'funnelStage',
-    'token_date': 'tokenDate',
-    'expected_delivery_date': 'expectedDeliveryDate',
-    'actual_delivery_date': 'actualDeliveryDate',
-    'amount_collected': 'amountCollected',
-    'amount_pending': 'amountPending',
-    'total_expected_amount': 'totalExpectedAmount',
-    'payment_percentage': 'paymentPercentage',
-    'ready to deliver?': 'readyToDeliver',
-    'ready_to_deliver': 'readyToDeliver',
-    'expected od completion date': 'expectedOdCompletionDate',
-    'expected_od_completion_date': 'expectedOdCompletionDate',
-    'edd date (reviewer)': 'eddReviewerDate',
-    'edd_reviewer_date': 'eddReviewerDate',
-    'remarks - everyone (tl/rm/fs/hh)': 'reviewerRemarks',
-    'remarks': 'reviewerRemarks',
-    'reviewer_remarks': 'reviewerRemarks',
-    'make': 'make',
-    'model': 'model',
-    'variant': 'variant',
-    'task_bucket': 'taskBucket',
-    'taskbucket': 'taskBucket',
-    'reason & data pointer': 'reasonPointer',
-    'reason_pointer': 'reasonPointer',
-
-    // Cancellation mappings
-    'cancel_req_date': 'cancelReqDate',
-    'cancelreqdate': 'cancelReqDate',
-    'cancellation_date': 'cancellationDate',
-    'cancellationdate': 'cancellationDate',
-    'auto_cancelled_flag': 'autoCancelledFlag',
-    'autocancelledflag': 'autoCancelledFlag',
-    'token_auto_cancellation_extended_date': 'tokenAutoCancellationExtendedDate',
-    'tokenautocancellationextendeddate': 'tokenAutoCancellationExtendedDate',
-    'reason': 'cancelReason',
-    'cancelreason': 'cancelReason',
-    'cancel_reason': 'cancelReason',
-
-    // Sheet Status mappings
-    'sheetloginpartner': 'sheetLoginPartner',
-    'sheet_login_partner': 'sheetLoginPartner',
-    'sheetfinalstatus': 'sheetFinalStatus',
-    'sheet_final_status': 'sheetFinalStatus',
-    'sheetyardname': 'sheetYardName',
-    'sheet_yard_name': 'sheetYardName',
-    'sheetyardcity': 'sheetYardCity',
-    'sheet_yard_city': 'sheetYardCity',
-    'sheetdetailedremarks': 'sheetDetailedRemarks',
-    'sheet_detailed_remarks': 'sheetDetailedRemarks',
-    'sheetlastdisbursalactivity': 'sheetLastDisbursalActivity',
-    'sheet_last_disbursal_activity': 'sheetLastDisbursalActivity',
-    'sheetlogintimestamp': 'sheetLoginTimestamp',
-    'sheet_login_timestamp': 'sheetLoginTimestamp',
-    // Form Status mappings
-    'formriskbucket': 'formRiskBucket',
-    'form_risk_bucket': 'formRiskBucket',
-    'formfinalstatus': 'formFinalStatus',
-    'form_final_status': 'formFinalStatus',
-    'formcasestage': 'formCaseStage',
-    'form_case_stage': 'formCaseStage',
-    'formfinalremarks': 'formFinalRemarks',
-    'form_final_remarks': 'formFinalRemarks',
-    'formdeviationrequired': 'formDeviationRequired',
-    'form_deviation_required': 'formDeviationRequired',
-    'formdetailedask': 'formDetailedAsk',
-    'form_detailed_ask': 'formDetailedAsk',
-    // Gmail pendency status
-    'gmail_summary': 'gmailSummary',
-    'gmailsummary': 'gmailSummary',
-    'gmail_pendency_status': 'gmailPendencyStatus',
-    'gmailpendencystatus': 'gmailPendencyStatus',
-    'gmail_pendency_reason': 'gmailPendencyReason',
-    'gmailpendencyreason': 'gmailPendencyReason',
-    'gmail_next_action': 'gmailNextAction',
-    'gmailnextaction': 'gmailNextAction',
-    'gmail_pendency_source': 'gmailPendencySource',
-    'gmailpendencysource': 'gmailPendencySource',
-    'gmail_pendency_date': 'gmailPendencyDate',
-    'gmailpendencydate': 'gmailPendencyDate',
-    'confidence_score': 'confidenceScore',
-    'confidencescore': 'confidenceScore',
-    'ml_estimated_delivery_date': 'mlEstimatedDeliveryDate',
-    'mlestimateddeliverydate': 'mlEstimatedDeliveryDate',
-    'latest_remark': 'latestRemark',
-    'latestremark': 'latestRemark',
-    'latest_remark_by': 'latestRemarkBy',
-    'latestremarkby': 'latestRemarkBy',
-    'latest_remark_date': 'latestRemarkDate',
-    'latestremarkdate': 'latestRemarkDate',
-
-    // Underwriting / Credit Risk / Safety Flags
-    'rc_case_type': 'rcCaseType',
-    'rccasetype': 'rcCaseType',
-    'income_source': 'incomeSource',
-    'incomesource': 'incomeSource',
-    'ogl_pincode_flag': 'oglPincodeFlag',
-    'oglpincodeflag': 'oglPincodeFlag',
-    'ogl_pincode_check': 'oglPincodeFlag',
-    'credit_ltv': 'creditLtv',
-    'creditltv': 'creditLtv',
-    'ltv': 'creditLtv',
-    'last_risk_bucket': 'lastRiskBucket',
-    'lastriskbucket': 'lastRiskBucket',
-    'ds_roi': 'dsRoi',
-    'dsroi': 'dsRoi',
-    'final_roi': 'finalRoi',
-    'finalroi': 'finalRoi',
-    'credit_rejection_reason': 'creditRejectionReason',
-    'creditrejectionreason': 'creditRejectionReason',
-    'credit_rejection_sub_reason': 'creditRejectionSubReason',
-    'creditrejectionsubreason': 'creditRejectionSubReason',
-    'diligence_rejection_reason': 'diligenceRejectionReason',
-    'diligencerejectionreason': 'diligenceRejectionReason',
-    'diligence_rejection_sub_reason': 'diligenceRejectionSubReason',
-    'diligencerejectionsubreason': 'diligenceRejectionSubReason',
-    'red_channel_reason': 'redChannelReason',
-    'redchannelreason': 'redChannelReason',
-    'soft_derog_flag': 'softDerogFlag',
-    'softderogflag': 'softDerogFlag',
-    'hard_derog_flag': 'hardDerogFlag',
-    'hardderogflag': 'hardDerogFlag',
-    'non_ogl': 'nonOgl',
-    'nonogl': 'nonOgl',
-    'contact_number': 'contactNumber',
-    'contactnumber': 'contactNumber',
-    'red_channel_flag': 'redChannelFlag',
-    'redchannelflag': 'redChannelFlag',
-    'tof_rejected_flag': 'tofRejectedFlag',
-    'tofrejectedflag': 'tofRejectedFlag',
-    'deviation_mitigation_comment': 'deviationMitigationComment',
-    'deviationmitigationcomment': 'deviationMitigationComment',
-    'bajaj_segment': 'bajajSegment',
-    'bajajsegment': 'bajajSegment',
-    'company_name': 'companyName',
-    'companyname': 'companyName',
-    'lead_ds_channel': 'leadDsChannel',
-    'leaddschannel': 'leadDsChannel',
-    'foir': 'foir',
-
-    // Milestones / Journey timestamps
-    'latest_lead_creation_timestamp': 'latestLeadCreationTimestamp',
-    'latestleadcreationtimestamp': 'latestLeadCreationTimestamp',
-    'latest_login_time': 'latestLoginTime',
-    'latestlogintime': 'latestLoginTime',
-    'latest_credit_assessed_timestamp': 'latestCreditAssessedTimestamp',
-    'latestcreditassessedtimestamp': 'latestCreditAssessedTimestamp',
-    'latest_diligence_assessed_timestamp': 'latestDiligenceAssessedTimestamp',
-    'latestdiligenceassessedtimestamp': 'latestDiligenceAssessedTimestamp',
-    'latest_fcu_assessed_timestamp': 'latestFcuAssessedTimestamp',
-    'latestfcuassessedtimestamp': 'latestFcuAssessedTimestamp',
-    'tnc_generated_date': 'tncGeneratedDate',
-    'tncgenerateddate': 'tncGeneratedDate',
-    'tnc_accepted_timestamp': 'tncAcceptedTimestamp',
-    'tncacceptedtimestamp': 'tncAcceptedTimestamp',
-    'fcu_sent_date': 'fcuSentDate',
-    'fcusentdate': 'fcuSentDate',
-    'sent_to_rcu_timestamp': 'sentToRcuTimestamp',
-    'senttorcutimestamp': 'sentToRcuTimestamp',
-    'sent_to_ops_timestamp': 'sentToOpsTimestamp',
-    'senttoopstimestamp': 'sentToOpsTimestamp',
-    'submit_to_ops_timestamp': 'submitToOpsTimestamp',
-    'submittoopstimestamp': 'submitToOpsTimestamp',
-    'ops_disbursal_timestamp': 'opsDisbursalTimestamp',
-    'opsdisbursaltimestamp': 'opsDisbursalTimestamp',
-    'finance_disbursed_timestamp': 'financeDisbursedTimestamp',
-    'financedisbursedtimestamp': 'financeDisbursedTimestamp',
-
-    // Calling / CRM Outbound Metrics
-    'last_call_at': 'lastCallAt',
-    'lastcallat': 'lastCallAt',
-    'followup_at': 'followupAt',
-    'followupat': 'followupAt',
-    'total_call_attempts': 'totalCallAttempts',
-    'totalcallattempts': 'totalCallAttempts',
-    'total_connected_calls': 'totalConnectedCalls',
-    'totalconnectedcalls': 'totalConnectedCalls',
-    'last_call_connected_sp': 'lastCallConnectedSp',
-    'lastcallconnectedsp': 'lastCallConnectedSp',
-    'dialed_operator_sp': 'lastCallConnectedSp',
-    'dialed_operator': 'lastCallConnectedSp',
-    'call_duration': 'callDuration',
-    'callduration': 'callDuration',
-    'latest_call_outcome': 'latestCallOutcome',
-    'latestcalloutcome': 'latestCallOutcome',
-    'last_disposition': 'lastDisposition',
-    'lastdisposition': 'lastDisposition'
-  };
-
-  const result: CaseRow[] = [];
-
-  for (let i = 1; i < parsed.length; i++) {
-    const line = parsed[i];
-    if (line.every(cell => !cell.trim())) continue; // Skip blank lines
-
-    // Create standard empty row object
-    const rowObj: Record<string, any> = {
-      _rowNumber: i + 1,
-      bookingId: "B-INFO-" + (1000 + i),
-      uid: "UID-CSV-" + i,
-      leadId: "",
-      userId: "",
-      loanId: "",
-      appointmentId: "",
-      carRegNo: "",
-      hubCode: "",
-      hubName: "Hub " + i,
-      city: "Delhi-NCR",
-      assignedRm: "System RM",
-      assignedDc: "",
-      caAssignedLms: "",
-      sm: "",
-      tm: "",
-      rm: "",
-      dealStatus: "ACTIVE",
-      dealStatusUpdatedAt: "",
-      cancellationDate: "",
-      autoCancelledFlag: "false",
-      tokenAutoCancellationExtendedDate: "",
-      leadStage: "ACTIVE_TOKEN",
-      leadStatus: "ACTIVE_TOKEN",
-      tokenType: "PAID_TOKEN",
-      tokenTypeWithNrt: "",
-      paymentType: "CASH",
-      funnelStage: "TOKEN_PAID",
-      tokenDate: "",
-      tokenDateTime: "",
-      bookingDate: "",
-      expectedDeliveryDate: "",
-      expectedDeliveryTime: "",
-      actualDeliveryDate: "",
-      lastPaymentDate: "",
-      latestRemarkDate: "",
-      updatedAt: "",
-      cancelReqDate: "",
-      deliveryStatus: "",
-      deliverySegment: "",
-      onDemandStatus: "",
-      amountCollected: 0,
-      amountPending: 0,
-      totalExpectedAmount: 0,
-      agreedSalesPrice: 0,
-      paymentPercentage: 0,
-      readyToDeliver: "",
-      expectedOdCompletionDate: "",
-      eddReviewerDate: "",
-      reviewerRemarks: "",
-      make: "",
-      model: "",
-      variant: "",
-      manufacturingYear: "",
-      rcCaseType: "FRESH",
-      incomeSource: "",
-      oglPincodeFlag: "",
-      creditLtv: "",
-      lastRiskBucket: "",
-      dsRoi: "",
-      finalRoi: "",
-      creditRejectionReason: "",
-      creditRejectionSubReason: "",
-      diligenceRejectionReason: "",
-      diligenceRejectionSubReason: "",
-      redChannelReason: "",
-      softDerogFlag: "false",
-      hardDerogFlag: "false",
-      nonOgl: "false",
-      contactNumber: "",
-      redChannelFlag: "N",
-      tofRejectedFlag: "N",
-      deviationMitigationComment: "",
-      bajajSegment: "",
-      companyName: "",
-      leadDsChannel: "",
-      foir: "",
-      latestLeadCreationTimestamp: "",
-      latestLoginTime: "",
-      latestCreditAssessedTimestamp: "",
-      latestDiligenceAssessedTimestamp: "",
-      latestFcuAssessedTimestamp: "",
-      tncGeneratedDate: "",
-      tncAcceptedTimestamp: "",
-      fcuSentDate: "",
-      sentToRcuTimestamp: "",
-      sentToOpsTimestamp: "",
-      submitToOpsTimestamp: "",
-      opsDisbursalTimestamp: "",
-      financeDisbursedTimestamp: "",
-      lastCallAt: "",
-      followupAt: "",
-      totalCallAttempts: 0,
-      totalConnectedCalls: 0,
-      lastCallConnectedSp: "",
-      callDuration: "",
-      latestCallOutcome: "",
-      lastDisposition: "",
-      latestRemark: "",
-      latestRemarkBy: "",
-      isActive: "true",
-      isAlertVisible: "true",
-      cancelReason: "",
-      taskBucket: "",
-      reasonPointer: "",
-      sheetLoginPartner: "",
-      sheetFinalStatus: "",
-      sheetYardName: "",
-      sheetYardCity: "",
-      sheetDetailedRemarks: "",
-      sheetLastDisbursalActivity: "",
-      sheetLoginTimestamp: "",
-      formRiskBucket: "",
-      formFinalStatus: "",
-      formCaseStage: "",
-      formFinalRemarks: "",
-      formDeviationRequired: "No",
-      formDetailedAsk: "",
-      gmailSummary: "",
-      gmailPendencyStatus: "",
-      gmailPendencyReason: "",
-      gmailNextAction: "",
-      gmailPendencySource: "",
-      gmailPendencyDate: "",
-      confidenceScore: "",
-      mlEstimatedDeliveryDate: ""
-    };
-
-    // Map values dynamically
-    line.forEach((cell, cellIndex) => {
-      const headerName = rawHeaders[cellIndex];
-      if (!headerName) return;
-
-      const key = mappingTable[headerName] || mappingTable[headerName.replace(/[\s_]/g, '')];
-      if (key) {
-        const rawVal = cell.trim();
-        if (key === 'amountCollected' || key === 'amountPending' || key === 'totalExpectedAmount' || key === 'paymentPercentage' || key === 'totalCallAttempts' || key === 'totalConnectedCalls') {
-          rowObj[key] = parseFloat(rawVal.replace(/[^0-9.-]/g, '')) || 0;
-        } else {
-          rowObj[key] = rawVal;
-        }
-      }
-    });
-
-    result.push(rowObj as CaseRow);
-  }
-
-  return result;
-}
-</file>
-
 <file path="src/data/mockData.ts">
 /**
  * @license
@@ -3968,6 +3113,370 @@ export const SEED_CASE_ROWS: CaseRow[] = [
     mlEstimatedDeliveryDate: "2026-06-08"
   }
 ];
+</file>
+
+<file path="src/lib/matrixCalculator.ts">
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { CaseRow } from '../types';
+import { parseDateString } from './dateUtils';
+
+export interface MatrixRow {
+  category: string;
+  name: string;
+  isPercent: boolean;
+  indent: boolean;
+  values: Record<string, string | number>;
+}
+
+// ----------------------------------------------------
+// Native JavaScript Date Helpers (to keep zero-dep)
+// ----------------------------------------------------
+function setStartOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
+
+function setEndOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+}
+
+function startOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
+}
+
+function endOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
+}
+
+function subMonths(d: Date, n: number): Date {
+  // Safe month subtraction
+  const newDate = new Date(d.getFullYear(), d.getMonth() - n, 1);
+  const maxDays = new Date(newDate.getFullYear(), newDate.getMonth() + 1, 0).getDate();
+  newDate.setDate(Math.min(d.getDate(), maxDays));
+  return newDate;
+}
+
+function subDays(d: Date, n: number): Date {
+  return new Date(d.getTime() - n * 24 * 60 * 60 * 1000);
+}
+
+function getMonday(d: Date): Date {
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  return new Date(d.getFullYear(), d.getMonth(), diff, 0, 0, 0, 0);
+}
+
+// ----------------------------------------------------
+// Categorization Helpers matching raw columns
+// ----------------------------------------------------
+const isRT = (type: string) => {
+  const t = String(type || '').toUpperCase();
+  return t.includes('RT') || t.includes('PAID') || t.includes('REFUNDABLE');
+};
+const isNRT = (type: string) => {
+  const t = String(type || '').toUpperCase();
+  return t.includes('NRT');
+};
+const isPVT = (type: string) => {
+  const t = String(type || '').toUpperCase();
+  return t.includes('PVT') || t.includes('PRIVATE');
+};
+const isGCBL = (type: string) => {
+  const t = String(type || '').toUpperCase();
+  return t.includes('GCBL') || (t.includes('GREEN') && t.includes('BL')) || (t.includes('GC') && t.includes('BL'));
+};
+
+// ----------------------------------------------------
+// Core Calculation Logic
+// ----------------------------------------------------
+export function calculateOperationsMatrix(rows: CaseRow[]): {
+  columns: { key: string; label: string; subLabel: string }[];
+  rows: MatrixRow[];
+} {
+  // 1. Set baseDate to yesterday (today - 1 day) relative to system local time
+  const baseDate = setStartOfDay(subDays(new Date(), 1));
+
+  // Helper formatting for dates
+  const formatDateLabel = (d: Date) => {
+    return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+  };
+
+  // 2. Define Timeframes MTD and Last MTD (relative to yesterday)
+  const MTD_Start = startOfMonth(baseDate);
+  const MTD_End = setEndOfDay(baseDate);
+
+  const prevMonthBase = subMonths(baseDate, 1);
+  const LastMTD_Start = startOfMonth(prevMonthBase);
+  // Last MTD goes up to the same relative day of the month as yesterday
+  const LastMTD_End = setEndOfDay(new Date(prevMonthBase.getFullYear(), prevMonthBase.getMonth(), Math.min(baseDate.getDate(), prevMonthBase.getDate())));
+
+  const LLM_Start = startOfMonth(prevMonthBase);
+  const LLM_End = endOfMonth(prevMonthBase);
+
+  const W_Start = getMonday(baseDate);
+  const W_End = setEndOfDay(baseDate);
+
+  const LW_Start = getMonday(subDays(baseDate, 7));
+  const LW_End = setEndOfDay(addDays(LW_Start, 6));
+  function addDays(d: Date, n: number): Date {
+    return new Date(d.getTime() + n * 24 * 60 * 60 * 1000);
+  }
+
+  const LLW_Start = getMonday(subDays(baseDate, 14));
+  const LLW_End = setEndOfDay(addDays(LLW_Start, 6));
+
+  const D1_Date = baseDate;
+  const D2_Date = subDays(baseDate, 1);
+  const D3_Date = subDays(baseDate, 2);
+
+  const timeframes = [
+    { key: 'mtd', label: 'MTD', subLabel: `${formatDateLabel(MTD_Start)} - ${formatDateLabel(MTD_End)}`, start: MTD_Start, end: MTD_End },
+    { key: 'last_mtd', label: 'Last MTD', subLabel: `${formatDateLabel(LastMTD_Start)} - ${formatDateLabel(LastMTD_End)}`, start: LastMTD_Start, end: LastMTD_End },
+    { key: 'llm', label: 'LLM', subLabel: `${formatDateLabel(LLM_Start)} - ${formatDateLabel(LLM_End)}`, start: LLM_Start, end: LLM_End },
+    { key: 'w', label: 'W', subLabel: `${formatDateLabel(W_Start)} - ${formatDateLabel(W_End)}`, start: W_Start, end: W_End },
+    { key: 'lw', label: 'LW', subLabel: `${formatDateLabel(LW_Start)} - ${formatDateLabel(LW_End)}`, start: LW_Start, end: LW_End },
+    { key: 'llw', label: 'LLW', subLabel: `${formatDateLabel(LLW_Start)} - ${formatDateLabel(LLW_End)}`, start: LLW_Start, end: LLW_End },
+    { key: 'd1', label: formatDateLabel(D1_Date), subLabel: 'Yesterday', start: setStartOfDay(D1_Date), end: setEndOfDay(D1_Date) },
+    { key: 'd2', label: formatDateLabel(D2_Date), subLabel: 'T-2', start: setStartOfDay(D2_Date), end: setEndOfDay(D2_Date) },
+    { key: 'd3', label: formatDateLabel(D3_Date), subLabel: 'T-3', start: setStartOfDay(D3_Date), end: setEndOfDay(D3_Date) },
+  ];
+
+  // 3. Columns configuration for UI
+  const columns = timeframes.map(tf => ({
+    key: tf.key,
+    label: tf.label,
+    subLabel: tf.subLabel
+  }));
+
+  // 4. Initialize rows mapping
+  const rowSpecs = [
+    { category: 'Overall', name: 'GD', isPercent: false, indent: true },
+    { category: 'Overall', name: 'ND', isPercent: false, indent: true },
+    { category: 'Overall', name: 'Unique Token (Inflow)', isPercent: false, indent: true },
+    { category: 'Overall', name: 'RT Share (Overall)', isPercent: true, indent: true },
+    { category: 'Overall', name: 'NRT Share (Overall)', isPercent: true, indent: true },
+    { category: 'Overall', name: 'PVT Share (Overall)', isPercent: true, indent: true },
+    { category: 'Overall', name: 'GCBL Share (Overall)', isPercent: true, indent: true },
+
+    { category: 'Token', name: 'Active token (Till End Date)', isPercent: false, indent: true },
+    { category: 'Token', name: 'Token Age', isPercent: false, indent: true },
+    { category: 'Token', name: 'RT Share', isPercent: true, indent: true },
+    { category: 'Token', name: 'RT Share (>4 Days)', isPercent: true, indent: true },
+
+    { category: 'Upgrade', name: 'NRT Upgrade', isPercent: true, indent: true },
+    { category: 'Upgrade', name: 'PVT Upgrade', isPercent: true, indent: true },
+
+    { category: 'CF', name: 'Login on Token base', isPercent: true, indent: true },
+    { category: 'CF', name: 'Login >=(T+1)', isPercent: true, indent: true },
+    { category: 'CF', name: 'CF attached (%)', isPercent: true, indent: true },
+
+    { category: 'Cancellation', name: 'Unique Token Cancellation %', isPercent: true, indent: true },
+    { category: 'Cancellation', name: 'RT - Token base', isPercent: true, indent: true },
+    { category: 'Cancellation', name: 'NRT - Token Base', isPercent: true, indent: true },
+    { category: 'Cancellation', name: 'PVT - Token Base', isPercent: true, indent: true },
+
+    { category: 'TAT', name: 'Delivery TAT', isPercent: false, indent: true },
+    { category: 'TAT', name: 'Cancellation TAT', isPercent: false, indent: true },
+  ];
+
+  const resultRows: MatrixRow[] = rowSpecs.map(spec => ({
+    category: spec.category,
+    name: spec.name,
+    isPercent: spec.isPercent,
+    indent: spec.indent,
+    values: {}
+  }));
+
+  // 5. Populate values for each timeframe
+  timeframes.forEach(tf => {
+
+    // Filter relevant rows for this timeframe
+    const inflowCases = rows.filter(r => {
+      if (!r.tokenDate) return false;
+      const d = parseDateString(r.tokenDate);
+      return d && d >= tf.start && d <= tf.end;
+    });
+
+    const deliveryCases = rows.filter(r => {
+      if (!r.actualDeliveryDate) return false;
+      const d = parseDateString(r.actualDeliveryDate);
+      return d && d >= tf.start && d <= tf.end;
+    });
+
+    const cancellationCases = rows.filter(r => {
+      if (!r.cancelReqDate) return false;
+      const d = parseDateString(r.cancelReqDate);
+      return d && d >= tf.start && d <= tf.end;
+    });
+
+    // Active tokens logic: Token date <= end date AND (actualDeliveryDate > end date or blank) AND (cancelReqDate > end date or blank)
+    const activeTokens = rows.filter(r => {
+      if (!r.tokenDate) return false;
+      const tD = parseDateString(r.tokenDate);
+      if (!tD || tD > tf.end) return false;
+
+      const delD = r.actualDeliveryDate ? parseDateString(r.actualDeliveryDate) : null;
+      if (delD && delD <= tf.end) return false;
+
+      const cancD = r.cancelReqDate ? parseDateString(r.cancelReqDate) : null;
+      if (cancD && cancD <= tf.end) return false;
+
+      return true;
+    });
+
+    // Compute metrics
+    const gd = deliveryCases.length;
+    const nd = gd - cancellationCases.length;
+    const inflowCount = inflowCases.length;
+
+    // Token Type splits
+    const rtInflow = inflowCases.filter(r => isRT(r.tokenType)).length;
+    const nrtInflow = inflowCases.filter(r => isNRT(r.tokenType)).length;
+    const pvtInflow = inflowCases.filter(r => isPVT(r.tokenType)).length;
+    const gcblInflow = inflowCases.filter(r => isGCBL(r.tokenType || r.leadDsChannel)).length;
+
+    const rtShare = inflowCount ? rtInflow / inflowCount : 0;
+    const nrtShare = inflowCount ? nrtInflow / inflowCount : 0;
+    const pvtShare = inflowCount ? pvtInflow / inflowCount : 0;
+    const gcblShare = inflowCount ? gcblInflow / inflowCount : 0;
+
+    // Active token calculations
+    const activeCount = activeTokens.length;
+    let avgAge = 0;
+    let activeRTCount = 0;
+    let activeRTOver4Count = 0;
+
+    if (activeCount > 0) {
+      let totalAge = 0;
+      activeTokens.forEach(r => {
+        const tD = parseDateString(r.tokenDate || '');
+        if (tD) {
+          const ageDiff = tf.end.getTime() - tD.getTime();
+          const ageDays = ageDiff / (1000 * 60 * 60 * 24);
+          totalAge += Math.max(0, ageDays);
+          
+          if (isRT(r.tokenType)) {
+            activeRTCount++;
+            if (ageDays > 4) activeRTOver4Count++;
+          }
+        }
+      });
+      avgAge = totalAge / activeCount;
+    }
+
+    // Upgrades
+    const nrtUpgrades = inflowCases.filter(r => isNRT(r.tokenTypeWithNrt || r.tokenType)).length;
+    const nrtUpgradePct = inflowCount ? nrtUpgrades / inflowCount : 0;
+
+    const pvtUpgrades = inflowCases.filter(r => isPVT(r.tokenType || r.tokenTypeWithNrt)).length;
+    const pvtUpgradePct = inflowCount ? pvtUpgrades / inflowCount : 0;
+
+    // Customer Finance (CF)
+    const loginCases = inflowCases.filter(r => {
+      return Boolean(r.latestLoginTime || r.sheetLoginTimestamp || r.sheetLoginPartner || r.leadStage === 'LOGIN_COMPLETED');
+    });
+    const loginCount = loginCases.length;
+    const loginPct = inflowCount ? loginCount / inflowCount : 0;
+
+    const loginT1 = loginCases.filter(r => {
+      const tD = parseDateString(r.tokenDate || '');
+      const lD = parseDateString(r.latestLoginTime || r.sheetLoginTimestamp || '');
+      if (tD && lD) {
+        return (lD.getTime() - tD.getTime()) >= 24 * 60 * 60 * 1000;
+      }
+      return false;
+    }).length;
+    const loginT1Pct = inflowCount ? loginT1 / inflowCount : 0;
+
+    const cfAttachedCases = inflowCases.filter(r => {
+      return Boolean(r.loanId || String(r.paymentType).toUpperCase().includes('PMAX') || String(r.paymentType).toUpperCase().includes('LOAN'));
+    }).length;
+    const cfAttachedPct = inflowCount ? cfAttachedCases / inflowCount : 0;
+
+    // Cohort-based cancellations (for percentages and TAT)
+    const cohortCancelledCases = inflowCases.filter(r => Boolean(r.cancelReqDate));
+    const cohortCancelPct = inflowCount ? cohortCancelledCases.length / inflowCount : 0;
+    
+    const cohortRtInflow = inflowCases.filter(r => isRT(r.tokenType)).length;
+    const cohortRtCancelled = cohortCancelledCases.filter(r => isRT(r.tokenType)).length;
+    const cohortRtCancelPct = cohortRtInflow ? cohortRtCancelled / cohortRtInflow : 0;
+
+    const cohortNrtInflow = inflowCases.filter(r => isNRT(r.tokenType)).length;
+    const cohortNrtCancelled = cohortCancelledCases.filter(r => isNRT(r.tokenType)).length;
+    const cohortNrtCancelPct = cohortNrtInflow ? cohortNrtCancelled / cohortNrtInflow : 0;
+
+    const cohortPvtInflow = inflowCases.filter(r => isPVT(r.tokenType)).length;
+    const cohortPvtCancelled = cohortCancelledCases.filter(r => isPVT(r.tokenType)).length;
+    const cohortPvtCancelPct = cohortPvtInflow ? cohortPvtCancelled / cohortPvtInflow : 0;
+
+    // TAT
+    let delTat = 0;
+    if (gd > 0) {
+      let sum = 0;
+      deliveryCases.forEach(r => {
+        const tD = parseDateString(r.tokenDate || '');
+        const dD = parseDateString(r.actualDeliveryDate || '');
+        if (tD && dD) {
+          sum += (dD.getTime() - tD.getTime()) / (1000 * 60 * 60 * 24);
+        }
+      });
+      delTat = sum / gd;
+    }
+
+    let cancTat = 0;
+    if (cohortCancelledCases.length > 0) {
+      let sum = 0;
+      cohortCancelledCases.forEach(r => {
+        const tD = parseDateString(r.tokenDate || '');
+        const cD = parseDateString(r.cancelReqDate || '');
+        if (tD && cD) {
+          sum += (cD.getTime() - tD.getTime()) / (1000 * 60 * 60 * 24);
+        }
+      });
+      cancTat = sum / cohortCancelledCases.length;
+    }
+
+    // Map computed values to correct row indices
+    resultRows.forEach(r => {
+      let val: number | string = 0;
+      switch (r.name) {
+        case 'GD': val = gd; break;
+        case 'ND': val = nd; break;
+        case 'Unique Token (Inflow)': val = inflowCount; break;
+        case 'RT Share (Overall)': val = rtShare; break;
+        case 'NRT Share (Overall)': val = nrtShare; break;
+        case 'PVT Share (Overall)': val = pvtShare; break;
+        case 'GCBL Share (Overall)': val = gcblShare; break;
+
+        case 'Active token (Till End Date)': val = activeCount; break;
+        case 'Token Age': val = Number(avgAge.toFixed(2)); break;
+        case 'RT Share': val = activeCount ? activeRTCount / activeCount : 0; break;
+        case 'RT Share (>4 Days)': val = activeRTCount ? activeRTOver4Count / activeRTCount : 0; break;
+
+        case 'NRT Upgrade': val = nrtUpgradePct; break;
+        case 'PVT Upgrade': val = pvtUpgradePct; break;
+
+        case 'Login on Token base': val = loginPct; break;
+        case 'Login >=(T+1)': val = loginT1Pct; break;
+        case 'CF attached (%)': val = cfAttachedPct; break;
+
+        case 'Unique Token Cancellation %': val = cohortCancelPct; break;
+        case 'RT - Token base': val = cohortRtCancelPct; break;
+        case 'NRT - Token Base': val = cohortNrtCancelPct; break;
+        case 'PVT - Token Base': val = cohortPvtCancelPct; break;
+
+        case 'Delivery TAT': val = Number(delTat.toFixed(2)); break;
+        case 'Cancellation TAT': val = Number(cancTat.toFixed(2)); break;
+      }
+      r.values[tf.key] = val;
+    });
+  });
+
+  return { columns, rows: resultRows };
+}
 </file>
 
 <file path="src/lib/supabaseClient.ts">
@@ -4812,6 +4321,441 @@ export default function App() {
       </footer>
     </div>
   );
+}
+</file>
+
+<file path="src/data/csvParser.ts">
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { CaseRow } from '../types';
+
+// Robust client-side CSV parser that handles quotes, line-breaks, and commas correctly
+export function parseCsvRaw(text: string): string[][] {
+  const lines: string[][] = [];
+  let row: string[] = [''];
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const nextChar = text[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        row[row.length - 1] += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      row.push('');
+    } else if ((char === '\r' || char === '\n') && !inQuotes) {
+      if (char === '\r' && nextChar === '\n') {
+        i++;
+      }
+      lines.push(row);
+      row = [''];
+    } else {
+      row[row.length - 1] += char;
+    }
+  }
+  if (row.length > 1 || row[0] !== '') {
+    lines.push(row);
+  }
+  return lines;
+}
+
+export function mapCsvRows(parsed: string[][]): CaseRow[] {
+  if (parsed.length < 2) {
+    throw new Error('Dataset must contain a header row and at least one data row.');
+  }
+
+  const rawHeaders = parsed[0].map(h => 
+    h.trim()
+     .toLowerCase()
+     .replace(/[\r\n\t]+/g, ' ')
+     .replace(/\s+/g, ' ')
+  );
+  
+  // Standard header mappings
+  const mappingTable: Record<string, keyof CaseRow> = {
+    'booking_id': 'bookingId',
+    'bookingid': 'bookingId',
+    'booking': 'bookingId',
+    'uid': 'uid',
+    'lead_id': 'leadId',
+    'leadid': 'leadId',
+    'user_id': 'userId',
+    'userid': 'userId',
+    'loan_id': 'loanId',
+    'loanid': 'loanId',
+    'appointmentid': 'appointmentId',
+    'appointment_id': 'appointmentId',
+    'car_reg_no': 'carRegNo',
+    'carregno': 'carRegNo',
+    'hub_code': 'hubCode',
+    'hubname': 'hubName',
+    'hub_name': 'hubName',
+    'city': 'city',
+    'assigned_rm': 'assignedRm',
+    'assignedrm': 'assignedRm',
+    'assigned_dc': 'assignedDc',
+    'assigneddc': 'assignedDc',
+    'lead_stage': 'leadStage',
+    'leadstage': 'leadStage',
+    'deal_status': 'dealStatus',
+    'dealstatus': 'dealStatus',
+    'token_type': 'tokenType',
+    'tokentype': 'tokenType',
+    'payment_type': 'paymentType',
+    'paymenttype': 'paymentType',
+    'funnel_stage': 'funnelStage',
+    'funnelstage': 'funnelStage',
+    'token_date': 'tokenDate',
+    'expected_delivery_date': 'expectedDeliveryDate',
+    'actual_delivery_date': 'actualDeliveryDate',
+    'amount_collected': 'amountCollected',
+    'amount_pending': 'amountPending',
+    'total_expected_amount': 'totalExpectedAmount',
+    'payment_percentage': 'paymentPercentage',
+    'ready to deliver?': 'readyToDeliver',
+    'ready_to_deliver': 'readyToDeliver',
+    'expected od completion date': 'expectedOdCompletionDate',
+    'expected_od_completion_date': 'expectedOdCompletionDate',
+    'edd date (reviewer)': 'eddReviewerDate',
+    'edd_reviewer_date': 'eddReviewerDate',
+    'remarks - everyone (tl/rm/fs/hh)': 'reviewerRemarks',
+    'remarks': 'reviewerRemarks',
+    'reviewer_remarks': 'reviewerRemarks',
+    'make': 'make',
+    'model': 'model',
+    'variant': 'variant',
+    'task_bucket': 'taskBucket',
+    'taskbucket': 'taskBucket',
+    'reason & data pointer': 'reasonPointer',
+    'reason_pointer': 'reasonPointer',
+
+    // Cancellation mappings
+    'cancel_req_date': 'cancelReqDate',
+    'cancelreqdate': 'cancelReqDate',
+    'cancellation_date': 'cancellationDate',
+    'cancellationdate': 'cancellationDate',
+    'auto_cancelled_flag': 'autoCancelledFlag',
+    'autocancelledflag': 'autoCancelledFlag',
+    'token_auto_cancellation_extended_date': 'tokenAutoCancellationExtendedDate',
+    'tokenautocancellationextendeddate': 'tokenAutoCancellationExtendedDate',
+    'reason': 'cancelReason',
+    'cancelreason': 'cancelReason',
+    'cancel_reason': 'cancelReason',
+
+    // Sheet Status mappings
+    'sheetloginpartner': 'sheetLoginPartner',
+    'sheet_login_partner': 'sheetLoginPartner',
+    'sheetfinalstatus': 'sheetFinalStatus',
+    'sheet_final_status': 'sheetFinalStatus',
+    'sheetyardname': 'sheetYardName',
+    'sheet_yard_name': 'sheetYardName',
+    'sheetyardcity': 'sheetYardCity',
+    'sheet_yard_city': 'sheetYardCity',
+    'sheetdetailedremarks': 'sheetDetailedRemarks',
+    'sheet_detailed_remarks': 'sheetDetailedRemarks',
+    'sheetlastdisbursalactivity': 'sheetLastDisbursalActivity',
+    'sheet_last_disbursal_activity': 'sheetLastDisbursalActivity',
+    'sheetlogintimestamp': 'sheetLoginTimestamp',
+    'sheet_login_timestamp': 'sheetLoginTimestamp',
+    // Form Status mappings
+    'formriskbucket': 'formRiskBucket',
+    'form_risk_bucket': 'formRiskBucket',
+    'formfinalstatus': 'formFinalStatus',
+    'form_final_status': 'formFinalStatus',
+    'formcasestage': 'formCaseStage',
+    'form_case_stage': 'formCaseStage',
+    'formfinalremarks': 'formFinalRemarks',
+    'form_final_remarks': 'formFinalRemarks',
+    'formdeviationrequired': 'formDeviationRequired',
+    'form_deviation_required': 'formDeviationRequired',
+    'formdetailedask': 'formDetailedAsk',
+    'form_detailed_ask': 'formDetailedAsk',
+    // Gmail pendency status
+    'gmail_summary': 'gmailSummary',
+    'gmailsummary': 'gmailSummary',
+    'gmail_pendency_status': 'gmailPendencyStatus',
+    'gmailpendencystatus': 'gmailPendencyStatus',
+    'gmail_pendency_reason': 'gmailPendencyReason',
+    'gmailpendencyreason': 'gmailPendencyReason',
+    'gmail_next_action': 'gmailNextAction',
+    'gmailnextaction': 'gmailNextAction',
+    'gmail_pendency_source': 'gmailPendencySource',
+    'gmailpendencysource': 'gmailPendencySource',
+    'gmail_pendency_date': 'gmailPendencyDate',
+    'gmailpendencydate': 'gmailPendencyDate',
+    'confidence_score': 'confidenceScore',
+    'confidencescore': 'confidenceScore',
+    'ml_estimated_delivery_date': 'mlEstimatedDeliveryDate',
+    'mlestimateddeliverydate': 'mlEstimatedDeliveryDate',
+    'latest_remark': 'latestRemark',
+    'latestremark': 'latestRemark',
+    'latest_remark_by': 'latestRemarkBy',
+    'latestremarkby': 'latestRemarkBy',
+    'latest_remark_date': 'latestRemarkDate',
+    'latestremarkdate': 'latestRemarkDate',
+
+    // Underwriting / Credit Risk / Safety Flags
+    'rc_case_type': 'rcCaseType',
+    'rccasetype': 'rcCaseType',
+    'income_source': 'incomeSource',
+    'incomesource': 'incomeSource',
+    'ogl_pincode_flag': 'oglPincodeFlag',
+    'oglpincodeflag': 'oglPincodeFlag',
+    'ogl_pincode_check': 'oglPincodeFlag',
+    'credit_ltv': 'creditLtv',
+    'creditltv': 'creditLtv',
+    'ltv': 'creditLtv',
+    'last_risk_bucket': 'lastRiskBucket',
+    'lastriskbucket': 'lastRiskBucket',
+    'ds_roi': 'dsRoi',
+    'dsroi': 'dsRoi',
+    'final_roi': 'finalRoi',
+    'finalroi': 'finalRoi',
+    'credit_rejection_reason': 'creditRejectionReason',
+    'creditrejectionreason': 'creditRejectionReason',
+    'credit_rejection_sub_reason': 'creditRejectionSubReason',
+    'creditrejectionsubreason': 'creditRejectionSubReason',
+    'diligence_rejection_reason': 'diligenceRejectionReason',
+    'diligencerejectionreason': 'diligenceRejectionReason',
+    'diligence_rejection_sub_reason': 'diligenceRejectionSubReason',
+    'diligencerejectionsubreason': 'diligenceRejectionSubReason',
+    'red_channel_reason': 'redChannelReason',
+    'redchannelreason': 'redChannelReason',
+    'soft_derog_flag': 'softDerogFlag',
+    'softderogflag': 'softDerogFlag',
+    'hard_derog_flag': 'hardDerogFlag',
+    'hardderogflag': 'hardDerogFlag',
+    'non_ogl': 'nonOgl',
+    'nonogl': 'nonOgl',
+    'contact_number': 'contactNumber',
+    'contactnumber': 'contactNumber',
+    'red_channel_flag': 'redChannelFlag',
+    'redchannelflag': 'redChannelFlag',
+    'tof_rejected_flag': 'tofRejectedFlag',
+    'tofrejectedflag': 'tofRejectedFlag',
+    'deviation_mitigation_comment': 'deviationMitigationComment',
+    'deviationmitigationcomment': 'deviationMitigationComment',
+    'bajaj_segment': 'bajajSegment',
+    'bajajsegment': 'bajajSegment',
+    'company_name': 'companyName',
+    'companyname': 'companyName',
+    'lead_ds_channel': 'leadDsChannel',
+    'leaddschannel': 'leadDsChannel',
+    'foir': 'foir',
+
+    // Milestones / Journey timestamps
+    'latest_lead_creation_timestamp': 'latestLeadCreationTimestamp',
+    'latestleadcreationtimestamp': 'latestLeadCreationTimestamp',
+    'latest_login_time': 'latestLoginTime',
+    'latestlogintime': 'latestLoginTime',
+    'latest_credit_assessed_timestamp': 'latestCreditAssessedTimestamp',
+    'latestcreditassessedtimestamp': 'latestCreditAssessedTimestamp',
+    'latest_diligence_assessed_timestamp': 'latestDiligenceAssessedTimestamp',
+    'latestdiligenceassessedtimestamp': 'latestDiligenceAssessedTimestamp',
+    'latest_fcu_assessed_timestamp': 'latestFcuAssessedTimestamp',
+    'latestfcuassessedtimestamp': 'latestFcuAssessedTimestamp',
+    'tnc_generated_date': 'tncGeneratedDate',
+    'tncgenerateddate': 'tncGeneratedDate',
+    'tnc_accepted_timestamp': 'tncAcceptedTimestamp',
+    'tncacceptedtimestamp': 'tncAcceptedTimestamp',
+    'fcu_sent_date': 'fcuSentDate',
+    'fcusentdate': 'fcuSentDate',
+    'sent_to_rcu_timestamp': 'sentToRcuTimestamp',
+    'senttorcutimestamp': 'sentToRcuTimestamp',
+    'sent_to_ops_timestamp': 'sentToOpsTimestamp',
+    'senttoopstimestamp': 'sentToOpsTimestamp',
+    'submit_to_ops_timestamp': 'submitToOpsTimestamp',
+    'submittoopstimestamp': 'submitToOpsTimestamp',
+    'ops_disbursal_timestamp': 'opsDisbursalTimestamp',
+    'opsdisbursaltimestamp': 'opsDisbursalTimestamp',
+    'finance_disbursed_timestamp': 'financeDisbursedTimestamp',
+    'financedisbursedtimestamp': 'financeDisbursedTimestamp',
+
+    // Calling / CRM Outbound Metrics
+    'last_call_at': 'lastCallAt',
+    'lastcallat': 'lastCallAt',
+    'followup_at': 'followupAt',
+    'followupat': 'followupAt',
+    'total_call_attempts': 'totalCallAttempts',
+    'totalcallattempts': 'totalCallAttempts',
+    'total_connected_calls': 'totalConnectedCalls',
+    'totalconnectedcalls': 'totalConnectedCalls',
+    'last_call_connected_sp': 'lastCallConnectedSp',
+    'lastcallconnectedsp': 'lastCallConnectedSp',
+    'dialed_operator_sp': 'lastCallConnectedSp',
+    'dialed_operator': 'lastCallConnectedSp',
+    'call_duration': 'callDuration',
+    'callduration': 'callDuration',
+    'latest_call_outcome': 'latestCallOutcome',
+    'latestcalloutcome': 'latestCallOutcome',
+    'last_disposition': 'lastDisposition',
+    'lastdisposition': 'lastDisposition'
+  };
+
+  const result: CaseRow[] = [];
+
+  for (let i = 1; i < parsed.length; i++) {
+    const line = parsed[i];
+    if (line.every(cell => !cell.trim())) continue; // Skip blank lines
+
+    // Create standard empty row object
+    const rowObj: Record<string, any> = {
+      _rowNumber: i + 1,
+      bookingId: "B-INFO-" + (1000 + i),
+      uid: "UID-CSV-" + i,
+      leadId: "",
+      userId: "",
+      loanId: "",
+      appointmentId: "",
+      carRegNo: "",
+      hubCode: "",
+      hubName: "Hub " + i,
+      city: "Delhi-NCR",
+      assignedRm: "System RM",
+      assignedDc: "",
+      caAssignedLms: "",
+      sm: "",
+      tm: "",
+      rm: "",
+      dealStatus: "ACTIVE",
+      dealStatusUpdatedAt: "",
+      cancellationDate: "",
+      autoCancelledFlag: "false",
+      tokenAutoCancellationExtendedDate: "",
+      leadStage: "ACTIVE_TOKEN",
+      leadStatus: "ACTIVE_TOKEN",
+      tokenType: "PAID_TOKEN",
+      tokenTypeWithNrt: "",
+      paymentType: "CASH",
+      funnelStage: "TOKEN_PAID",
+      tokenDate: "",
+      tokenDateTime: "",
+      bookingDate: "",
+      expectedDeliveryDate: "",
+      expectedDeliveryTime: "",
+      actualDeliveryDate: "",
+      lastPaymentDate: "",
+      latestRemarkDate: "",
+      updatedAt: "",
+      cancelReqDate: "",
+      deliveryStatus: "",
+      deliverySegment: "",
+      onDemandStatus: "",
+      amountCollected: 0,
+      amountPending: 0,
+      totalExpectedAmount: 0,
+      agreedSalesPrice: 0,
+      paymentPercentage: 0,
+      readyToDeliver: "",
+      expectedOdCompletionDate: "",
+      eddReviewerDate: "",
+      reviewerRemarks: "",
+      make: "",
+      model: "",
+      variant: "",
+      manufacturingYear: "",
+      rcCaseType: "FRESH",
+      incomeSource: "",
+      oglPincodeFlag: "",
+      creditLtv: "",
+      lastRiskBucket: "",
+      dsRoi: "",
+      finalRoi: "",
+      creditRejectionReason: "",
+      creditRejectionSubReason: "",
+      diligenceRejectionReason: "",
+      diligenceRejectionSubReason: "",
+      redChannelReason: "",
+      softDerogFlag: "false",
+      hardDerogFlag: "false",
+      nonOgl: "false",
+      contactNumber: "",
+      redChannelFlag: "N",
+      tofRejectedFlag: "N",
+      deviationMitigationComment: "",
+      bajajSegment: "",
+      companyName: "",
+      leadDsChannel: "",
+      foir: "",
+      latestLeadCreationTimestamp: "",
+      latestLoginTime: "",
+      latestCreditAssessedTimestamp: "",
+      latestDiligenceAssessedTimestamp: "",
+      latestFcuAssessedTimestamp: "",
+      tncGeneratedDate: "",
+      tncAcceptedTimestamp: "",
+      fcuSentDate: "",
+      sentToRcuTimestamp: "",
+      sentToOpsTimestamp: "",
+      submitToOpsTimestamp: "",
+      opsDisbursalTimestamp: "",
+      financeDisbursedTimestamp: "",
+      lastCallAt: "",
+      followupAt: "",
+      totalCallAttempts: 0,
+      totalConnectedCalls: 0,
+      lastCallConnectedSp: "",
+      callDuration: "",
+      latestCallOutcome: "",
+      lastDisposition: "",
+      latestRemark: "",
+      latestRemarkBy: "",
+      isActive: "true",
+      isAlertVisible: "true",
+      cancelReason: "",
+      taskBucket: "",
+      reasonPointer: "",
+      sheetLoginPartner: "",
+      sheetFinalStatus: "",
+      sheetYardName: "",
+      sheetYardCity: "",
+      sheetDetailedRemarks: "",
+      sheetLastDisbursalActivity: "",
+      sheetLoginTimestamp: "",
+      formRiskBucket: "",
+      formFinalStatus: "",
+      formCaseStage: "",
+      formFinalRemarks: "",
+      formDeviationRequired: "No",
+      formDetailedAsk: "",
+      gmailSummary: "",
+      gmailPendencyStatus: "",
+      gmailPendencyReason: "",
+      gmailNextAction: "",
+      gmailPendencySource: "",
+      gmailPendencyDate: "",
+      confidenceScore: "",
+      mlEstimatedDeliveryDate: ""
+    };
+
+    // Map values dynamically
+    line.forEach((cell, cellIndex) => {
+      const headerName = rawHeaders[cellIndex];
+      if (!headerName) return;
+
+      const key = mappingTable[headerName] || mappingTable[headerName.replace(/[\s_]/g, '')];
+      if (key) {
+        const rawVal = cell.trim();
+        if (key === 'amountCollected' || key === 'amountPending' || key === 'totalExpectedAmount' || key === 'paymentPercentage' || key === 'totalCallAttempts' || key === 'totalConnectedCalls') {
+          rowObj[key] = parseFloat(rawVal.replace(/[^0-9.-]/g, '')) || 0;
+        } else {
+          rowObj[key] = rawVal;
+        }
+      }
+    });
+
+    result.push(rowObj as CaseRow);
+  }
+
+  return result;
 }
 </file>
 
