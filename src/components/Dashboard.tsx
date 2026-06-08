@@ -509,13 +509,8 @@ export default function Dashboard({
       }
     }
 
-    if (ignoreKey !== 'cancelReason' && filters.cancelReason && filters.cancelReason !== 'All') {
-      if ((row.cancelReason || '') !== filters.cancelReason) return false;
-    }
-
-    if (ignoreKey !== 'leadDsChannel' && filters.leadDsChannel && filters.leadDsChannel !== 'All') {
-      if ((row.leadDsChannel || '') !== filters.leadDsChannel) return false;
-    }
+    if (ignoreKey !== 'cancelReason' && !matchMulti(filters.cancelReason, row.cancelReason)) return false;
+    if (ignoreKey !== 'leadDsChannel' && !matchMulti(filters.leadDsChannel, row.leadDsChannel)) return false;
 
     return true;
   }, [filters, eddLabels]);
@@ -948,8 +943,36 @@ export default function Dashboard({
   const isGmailActive = filters.gmailPendencyStatus !== 'All';
   const isTaskActive = filters.taskBucket !== 'All';
   const isDerivedActive = filters.derivedStatus !== 'All';
+  const isCancelReasonActive = filters.cancelReason !== 'All';
+  const isLeadDsChannelActive = filters.leadDsChannel !== 'All';
   const isDateFieldActive = filters.dateField !== 'All';
   const isDateRangeActive = isDateFieldActive && (filters.startDate !== '' || filters.endDate !== '' || filters.filterBlankDates);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (isCityActive) count++;
+    if (isHubActive) count++;
+    if (isTokenTypeActive) count++;
+    if (isRmActive) count++;
+    if (isDcActive) count++;
+    if (isPaymentActive) count++;
+    if (isLeadStageActive) count++;
+    if (isFunnelStageActive) count++;
+    if (isSheetStatusActive) count++;
+    if (isFormStatusActive) count++;
+    if (isGmailActive) count++;
+    if (isTaskActive) count++;
+    if (isDerivedActive) count++;
+    if (isCancelReasonActive) count++;
+    if (isLeadDsChannelActive) count++;
+    if (isDateRangeActive) count++;
+    return count;
+  }, [
+    isCityActive, isHubActive, isTokenTypeActive, isRmActive, isDcActive,
+    isPaymentActive, isLeadStageActive, isFunnelStageActive, isSheetStatusActive,
+    isFormStatusActive, isGmailActive, isTaskActive, isDerivedActive,
+    isCancelReasonActive, isLeadDsChannelActive, isDateRangeActive
+  ]);
 
   // Extracted reusable table component to render at the bottom of multiple tabs
   const renderInteractiveTable = () => {
@@ -969,9 +992,9 @@ export default function Dashboard({
             <button
               onClick={() => {
                 const csvContent = [
-                  ["Booking ID", "City", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "Expected Delivery Date (System)", "Reviewer EDD", "Ready", "OD Completion", "Remarks"].join(","),
+                  ["Booking ID", "City", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"].join(","),
                   ...filteredRows.map(row => [
-                    row.bookingId, row.city, row.hubName, row.assignedRm, row.tokenType, row.paymentType, row.leadStage, row.taskBucket, row.expectedDeliveryDate, row.eddReviewerDate, row.readyToDeliver, row.expectedOdCompletionDate, row.reviewerRemarks
+                    row.bookingId, row.city, row.hubName, row.assignedRm, row.tokenType, row.paymentType, row.leadStage, row.taskBucket, row.expectedDeliveryDate, row.readyToDeliver, row.expectedOdCompletionDate, row.reviewerRemarks
                   ].map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(','))
                 ].join('\n');
                 const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -999,8 +1022,7 @@ export default function Dashboard({
                 <th className="p-3.5 font-semibold">Payment Type</th>
                 <th className="p-3.5 font-semibold">Lead Stage</th>
                 <th className="p-3.5 font-semibold">Task List</th>
-                <th className="p-3.5 font-semibold">Expected EDD (System)</th>
-                <th className="p-3.5 font-semibold">Reviewer EDD</th>
+                <th className="p-3.5 font-semibold">Expected EDD</th>
                 <th className="p-3.5 font-semibold">Ready?</th>
                 <th className="p-3.5 font-semibold">OD Completion</th>
                 <th className="p-3.5 text-right pr-5 font-semibold">Control Action</th>
@@ -1009,7 +1031,7 @@ export default function Dashboard({
             <tbody className="divide-y divide-slate-100 text-slate-600">
               {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="p-10 text-center text-slate-400 font-medium">
+                  <td colSpan={11} className="p-10 text-center text-slate-400 font-medium">
                     No matching CARS24 rows fit the specified operational handshake filters.
                   </td>
                 </tr>
@@ -1088,9 +1110,6 @@ export default function Dashboard({
                         ) : (
                           <span className="text-slate-400 italic">Missing</span>
                         )}
-                      </td>
-                      <td className="p-3.5 font-mono">
-                        {row.eddReviewerDate || <span className="text-slate-400 italic">-</span>}
                       </td>
                       <td className="p-3.5 font-bold">
                         {row.readyToDeliver || <span className="text-slate-400 font-normal">-</span>}
@@ -1208,7 +1227,7 @@ export default function Dashboard({
             Operational Handshake Filters
           </h3>
           <span className="text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full font-bold">
-            12 Active Mappings
+            {activeFiltersCount} Active Mappings
           </span>
         </div>
 
@@ -1374,6 +1393,32 @@ export default function Dashboard({
             isOpen={openDropdown === 'derivedStatus'}
             onToggle={() => setOpenDropdown(p => p === 'derivedStatus' ? null : 'derivedStatus')}
             optionLabels={derivedLabels}
+          />
+
+          {/* Cancellation Reason */}
+          <MultiSelectDropdown
+            label="Cancellation Reason"
+            options={dynamicFilterOptions.cancelReasons}
+            selectedString={filters.cancelReason}
+            onChange={val => setFilters(p => ({ ...p, cancelReason: val }))}
+            placeholder="All Reasons"
+            showBlank={true}
+            isActive={isCancelReasonActive}
+            isOpen={openDropdown === 'cancelReason'}
+            onToggle={() => setOpenDropdown(p => p === 'cancelReason' ? null : 'cancelReason')}
+          />
+
+          {/* DS Channel */}
+          <MultiSelectDropdown
+            label="DS Channel"
+            options={dynamicFilterOptions.leadDsChannels}
+            selectedString={filters.leadDsChannel}
+            onChange={val => setFilters(p => ({ ...p, leadDsChannel: val }))}
+            placeholder="All Channels"
+            showBlank={true}
+            isActive={isLeadDsChannelActive}
+            isOpen={openDropdown === 'leadDsChannel'}
+            onToggle={() => setOpenDropdown(p => p === 'leadDsChannel' ? null : 'leadDsChannel')}
           />
 
           {/* Date Selector Field */}
