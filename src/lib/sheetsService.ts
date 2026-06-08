@@ -67,9 +67,18 @@ export async function fetchSheetDataDirect(
       throw new Error('Specific sheet ranges did not return target rows. Check if tab is empty.');
     }
 
-    // Clean values safely to strings (prevents trim() crashing on double/number raw JSON metrics)
+    // Clean values safely to strings and strip all unicode whitespace
+    // (non-breaking spaces, zero-width spaces etc. that .trim() alone misses)
+    const normalizeCell = (cell: any): string => {
+      if (cell === null || cell === undefined) return '';
+      return String(cell)
+        .replace(/^[\s\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]+/, '')
+        .replace(/[\s\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]+$/, '')
+        .replace(/[\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]/g, ' ')
+        .replace(/  +/g, ' ');
+    };
     const stringifiedValues: string[][] = data.values.map((rowArr: any[]) =>
-      rowArr.map((cell: any) => (cell === null || cell === undefined ? '' : String(cell).trim()))
+      rowArr.map(normalizeCell)
     );
 
     const mapped = mapCsvRows(stringifiedValues);

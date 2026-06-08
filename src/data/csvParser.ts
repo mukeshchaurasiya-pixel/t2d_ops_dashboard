@@ -40,6 +40,19 @@ export function parseCsvRaw(text: string): string[][] {
   return lines;
 }
 
+
+/**
+ * Strips ALL whitespace — including non-breaking spaces (\u00A0), zero-width spaces (\u200B),
+ * and other unicode whitespace that JS .trim() misses.
+ */
+function normalizeStr(val: string): string {
+  return val
+    .replace(/^[\s\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]+/g, '')
+    .replace(/[\s\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]+$/g, '')
+    .replace(/[\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]/g, ' ')  // replace mid-string invisible chars with regular space
+    .replace(/  +/g, ' ');  // collapse double spaces
+}
+
 export function mapCsvRows(parsed: string[][]): CaseRow[] {
   if (parsed.length < 2) {
     throw new Error('Dataset must contain a header row and at least one data row.');
@@ -416,7 +429,7 @@ export function mapCsvRows(parsed: string[][]): CaseRow[] {
 
       const key = mappingTable[headerName] || mappingTable[headerName.replace(/[\s_]/g, '')];
       if (key) {
-        const rawVal = cell.trim();
+        const rawVal = normalizeStr(cell.trim());
         if (key === 'amountCollected' || key === 'amountPending' || key === 'totalExpectedAmount' || key === 'paymentPercentage' || key === 'totalCallAttempts' || key === 'totalConnectedCalls') {
           rowObj[key] = parseFloat(rawVal.replace(/[^0-9.-]/g, '')) || 0;
         } else {

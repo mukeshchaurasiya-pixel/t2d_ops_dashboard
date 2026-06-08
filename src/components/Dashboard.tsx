@@ -53,7 +53,7 @@ function MultiSelectDropdown({
 }: MultiSelectDropdownProps) {
   const selectedList = useMemo(() => {
     if (selectedString === 'All') return [];
-    return selectedString.split(',').map(s => s.trim()).filter(Boolean);
+    return selectedString.split('|||').map(s => s.trim()).filter(Boolean);
   }, [selectedString]);
 
   const handleToggleOption = (val: string) => {
@@ -69,7 +69,7 @@ function MultiSelectDropdown({
     if (newList.length === 0) {
       onChange('All');
     } else {
-      onChange(newList.join(','));
+      onChange(newList.join('|||'));
     }
   };
 
@@ -269,7 +269,7 @@ export default function Dashboard({
 
   const matchMulti = (filterVal: string, rowVal: any) => {
     if (!filterVal || filterVal === 'All') return true;
-    const selected = filterVal.split(',').map(s => s.trim().toLowerCase());
+    const selected = filterVal.split('|||').map(s => s.trim().toLowerCase());
     const rowStr = String(rowVal || '').trim().toLowerCase();
     
     if (selected.includes('blank')) {
@@ -385,7 +385,7 @@ export default function Dashboard({
     if (ignoreKey !== 'gmailPendencyStatus' && !matchMulti(filters.gmailPendencyStatus, row.gmailPendencyStatus)) return false;
 
     if (ignoreKey !== 'taskBucket' && filters.taskBucket !== 'All') {
-      const selectedTasks = filters.taskBucket.split(',').map(s => s.trim().toLowerCase());
+      const selectedTasks = filters.taskBucket.split('|||').map(s => s.trim().toLowerCase());
       const rowTasks = splitTasks(row.taskBucket || '').map(s => s.trim().toLowerCase());
       
       const matchesBlank = selectedTasks.includes('blank') && rowTasks.length === 0;
@@ -395,7 +395,7 @@ export default function Dashboard({
     }
 
     if (ignoreKey !== 'derivedStatus' && filters.derivedStatus !== 'All') {
-      const selectedIssues = filters.derivedStatus.split(',');
+      const selectedIssues = filters.derivedStatus.split('|||');
       const flags = getDerivedFlags(row);
       
       const matchesAny = selectedIssues.some(issue => {
