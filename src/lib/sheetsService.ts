@@ -21,6 +21,34 @@ export function getCleanSpreadsheetId(sheetId: string): string {
 }
 
 /**
+ * Normalizes cells by converting to string and stripping unicode / double spaces safely.
+ */
+export function normalizeCellStr(cell: any): string {
+  if (cell === null || cell === undefined) return '';
+  return String(cell)
+    .replace(/^[\s\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]+/, '')
+    .replace(/[\s\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]+$/, '')
+    .replace(/[\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]/g, ' ')
+    .replace(/  +/g, ' ');
+}
+
+/**
+ * Cleans header names by removing leading/trailing spaces, converting newlines/tabs to space,
+ * and collapsing multiple spaces to a single space, then lowercasing.
+ */
+export function cleanHeaderStr(h: any): string {
+  if (h === null || h === undefined) return '';
+  return String(h)
+    .replace(/^[\s\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]+/, '')
+    .replace(/[\s\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]+$/, '')
+    .replace(/[\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]/g, ' ')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/**
  * Direct fetch-and-parse handler for Google Sheet columns.
  * Supports secure Oauth 2.0 API V4 when accessToken is provided,
  * otherwise falls back to the public GViz CSV export endpoint.
@@ -67,18 +95,8 @@ export async function fetchSheetDataDirect(
       throw new Error('Specific sheet ranges did not return target rows. Check if tab is empty.');
     }
 
-    // Clean values safely to strings and strip all unicode whitespace
-    // (non-breaking spaces, zero-width spaces etc. that .trim() alone misses)
-    const normalizeCell = (cell: any): string => {
-      if (cell === null || cell === undefined) return '';
-      return String(cell)
-        .replace(/^[\s\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]+/, '')
-        .replace(/[\s\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]+$/, '')
-        .replace(/[\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]/g, ' ')
-        .replace(/  +/g, ' ');
-    };
     const stringifiedValues: string[][] = data.values.map((rowArr: any[]) =>
-      rowArr.map(normalizeCell)
+      rowArr.map(normalizeCellStr)
     );
 
     const mapped = mapCsvRows(stringifiedValues);
@@ -157,10 +175,11 @@ export async function writeActionablesToSheet(
   }
 
   const hData = await hRes.json();
-  const headers: string[] = hData.values?.[0] || [];
-  if (headers.length === 0) {
+  const rawHeaders: string[] = hData.values?.[0] || [];
+  if (rawHeaders.length === 0) {
     throw new Error('Could not read the header row (first line) of the Google Sheet.');
   }
+  const headers = rawHeaders.map(cleanHeaderStr);
 
   // Helper mapping dictionary
   const mappingTable: Record<string, string[]> = {
@@ -179,12 +198,12 @@ export async function writeActionablesToSheet(
     
     // Find the matching index in the sheet header list
     let matchedColIndex = -1;
-    const aliases = mappingTable[fieldKey] || [fieldKey.toLowerCase()];
+    const aliases = (mappingTable[fieldKey] || [fieldKey]).map(alias => cleanHeaderStr(alias));
 
     for (let c = 0; c < headers.length; c++) {
-      const headerText = headers[c].trim().toLowerCase().replace(/[\s_?]/g, '');
+      const headerText = headers[c].replace(/[\s_?]/g, '');
       const hasAlias = aliases.some(alias => 
-        alias.trim().toLowerCase().replace(/[\s_?]/g, '') === headerText
+        alias.replace(/[\s_?]/g, '') === headerText
       );
       if (hasAlias) {
         matchedColIndex = c;
@@ -264,12 +283,12 @@ export async function fetchSingleRowLatest(
   const hData = await hRes.json();
   const rData = await rRes.json();
 
-  const headers: string[] = hData.values?.[0] || [];
-  const rowCells: string[] = rData.values?.[0] || [];
-
-  if (headers.length === 0) {
+  const rawHeaders: string[] = hData.values?.[0] || [];
+  if (rawHeaders.length === 0) {
     throw new Error('Google Sheet headers are empty.');
   }
+  const headers = rawHeaders.map(cleanHeaderStr);
+  const rowCells: string[] = (rData.values?.[0] || []).map(normalizeCellStr);
 
   // Same mapping keys as mapCsvRows
   const mappingTable: Record<string, keyof CaseRow> = {
@@ -484,12 +503,12 @@ export async function fetchSingleRowLatest(
   const updatedFields: Partial<CaseRow> = {};
 
   rowCells.forEach((cell, cellIndex) => {
-    const headerName = headers[cellIndex]?.trim().toLowerCase();
+    const headerName = headers[cellIndex];
     if (!headerName) return;
 
-    const key = mappingTable[headerName] || mappingTable[headerName.replace(/[\s_]/g, '')];
+    const key = mappingTable[headerName] || mappingTable[headerName.replace(/[\s_?]/g, '')];
     if (key) {
-      (updatedFields as any)[key] = cell.trim();
+      (updatedFields as any)[key] = cell;
     }
   });
 

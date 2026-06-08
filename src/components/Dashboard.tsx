@@ -969,9 +969,9 @@ export default function Dashboard({
             <button
               onClick={() => {
                 const csvContent = [
-                  ["Booking ID", "City", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"].join(","),
+                  ["Booking ID", "City", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "Expected Delivery Date (System)", "Reviewer EDD", "Ready", "OD Completion", "Remarks"].join(","),
                   ...filteredRows.map(row => [
-                    row.bookingId, row.city, row.hubName, row.assignedRm, row.tokenType, row.paymentType, row.leadStage, row.taskBucket, row.expectedDeliveryDate, row.readyToDeliver, row.expectedOdCompletionDate, row.reviewerRemarks
+                    row.bookingId, row.city, row.hubName, row.assignedRm, row.tokenType, row.paymentType, row.leadStage, row.taskBucket, row.expectedDeliveryDate, row.eddReviewerDate, row.readyToDeliver, row.expectedOdCompletionDate, row.reviewerRemarks
                   ].map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(','))
                 ].join('\n');
                 const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -999,7 +999,8 @@ export default function Dashboard({
                 <th className="p-3.5 font-semibold">Payment Type</th>
                 <th className="p-3.5 font-semibold">Lead Stage</th>
                 <th className="p-3.5 font-semibold">Task List</th>
-                <th className="p-3.5 font-semibold">Expected EDD</th>
+                <th className="p-3.5 font-semibold">Expected EDD (System)</th>
+                <th className="p-3.5 font-semibold">Reviewer EDD</th>
                 <th className="p-3.5 font-semibold">Ready?</th>
                 <th className="p-3.5 font-semibold">OD Completion</th>
                 <th className="p-3.5 text-right pr-5 font-semibold">Control Action</th>
@@ -1008,7 +1009,7 @@ export default function Dashboard({
             <tbody className="divide-y divide-slate-100 text-slate-600">
               {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="p-10 text-center text-slate-400 font-medium">
+                  <td colSpan={12} className="p-10 text-center text-slate-400 font-medium">
                     No matching CARS24 rows fit the specified operational handshake filters.
                   </td>
                 </tr>
@@ -1020,7 +1021,21 @@ export default function Dashboard({
                     <tr key={row.bookingId} className="hover:bg-slate-50/50 transition-all">
                       <td className="p-3.5 pl-5">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-semibold text-slate-800">{row.bookingId}</span>
+                          {row.userId || row.uid ? (
+                            <a 
+                              href={`https://axle.c24.tech/b2c-lms/customer/${encodeURIComponent(row.userId || row.uid || '')}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-semibold text-indigo-600 hover:text-indigo-850 hover:underline flex items-center gap-0.5 transition-colors"
+                              title="View Customer WMF/LMS Profile"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {row.bookingId}
+                              <ExternalLink className="w-3 h-3 text-indigo-400" />
+                            </a>
+                          ) : (
+                            <span className="font-semibold text-slate-800">{row.bookingId}</span>
+                          )}
                           {c2dStats.c2dBookingIds.has(row.bookingId) && (
                             <span 
                               className="p-0.5 px-1.5 text-[8px] bg-rose-50 text-rose-600 border border-rose-100 rounded font-extrabold uppercase tracking-wider select-none shrink-0"
@@ -1030,20 +1045,6 @@ export default function Dashboard({
                             </span>
                           )}
                         </div>
-                        {(row.userId || row.uid) && (
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            <a 
-                              href={`https://axle.c24.tech/b2c-lms/customer/${encodeURIComponent(row.userId || row.uid || '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[10px] text-indigo-500 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 px-1.5 py-0.5 rounded font-mono font-medium flex items-center gap-0.5 transition-all"
-                              title="View Customer WMF/LMS Profile"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              WMFACT <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          </div>
-                        )}
                       </td>
                       <td className="p-3.5">{row.city}</td>
                       <td className="p-3.5 truncate max-w-[130px]" title={row.hubName}>
@@ -1087,6 +1088,9 @@ export default function Dashboard({
                         ) : (
                           <span className="text-slate-400 italic">Missing</span>
                         )}
+                      </td>
+                      <td className="p-3.5 font-mono">
+                        {row.eddReviewerDate || <span className="text-slate-400 italic">-</span>}
                       </td>
                       <td className="p-3.5 font-bold">
                         {row.readyToDeliver || <span className="text-slate-400 font-normal">-</span>}
