@@ -756,10 +756,6 @@ export default function Dashboard({
 
   const handleSaveActionables = () => {
     if (selectedRowIndex === null) return;
-    
-    // Mutation Warning check & Lock mechanism inside simulation
-    const confirmed = window.confirm("Save and synchronize these actionable fields directly back to Google Sheet?");
-    if (!confirmed) return;
 
     setSavingRow(true);
     try {
@@ -802,7 +798,6 @@ export default function Dashboard({
             });
           })
           .then(() => {
-            alert("Successfully saved and pushed changes directly to Google Sheets database row!");
             setRows(prevRows => {
               return prevRows.map(row => {
                 if (row.bookingId === targetRow.bookingId) {
@@ -830,8 +825,7 @@ export default function Dashboard({
             setSelectedRowIndex(null);
           });
       } else {
-        alert("Changes saved locally. Since you are in Anonymous Mode, please authorize under the Google Sheets tab to write back directly to the spreadsheet.");
-        // Save locally anyway
+        // Save locally (anonymous / demo mode)
         setRows(prevRows => {
           return prevRows.map(row => {
             if (row.bookingId === targetRow.bookingId) {
@@ -2137,7 +2131,24 @@ export default function Dashboard({
                           />
                         </div>
 
-                        {/* Latest Remark from GSheet Section (Placed Below and Fully Visible) */}
+                        {/* Save & Sync button — directly below Extra Remark */}
+                        <button
+                          type="button"
+                          onClick={handleSaveActionables}
+                          disabled={savingRow}
+                          className="w-full p-2.5 rounded-xl text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 disabled:opacity-50 transition-all active:scale-97 cursor-pointer flex items-center justify-center gap-1.5"
+                        >
+                          {savingRow ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              Synchronizing to GSheets Layer...
+                            </>
+                          ) : (
+                            "Save & Sync back to Spreadsheet"
+                          )}
+                        </button>
+
+                        {/* Latest Remark from GSheet Section */}
                         <div className="p-3 bg-slate-50 border border-slate-200/60 rounded-xl space-y-2 shadow-inner">
                           <div className="flex items-center justify-between">
                             <span className="block text-[10px] uppercase font-bold text-slate-500 tracking-wider">
@@ -2163,21 +2174,7 @@ export default function Dashboard({
                           )}
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={handleSaveActionables}
-                          disabled={savingRow}
-                          className="w-full p-2.5 rounded-xl text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 disabled:opacity-50 transition-all mt-2 active:scale-97 cursor-pointer flex items-center justify-center gap-1.5"
-                        >
-                          {savingRow ? (
-                            <>
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                              Synchronizing to GSheets Layer...
-                            </>
-                          ) : (
-                            "Save & Sync back to Spreadsheet"
-                          )}
-                        </button>
+
                       </div>
                     </div>
 
