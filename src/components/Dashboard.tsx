@@ -1094,10 +1094,12 @@ export default function Dashboard({
                       <td className="p-3.5 font-mono">
                         {row.tokenDate || <span className="text-slate-400 italic">-</span>}
                       </td>
-                      <td className="p-3.5 truncate max-w-[130px]" title={row.hubName}>
+                      <td className="p-3.5 whitespace-normal break-words max-w-[150px]" title={row.hubName}>
                         {row.hubName}
                       </td>
-                      <td className="p-3.5">{row.assignedRm}</td>
+                      <td className="p-3.5 whitespace-nowrap" title={row.assignedRm}>
+                        {row.assignedRm ? row.assignedRm.split('@')[0] : <span className="text-slate-400 italic">-</span>}
+                      </td>
                       <td className="p-3.5">
                         <span className="p-1 px-2 text-[10px] font-mono font-medium rounded-md bg-slate-100 text-slate-800">
                           {row.paymentType || 'CASH'}
