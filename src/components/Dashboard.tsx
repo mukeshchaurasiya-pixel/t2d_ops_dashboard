@@ -204,7 +204,8 @@ export default function Dashboard({
     searchQuery: '',
     eddStatus: 'All',
     cancelReason: 'All',
-    leadDsChannel: 'All'
+    leadDsChannel: 'All',
+    readyToDeliver: 'All'
   });
 
   // Cancelled-to-Delivered (C2D) conversions detection
@@ -513,6 +514,15 @@ export default function Dashboard({
 
     if (ignoreKey !== 'cancelReason' && !matchMulti(filters.cancelReason, row.cancelReason)) return false;
     if (ignoreKey !== 'leadDsChannel' && !matchMulti(filters.leadDsChannel, row.leadDsChannel)) return false;
+
+    if (ignoreKey !== 'readyToDeliver' && filters.readyToDeliver && filters.readyToDeliver !== 'All') {
+      const rtdVal = (row.readyToDeliver || '').trim();
+      if (filters.readyToDeliver === 'Blank') {
+        if (rtdVal !== '') return false;
+      } else {
+        if (rtdVal.toLowerCase() !== filters.readyToDeliver.toLowerCase()) return false;
+      }
+    }
 
     return true;
   }, [filters, eddLabels]);
@@ -1757,7 +1767,7 @@ export default function Dashboard({
               <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
                 Ready to Deliver?
               </h4>
-              {renderSvgBarChart('Ready to Deliver', charts.readyToDeliver, "bg-teal-500", undefined, {
+              {renderSvgBarChart('Ready to Deliver', charts.readyToDeliver, "bg-teal-500", "readyToDeliver", {
                 'Blank': 'bg-slate-400',
                 'Yes': 'bg-emerald-500',
                 'No': 'bg-rose-500',

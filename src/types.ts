@@ -203,6 +203,7 @@ export interface FilterState {
   eddStatus?: string;
   cancelReason?: string;
   leadDsChannel?: string;
+  readyToDeliver?: string;
 }
 
 export interface DashboardKpis {
