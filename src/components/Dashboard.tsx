@@ -1014,9 +1014,9 @@ export default function Dashboard({
             <button
               onClick={() => {
                 const csvContent = [
-                  ["Booking ID", "City", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"].join(","),
+                  ["Booking ID", "Loan ID", "Token Date", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"].join(","),
                   ...filteredRows.map(row => [
-                    row.bookingId, row.city, row.hubName, row.assignedRm, row.tokenType, row.paymentType, row.leadStage, row.taskBucket, row.expectedDeliveryDate, row.readyToDeliver, row.expectedOdCompletionDate, row.reviewerRemarks
+                    row.bookingId, row.loanId, row.tokenDate, row.hubName, row.assignedRm, row.tokenType, row.paymentType, row.leadStage, row.taskBucket, row.expectedDeliveryDate, row.readyToDeliver, row.expectedOdCompletionDate, row.reviewerRemarks
                   ].map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(','))
                 ].join('\n');
                 const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -1038,7 +1038,8 @@ export default function Dashboard({
             <thead>
               <tr className="bg-slate-50 font-sans border-b border-slate-100/80 text-slate-500 select-none">
                 <th className="p-3.5 pl-5 font-semibold">Booking ID</th>
-                <th className="p-3.5 font-semibold">City</th>
+                <th className="p-3.5 font-semibold">Loan ID</th>
+                <th className="p-3.5 font-semibold">Token Date</th>
                 <th className="p-3.5 font-semibold text-slate-600">Hub</th>
                 <th className="p-3.5 font-semibold">RM Name</th>
                 <th className="p-3.5 font-semibold">Payment Type</th>
@@ -1053,7 +1054,7 @@ export default function Dashboard({
             <tbody className="divide-y divide-slate-100 text-slate-600">
               {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="p-10 text-center text-slate-400 font-medium">
+                  <td colSpan={12} className="p-10 text-center text-slate-400 font-medium">
                     No matching CARS24 rows fit the specified operational handshake filters.
                   </td>
                 </tr>
@@ -1090,7 +1091,12 @@ export default function Dashboard({
                           )}
                         </div>
                       </td>
-                      <td className="p-3.5">{row.city}</td>
+                      <td className="p-3.5 font-mono text-slate-500">
+                        {row.loanId || <span className="text-slate-300">-</span>}
+                      </td>
+                      <td className="p-3.5 font-mono">
+                        {row.tokenDate || <span className="text-slate-400 italic">-</span>}
+                      </td>
                       <td className="p-3.5 truncate max-w-[130px]" title={row.hubName}>
                         {row.hubName}
                       </td>
