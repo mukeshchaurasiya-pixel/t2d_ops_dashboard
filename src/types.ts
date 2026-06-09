@@ -226,6 +226,7 @@ export interface DashboardCharts {
   hub: Record<string, number>;
   rm: Record<string, number>;
   dc: Record<string, number>;
+  readyToDeliver: Record<string, number>;
   tokenType: Record<string, number>;
   tokenTypeWithNrt: Record<string, number>;
   paymentType: Record<string, number>;

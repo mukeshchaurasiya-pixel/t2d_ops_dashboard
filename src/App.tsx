@@ -550,6 +550,7 @@ export default function App() {
             sheetId={sheetId}
             sheetName={sheetName}
             accessToken={demoMode ? null : accessToken}
+            user={user}
           />
         </div>
       </main>

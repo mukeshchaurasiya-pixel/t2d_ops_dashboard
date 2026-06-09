@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { CaseRow, FilterState, DashboardKpis, DashboardCharts } from '../types';
 import { getDerivedFlags, buildKpis, buildCharts, splitTasks } from '../data/mockData';
-import { auth } from '../lib/firebaseAuth';
+import { AppUser } from '../lib/firebaseAuth';
 import { parseDateString } from '../lib/dateUtils';
 import { calculateOperationsMatrix, MatrixRow } from '../lib/matrixCalculator';
 
@@ -24,6 +24,7 @@ interface DashboardProps {
   sheetId: string;
   sheetName: string;
   accessToken: string | null;
+  user: AppUser | null;
 }
 
 interface MultiSelectDropdownProps {
@@ -178,7 +179,8 @@ export default function Dashboard({
   filterOptions,
   sheetId,
   sheetName,
-  accessToken
+  accessToken,
+  user
 }: DashboardProps) {
   const [filters, setFilters] = useState<FilterState>({
     city: 'All',
@@ -750,85 +752,91 @@ export default function Dashboard({
     if (!confirmed) return;
 
     setSavingRow(true);
-    const targetRow = filteredRows[selectedRowIndex];
-    const timestampStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    try {
+      const targetRow = filteredRows[selectedRowIndex];
+      const timestampStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
-    // Concatenate extra comment/remark addition if filled
-    const originalRemarks = tempRowData.reviewerRemarks || '';
-    const newAddition = (tempRowData as any).newRemarkAddition || '';
-    
-    let combinedRemarks = originalRemarks;
-    if (newAddition.trim()) {
-      const emailSuffix = auth.currentUser?.email ? ` (${auth.currentUser.email.split('@')[0]})` : '';
-      const dateStr = new Date().toISOString().slice(0, 10);
-      const appendStr = originalRemarks 
-        ? `${originalRemarks}\n\n[${dateStr}${emailSuffix}]: ${newAddition.trim()}` 
-        : `[${dateStr}${emailSuffix}]: ${newAddition.trim()}`;
-      combinedRemarks = appendStr;
-    }
+      // Concatenate extra comment/remark addition if filled
+      const originalRemarks = tempRowData.reviewerRemarks || '';
+      const newAddition = (tempRowData as any).newRemarkAddition || '';
+      
+      let combinedRemarks = originalRemarks;
+      if (newAddition.trim()) {
+        const emailSuffix = user?.email ? ` (${user.email.split('@')[0]})` : '';
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const appendStr = originalRemarks 
+          ? `${originalRemarks}\n\n[${dateStr}${emailSuffix}]: ${newAddition.trim()}` 
+          : `[${dateStr}${emailSuffix}]: ${newAddition.trim()}`;
+        combinedRemarks = appendStr;
+      }
 
-    const updatedRow = {
-      ...targetRow,
-      ...tempRowData,
-      reviewerRemarks: combinedRemarks,
-      updatedAt: timestampStr
-    };
-    // Ensure transient state helper is removed from final row model
-    delete (updatedRow as any).newRemarkAddition;
+      const updatedRow = {
+        ...targetRow,
+        ...tempRowData,
+        reviewerRemarks: combinedRemarks,
+        updatedAt: timestampStr
+      };
+      // Ensure transient state helper is removed from final row model
+      delete (updatedRow as any).newRemarkAddition;
 
-    // Auto-save inline edits directly back to Google Sheet if we have authority
-    if (accessToken) {
-      import('../lib/sheetsService')
-        .then(({ writeActionablesToSheet }) => {
-          return writeActionablesToSheet(sheetId, sheetName, accessToken, targetRow._rowNumber, {
-            readyToDeliver: updatedRow.readyToDeliver,
-            expectedOdCompletionDate: updatedRow.expectedOdCompletionDate,
-            eddReviewerDate: updatedRow.eddReviewerDate,
-            reviewerRemarks: updatedRow.reviewerRemarks,
-            updatedAt: updatedRow.updatedAt
-          });
-        })
-        .then(() => {
-          alert("Successfully saved and pushed changes directly to Google Sheets database row!");
-          setRows(prevRows => {
-            return prevRows.map(row => {
-              if (row.bookingId === targetRow.bookingId) {
-                return updatedRow;
-              }
-              return row;
+      // Auto-save inline edits directly back to Google Sheet if we have authority
+      if (accessToken) {
+        import('../lib/sheetsService')
+          .then(({ writeActionablesToSheet }) => {
+            return writeActionablesToSheet(sheetId, sheetName, accessToken, targetRow._rowNumber, {
+              readyToDeliver: updatedRow.readyToDeliver,
+              expectedOdCompletionDate: updatedRow.expectedOdCompletionDate,
+              eddReviewerDate: updatedRow.eddReviewerDate,
+              reviewerRemarks: updatedRow.reviewerRemarks,
+              updatedAt: updatedRow.updatedAt
             });
-          });
-          setSavingRow(false);
-          setSelectedRowIndex(null);
-        })
-        .catch(err => {
-          console.error("Direct sync to Google Sheets failed:", err);
-          alert(`Failed to save directly to Google Sheet:\n${err.message || err}\n\nYour changes are saved locally in this session.`);
-          // Save locally as a fallback
-          setRows(prevRows => {
-            return prevRows.map(row => {
-              if (row.bookingId === targetRow.bookingId) {
-                return updatedRow;
-              }
-              return row;
+          })
+          .then(() => {
+            alert("Successfully saved and pushed changes directly to Google Sheets database row!");
+            setRows(prevRows => {
+              return prevRows.map(row => {
+                if (row.bookingId === targetRow.bookingId) {
+                  return updatedRow;
+                }
+                return row;
+              });
             });
+            setSavingRow(false);
+            setSelectedRowIndex(null);
+          })
+          .catch(err => {
+            console.error("Direct sync to Google Sheets failed:", err);
+            alert(`Failed to save directly to Google Sheet:\n${err.message || err}\n\nYour changes are saved locally in this session.`);
+            // Save locally as a fallback
+            setRows(prevRows => {
+              return prevRows.map(row => {
+                if (row.bookingId === targetRow.bookingId) {
+                  return updatedRow;
+                }
+                return row;
+              });
+            });
+            setSavingRow(false);
+            setSelectedRowIndex(null);
           });
-          setSavingRow(false);
-          setSelectedRowIndex(null);
+      } else {
+        alert("Changes saved locally. Since you are in Anonymous Mode, please authorize under the Google Sheets tab to write back directly to the spreadsheet.");
+        // Save locally anyway
+        setRows(prevRows => {
+          return prevRows.map(row => {
+            if (row.bookingId === targetRow.bookingId) {
+              return updatedRow;
+            }
+            return row;
+          });
         });
-    } else {
-      alert("Changes saved locally. Since you are in Anonymous Mode, please authorize under the Google Sheets tab to write back directly to the spreadsheet.");
-      // Save locally anyway
-      setRows(prevRows => {
-        return prevRows.map(row => {
-          if (row.bookingId === targetRow.bookingId) {
-            return updatedRow;
-          }
-          return row;
-        });
-      });
+        setSavingRow(false);
+        setSelectedRowIndex(null);
+      }
+    } catch (err: any) {
+      console.error("Failed to prepare or trigger save:", err);
+      alert(`An error occurred while preparing your changes to save:\n${err.message || err}`);
       setSavingRow(false);
-      setSelectedRowIndex(null);
     }
   };
 
@@ -848,9 +856,12 @@ export default function Dashboard({
     title: string, 
     dataObj: Record<string, number>, 
     colorClass: string = "bg-amber-500",
-    filterKey?: keyof FilterState
+    filterKey?: keyof FilterState,
+    colorOverrides?: Record<string, string>
   ) => {
-    const entries = Object.entries(dataObj).filter(([k]) => k !== 'Blank' && k !== 'All' && k !== '');
+    // When colorOverrides provided, include Blank; otherwise exclude it (legacy behaviour)
+    const includeBlank = !!colorOverrides;
+    const entries = Object.entries(dataObj).filter(([k]) => (includeBlank || (k !== 'Blank')) && k !== 'All' && k !== '');
     if (!entries.length) {
       return (
         <div className="flex h-36 items-center justify-center text-xs text-slate-400 font-medium">
@@ -866,6 +877,7 @@ export default function Dashboard({
         {entries.slice(0, 8).map(([label, val]) => {
           const pct = Math.min(100, Math.max(4, (val / maxVal) * 100));
           const isCurrentFilter = filterKey && filters[filterKey] === label;
+          const barColor = colorOverrides?.[label] ?? colorClass;
           
           return (
             <div 
@@ -895,7 +907,7 @@ export default function Dashboard({
               </div>
               <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                 <motion.div 
-                  className={`h-full rounded-full ${isCurrentFilter ? 'bg-amber-500' : colorClass}`}
+                  className={`h-full rounded-full ${isCurrentFilter ? 'bg-amber-500' : barColor}`}
                   initial={{ width: 0 }}
                   animate={{ width: `${pct}%` }}
                   transition={{ duration: 0.6, ease: "easeOut" }}
@@ -1740,12 +1752,16 @@ export default function Dashboard({
               {renderSvgBarChart('RM', charts.rm, "bg-emerald-500", "rmName")}
             </div>
 
-            {/* DC Split */}
+            {/* Ready to Deliver Split */}
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
               <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-                Delivery Coordinators (DC)
+                Ready to Deliver?
               </h4>
-              {renderSvgBarChart('DC', charts.dc, "bg-teal-500", "dcName")}
+              {renderSvgBarChart('Ready to Deliver', charts.readyToDeliver, "bg-teal-500", undefined, {
+                'Blank': 'bg-slate-400',
+                'Yes': 'bg-emerald-500',
+                'No': 'bg-rose-500',
+              })}
             </div>
           </div>
           
@@ -1754,7 +1770,7 @@ export default function Dashboard({
             <div>
               <h5 className="text-xs font-bold text-indigo-950">Performance Insights</h5>
               <p className="text-[11px] text-indigo-800 mt-0.5 leading-relaxed">
-                Click on any location (City/Hub) or personnel (RM/DC) bar above to immediately filter the entire dashboard view. If a filter is currently active, a pulsing indicator will appear next to the label and the bar will turn orange.
+                Click on any City, Hub, or RM bar above to immediately filter the entire dashboard view. The Ready to Deliver chart shows Blank / Yes / No counts for the current selection. If a filter is currently active, a pulsing indicator will appear next to the label and the bar will turn orange.
               </p>
             </div>
           </div>

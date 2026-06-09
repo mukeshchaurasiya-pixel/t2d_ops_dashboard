@@ -237,6 +237,17 @@ export function buildEddDistribution(rows: CaseRow[]): Record<string, number> {
 }
 
 export function buildCharts(rows: CaseRow[]): DashboardCharts {
+  // Build readyToDeliver with a fixed order: Blank → Yes → No
+  const rtdRaw = groupCount(rows, 'readyToDeliver');
+  const readyToDeliver: Record<string, number> = {};
+  (['Blank', 'Yes', 'No'] as const).forEach(key => {
+    if (rtdRaw[key] !== undefined) readyToDeliver[key] = rtdRaw[key];
+  });
+  // Include any unexpected values not in the above list
+  Object.keys(rtdRaw).forEach(k => {
+    if (!(k in readyToDeliver)) readyToDeliver[k] = rtdRaw[k];
+  });
+
   return {
     leadStage: groupCount(rows, 'leadStage'),
     dealStatus: groupCount(rows, 'dealStatus'),
@@ -244,6 +255,7 @@ export function buildCharts(rows: CaseRow[]): DashboardCharts {
     hub: topN(groupCount(rows, 'hubName'), 15),
     rm: topN(groupCount(rows, 'assignedRm'), 15),
     dc: topN(groupCount(rows, 'assignedDc'), 15),
+    readyToDeliver,
     tokenType: groupCount(rows, 'tokenType'),
     tokenTypeWithNrt: groupCount(rows, 'tokenTypeWithNrt'),
     paymentType: groupCount(rows, 'paymentType'),
