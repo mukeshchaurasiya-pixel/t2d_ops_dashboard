@@ -52,23 +52,33 @@ function MultiSelectDropdown({
   onToggle,
   optionLabels
 }: MultiSelectDropdownProps) {
-  const selectedList = useMemo(() => {
-    if (selectedString === 'All') return [];
+  const totalOptionsTrimmed = useMemo(() => {
+    const list = options.map(o => o.trim());
+    if (showBlank) {
+      list.push('Blank');
+    }
+    return list;
+  }, [options, showBlank]);
+
+  const effectiveSelectedList = useMemo(() => {
+    if (selectedString === 'All') return totalOptionsTrimmed;
+    if (!selectedString) return [];
     return selectedString.split('|||').map(s => s.trim()).filter(Boolean);
-  }, [selectedString]);
+  }, [selectedString, totalOptionsTrimmed]);
 
   const handleToggleOption = (val: string) => {
     const trimmedVal = val.trim();
-    const trimmedList = selectedList.map(s => s.trim());
     let newList: string[];
-    if (trimmedList.includes(trimmedVal)) {
-      newList = trimmedList.filter(v => v !== trimmedVal);
+    if (effectiveSelectedList.includes(trimmedVal)) {
+      newList = effectiveSelectedList.filter(v => v !== trimmedVal);
     } else {
-      newList = [...trimmedList, trimmedVal];
+      newList = [...effectiveSelectedList, trimmedVal];
     }
     
-    if (newList.length === 0) {
+    if (newList.length === totalOptionsTrimmed.length) {
       onChange('All');
+    } else if (newList.length === 0) {
+      onChange('');
     } else {
       onChange(newList.join('|||'));
     }
@@ -79,22 +89,24 @@ function MultiSelectDropdown({
   };
 
   const handleClear = () => {
-    onChange('All');
+    onChange('');
   };
 
   // Label display logic
   const displayText = useMemo(() => {
-    if (selectedList.length === 0) return placeholder;
+    if (selectedString === 'All') return placeholder;
+    if (!selectedString) return 'None Selected';
+    const parts = selectedString.split('|||').map(s => s.trim()).filter(Boolean);
     const getLabel = (val: string) => {
       if (val === 'Blank') return 'Blank / Empty';
       if (optionLabels && optionLabels[val]) return optionLabels[val];
       return val;
     };
-    if (selectedList.length === 1) {
-      return getLabel(selectedList[0]);
+    if (parts.length === 1) {
+      return getLabel(parts[0]);
     }
-    return `${getLabel(selectedList[0])} (+${selectedList.length - 1})`;
-  }, [selectedList, placeholder, optionLabels]);
+    return `${getLabel(parts[0])} (+${parts.length - 1})`;
+  }, [selectedString, placeholder, optionLabels]);
 
   return (
     <div className="relative">
@@ -147,7 +159,7 @@ function MultiSelectDropdown({
                 <label className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer font-sans select-none">
                   <input
                     type="checkbox"
-                    checked={selectedList.map(s => s.trim()).includes('Blank')}
+                    checked={effectiveSelectedList.includes('Blank')}
                     onChange={() => handleToggleOption('Blank')}
                     className="rounded text-amber-500 focus:ring-amber-500/20 w-3.5 h-3.5"
                   />
@@ -158,7 +170,7 @@ function MultiSelectDropdown({
                 <label key={opt} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer font-sans select-none">
                   <input
                     type="checkbox"
-                    checked={selectedList.map(s => s.trim()).includes(opt.trim())}
+                    checked={effectiveSelectedList.includes(opt.trim())}
                     onChange={() => handleToggleOption(opt)}
                     className="rounded text-amber-500 focus:ring-amber-500/20 w-3.5 h-3.5"
                   />
@@ -272,7 +284,9 @@ export default function Dashboard({
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
   const matchMulti = (filterVal: string, rowVal: any) => {
-    if (!filterVal || filterVal === 'All') return true;
+    if (filterVal === 'All') return true;
+    if (filterVal === '') return false;
+    if (!filterVal) return true;
     const selected = filterVal.split('|||').map(s => s.trim().toLowerCase());
     const rowStr = String(rowVal || '').trim().toLowerCase();
     

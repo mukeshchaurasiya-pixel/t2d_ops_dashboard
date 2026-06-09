@@ -272,18 +272,28 @@ export function mapCsvRows(parsed: string[][]): CaseRow[] {
     'followupat': 'followupAt',
     'total_call_attempts': 'totalCallAttempts',
     'totalcallattempts': 'totalCallAttempts',
+    'agg_total_call_attempts': 'totalCallAttempts',
+    'aggtotalcallattempts': 'totalCallAttempts',
     'total_connected_calls': 'totalConnectedCalls',
     'totalconnectedcalls': 'totalConnectedCalls',
+    'agg_total_connected_calls': 'totalConnectedCalls',
+    'aggtotalconnectedcalls': 'totalConnectedCalls',
     'last_call_connected_sp': 'lastCallConnectedSp',
     'lastcallconnectedsp': 'lastCallConnectedSp',
     'dialed_operator_sp': 'lastCallConnectedSp',
     'dialed_operator': 'lastCallConnectedSp',
     'call_duration': 'callDuration',
     'callduration': 'callDuration',
+    'agg_call_duration': 'callDuration',
+    'aggcallduration': 'callDuration',
     'latest_call_outcome': 'latestCallOutcome',
     'latestcalloutcome': 'latestCallOutcome',
+    'agg_latest_call_outcome': 'latestCallOutcome',
+    'agglatestcalloutcome': 'latestCallOutcome',
     'last_disposition': 'lastDisposition',
-    'lastdisposition': 'lastDisposition'
+    'lastdisposition': 'lastDisposition',
+    'agg_last_disposition': 'lastDisposition',
+    'agglastdisposition': 'lastDisposition'
   };
 
   const result: CaseRow[] = [];

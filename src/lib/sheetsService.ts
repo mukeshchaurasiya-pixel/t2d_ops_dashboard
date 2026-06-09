@@ -486,18 +486,28 @@ export async function fetchSingleRowLatest(
     'followupat': 'followupAt',
     'total_call_attempts': 'totalCallAttempts',
     'totalcallattempts': 'totalCallAttempts',
+    'agg_total_call_attempts': 'totalCallAttempts',
+    'aggtotalcallattempts': 'totalCallAttempts',
     'total_connected_calls': 'totalConnectedCalls',
     'totalconnectedcalls': 'totalConnectedCalls',
+    'agg_total_connected_calls': 'totalConnectedCalls',
+    'aggtotalconnectedcalls': 'totalConnectedCalls',
     'last_call_connected_sp': 'lastCallConnectedSp',
     'lastcallconnectedsp': 'lastCallConnectedSp',
     'dialed_operator_sp': 'lastCallConnectedSp',
     'dialed_operator': 'lastCallConnectedSp',
     'call_duration': 'callDuration',
     'callduration': 'callDuration',
+    'agg_call_duration': 'callDuration',
+    'aggcallduration': 'callDuration',
     'latest_call_outcome': 'latestCallOutcome',
     'latestcalloutcome': 'latestCallOutcome',
+    'agg_latest_call_outcome': 'latestCallOutcome',
+    'agglatestcalloutcome': 'latestCallOutcome',
     'last_disposition': 'lastDisposition',
-    'lastdisposition': 'lastDisposition'
+    'lastdisposition': 'lastDisposition',
+    'agg_last_disposition': 'lastDisposition',
+    'agglastdisposition': 'lastDisposition'
   };
 
   const updatedFields: Partial<CaseRow> = {};
@@ -508,7 +518,12 @@ export async function fetchSingleRowLatest(
 
     const key = mappingTable[headerName] || mappingTable[headerName.replace(/[\s_?]/g, '')];
     if (key) {
-      (updatedFields as any)[key] = cell;
+      if (key === 'amountCollected' || key === 'amountPending' || key === 'totalExpectedAmount' || key === 'paymentPercentage' || key === 'totalCallAttempts' || key === 'totalConnectedCalls') {
+        const cleanedVal = cell ? String(cell).replace(/[^0-9.-]/g, '') : '';
+        (updatedFields as any)[key] = parseFloat(cleanedVal) || 0;
+      } else {
+        (updatedFields as any)[key] = cell;
+      }
     }
   });
 
