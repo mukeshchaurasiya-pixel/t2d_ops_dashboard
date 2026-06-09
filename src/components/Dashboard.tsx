@@ -2503,6 +2503,7 @@ export default function Dashboard({
                           { label: 'Case Logged In', date: filteredRows[selectedRowIndex].latestLoginTime || filteredRows[selectedRowIndex].sheetLoginTimestamp },
                           { label: 'Credit Assessed', date: filteredRows[selectedRowIndex].latestCreditAssessedTimestamp },
                           { label: 'Diligence Assessed', date: filteredRows[selectedRowIndex].latestDiligenceAssessedTimestamp },
+                          { label: 'T&C Accepted', date: filteredRows[selectedRowIndex].tncAcceptedTimestamp },
                           { label: 'FCU Checked', date: filteredRows[selectedRowIndex].latestFcuAssessedTimestamp || filteredRows[selectedRowIndex].fcuSentDate },
                           { label: 'Submitted To Ops', date: filteredRows[selectedRowIndex].submitToOpsTimestamp || filteredRows[selectedRowIndex].sentToOpsTimestamp },
                           { label: 'Finance Disbursed', date: filteredRows[selectedRowIndex].financeDisbursedTimestamp || filteredRows[selectedRowIndex].opsDisbursalTimestamp }
