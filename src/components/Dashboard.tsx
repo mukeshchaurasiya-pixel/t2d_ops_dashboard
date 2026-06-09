@@ -247,6 +247,7 @@ export default function Dashboard({
   const [rawSearchQuery, setRawSearchQuery] = useState('');
   const [tempRowData, setTempRowData] = useState<Partial<CaseRow>>({});
   const [savingRow, setSavingRow] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [fetchingLatestRow, setFetchingLatestRow] = useState(false);
 
   // Dynamically extract all unique task values from current set of rows
@@ -807,7 +808,8 @@ export default function Dashboard({
               });
             });
             setSavingRow(false);
-            setSelectedRowIndex(null);
+            setSaveSuccess(true);
+            setTimeout(() => setSaveSuccess(false), 2500);
           })
           .catch(err => {
             console.error("Direct sync to Google Sheets failed:", err);
@@ -835,7 +837,8 @@ export default function Dashboard({
           });
         });
         setSavingRow(false);
-        setSelectedRowIndex(null);
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 2500);
       }
     } catch (err: any) {
       console.error("Failed to prepare or trigger save:", err);
@@ -2132,6 +2135,17 @@ export default function Dashboard({
                         </div>
 
                         {/* Save & Sync button — directly below Extra Remark */}
+                        {saveSuccess && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold"
+                          >
+                            <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            Updated successfully
+                          </motion.div>
+                        )}
                         <button
                           type="button"
                           onClick={handleSaveActionables}
