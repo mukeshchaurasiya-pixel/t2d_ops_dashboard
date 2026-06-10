@@ -856,36 +856,47 @@ export default function Dashboard({
     });
   };
 
-  const addDateFilter = () => {
-    setFilters(p => ({
-      ...p,
-      dateFilters: [
-        ...(p.dateFilters || []),
-        {
-          id: Math.random().toString(36).substring(2, 9),
-          dateField: 'All',
-          startDate: '',
-          endDate: '',
-          filterBlankDates: false
-        }
-      ]
-    }));
+  const syncDateFilters = (dfList: DateFilter[], legacyField: string): DateFilter[] => {
+    if (legacyField === 'All') return [];
+    
+    // Filter out inactive filters (where dateField is 'All')
+    const active = dfList.filter(df => df.dateField !== 'All');
+    
+    // Append exactly one inactive filter at the end
+    return [
+      ...active,
+      {
+        id: Math.random().toString(36).substring(2, 9),
+        dateField: 'All',
+        startDate: '',
+        endDate: '',
+        filterBlankDates: false
+      }
+    ];
   };
 
   const removeDateFilter = (id: string) => {
-    setFilters(p => ({
-      ...p,
-      dateFilters: (p.dateFilters || []).filter(df => df.id !== id)
-    }));
+    setFilters(p => {
+      const updatedList = (p.dateFilters || []).filter(df => df.id !== id);
+      const syncedList = syncDateFilters(updatedList, p.dateField);
+      return {
+        ...p,
+        dateFilters: syncedList
+      };
+    });
   };
 
   const updateDateFilter = (id: string, updates: Partial<Omit<DateFilter, 'id'>>) => {
-    setFilters(p => ({
-      ...p,
-      dateFilters: (p.dateFilters || []).map(df => 
+    setFilters(p => {
+      const updatedList = (p.dateFilters || []).map(df => 
         df.id === id ? { ...df, ...updates } : df
-      )
-    }));
+      );
+      const syncedList = syncDateFilters(updatedList, p.dateField);
+      return {
+        ...p,
+        dateFilters: syncedList
+      };
+    });
   };
 
   const handleEditRowClick = async (index: number) => {
@@ -1645,7 +1656,18 @@ export default function Dashboard({
             <label className={getFilterLabelClass(isDateFieldActive)}>Date Parameter</label>
             <select
               value={filters.dateField}
-              onChange={e => setFilters(p => ({ ...p, dateField: e.target.value, filterBlankDates: false }))}
+              onChange={e => {
+                const nextField = e.target.value;
+                setFilters(p => {
+                  const synced = syncDateFilters(p.dateFilters || [], nextField);
+                  return {
+                    ...p,
+                    dateField: nextField,
+                    filterBlankDates: false,
+                    dateFilters: synced
+                  };
+                });
+              }}
               className={getFilterSelectClass(isDateFieldActive)}
             >
               <option value="All">No Date Filter</option>
@@ -1771,33 +1793,20 @@ export default function Dashboard({
               )}
             </div>
           </div>
-
           {/* Dynamic Date Filters (Any number of filters can be added) */}
-          <div className="col-span-full border-t border-slate-100 pt-4 mt-2">
-            <div className="flex justify-between items-center mb-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-slate-700">Additional Date Filters</span>
-                {filters.dateFilters && filters.dateFilters.length > 0 && (
-                  <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
-                    {filters.dateFilters.length} active
-                  </span>
-                )}
+          {filters.dateField !== 'All' && filters.dateFilters && filters.dateFilters.length > 0 && (
+            <div className="col-span-full border-t border-slate-100 pt-4 mt-2">
+              <div className="flex justify-between items-center mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-700">Additional Date Filters</span>
+                  {activeDynamicDateFilters.length > 0 && (
+                    <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                      {activeDynamicDateFilters.length} active
+                    </span>
+                  )}
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={addDateFilter}
-                className="flex items-center gap-1 text-[11px] font-medium text-amber-600 hover:text-amber-700 bg-amber-50 hover:bg-amber-100/85 px-2.5 py-1 rounded-lg transition-all duration-150 cursor-pointer shadow-sm active:scale-95 hover:shadow"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add Date Filter</span>
-              </button>
-            </div>
 
-            {(!filters.dateFilters || filters.dateFilters.length === 0) ? (
-              <div className="text-[11px] text-slate-400 italic bg-slate-50/50 rounded-xl p-3 border border-dashed border-slate-200/60 text-center">
-                No additional date filters active. Click "Add Date Filter" to filter by multiple date fields simultaneously.
-              </div>
-            ) : (
               <div className="flex flex-col gap-2.5">
                 {filters.dateFilters.map((df) => {
                   const isDfActive = df.dateField !== 'All';
@@ -1822,11 +1831,18 @@ export default function Dashboard({
                               : 'border-slate-200 text-slate-650 bg-white'
                           }`}
                         >
-                          <option value="All">Select Date Parameter...</option>
+                          <option value="All">Select Additional Date Parameter...</option>
                           {DATE_OPTIONS.map((group) => (
                             <optgroup key={group.label} label={group.label}>
                               {group.options.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
+                                <option
+                                  key={opt.value}
+                                  value={opt.value}
+                                  disabled={
+                                    opt.value === filters.dateField ||
+                                    filters.dateFilters?.some(x => x.id !== df.id && x.dateField === opt.value)
+                                  }
+                                >
                                   {opt.label}
                                 </option>
                               ))}
@@ -1882,21 +1898,23 @@ export default function Dashboard({
 
                       {/* Remove Button */}
                       <div className="sm:col-span-1 flex justify-end">
-                        <button
-                          type="button"
-                          onClick={() => removeDateFilter(df.id)}
-                          className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all duration-150 cursor-pointer"
-                          title="Remove Filter"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {isDfActive && (
+                          <button
+                            type="button"
+                            onClick={() => removeDateFilter(df.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all duration-150 cursor-pointer"
+                            title="Remove Filter"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
                 })}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-slate-100">
