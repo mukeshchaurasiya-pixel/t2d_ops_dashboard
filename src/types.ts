@@ -213,6 +213,7 @@ export interface FilterState {
   leadDsChannel?: string;
   readyToDeliver?: string;
   dateFilters?: DateFilter[];
+  minPaymentPercentage?: string;
 }
 
 export interface DashboardKpis {

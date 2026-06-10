@@ -78,6 +78,40 @@ const DATE_OPTIONS = [
   }
 ];
 
+const MILESTONE_STAGES = [
+  'Lead Created',
+  'Case Logged In',
+  'Credit Assessed',
+  'Diligence Assessed',
+  'T&C Accepted',
+  'FCU Checked',
+  'Submitted To Ops',
+  'Finance Disbursed'
+];
+
+const getMilestoneStatus = (row: CaseRow, milestone: string): boolean => {
+  switch (milestone) {
+    case 'Lead Created':
+      return !!row.latestLeadCreationTimestamp;
+    case 'Case Logged In':
+      return !!(row.latestLoginTime || row.sheetLoginTimestamp);
+    case 'Credit Assessed':
+      return !!row.latestCreditAssessedTimestamp;
+    case 'Diligence Assessed':
+      return !!row.latestDiligenceAssessedTimestamp;
+    case 'T&C Accepted':
+      return !!row.tncAcceptedTimestamp;
+    case 'FCU Checked':
+      return !!(row.latestFcuAssessedTimestamp || row.fcuSentDate);
+    case 'Submitted To Ops':
+      return !!(row.submitToOpsTimestamp || row.sentToOpsTimestamp);
+    case 'Finance Disbursed':
+      return !!(row.financeDisbursedTimestamp || row.opsDisbursalTimestamp);
+    default:
+      return false;
+  }
+};
+
 interface DashboardProps {
   rows: CaseRow[];
   setRows: React.Dispatch<React.SetStateAction<CaseRow[]>>;
@@ -279,7 +313,8 @@ export default function Dashboard({
     cancelReason: 'All',
     leadDsChannel: 'All',
     readyToDeliver: 'All',
-    dateFilters: []
+    dateFilters: [],
+    minPaymentPercentage: 'All'
   });
 
   // Cancelled-to-Delivered (C2D) conversions detection
@@ -459,7 +494,25 @@ export default function Dashboard({
     if (ignoreKey !== 'paymentType' && !matchMulti(filters.paymentType, row.paymentType)) return false;
     if (ignoreKey !== 'leadStage' && !matchMulti(filters.leadStage, row.leadStage)) return false;
     if (ignoreKey !== 'dealStatus' && !matchMulti(filters.dealStatus, row.dealStatus)) return false;
-    if (ignoreKey !== 'funnelStage' && !matchMulti(filters.funnelStage, row.funnelStage)) return false;
+    if (ignoreKey !== 'funnelStage' && filters.funnelStage !== 'All') {
+      const selectedStages = filters.funnelStage.split('|||').map(s => s.trim());
+      const rowMatchesFunnel = selectedStages.some(stage => {
+        if (MILESTONE_STAGES.includes(stage)) {
+          return getMilestoneStatus(row, stage);
+        }
+        return String(row.funnelStage || '').toLowerCase() === stage.toLowerCase();
+      });
+      if (!rowMatchesFunnel) return false;
+    }
+
+    if (filters.minPaymentPercentage && filters.minPaymentPercentage !== 'All') {
+      const thresholdPct = parseFloat(filters.minPaymentPercentage);
+      if (!isNaN(thresholdPct)) {
+        const rowPct = Number(row.paymentPercentage || 0);
+        const normalizedRowPct = rowPct > 1 ? rowPct / 100 : rowPct;
+        if (normalizedRowPct < (thresholdPct / 100)) return false;
+      }
+    }
     if (ignoreKey !== 'sheetFinalStatus' && !matchMulti(filters.sheetFinalStatus, row.sheetFinalStatus)) return false;
     if (ignoreKey !== 'formFinalStatus' && !matchMulti(filters.formFinalStatus, row.formFinalStatus)) return false;
     if (ignoreKey !== 'gmailPendencyStatus' && !matchMulti(filters.gmailPendencyStatus, row.gmailPendencyStatus)) return false;
@@ -758,7 +811,10 @@ export default function Dashboard({
       dcs:                  Array.from(dcSet).sort(),
       paymentTypes:         Array.from(paymentSet).sort(),
       leadStages:           Array.from(stagesSet).sort(),
-      funnelStages:         Array.from(funnelSet).sort(),
+      funnelStages:         [
+        ...MILESTONE_STAGES,
+        ...Array.from(funnelSet).filter(f => !MILESTONE_STAGES.includes(f)).sort()
+      ],
       sheetFinalStatuses:   Array.from(sheetFinalSet).sort(),
       formFinalStatuses:    Array.from(formFinalSet).sort(),
       gmailPendencyStatuses:Array.from(gmailPendencySet).sort(),
@@ -852,7 +908,8 @@ export default function Dashboard({
       cancelReason: 'All',
       leadDsChannel: 'All',
       readyToDeliver: 'All',
-      dateFilters: []
+      dateFilters: [],
+      minPaymentPercentage: 'All'
     });
   };
 
@@ -1162,6 +1219,7 @@ export default function Dashboard({
   const isCancelReasonActive = filters.cancelReason !== 'All';
   const isLeadDsChannelActive = filters.leadDsChannel !== 'All';
   const isDateFieldActive = filters.dateField !== 'All';
+  const isPaymentPercentageActive = filters.minPaymentPercentage !== undefined && filters.minPaymentPercentage !== 'All';
   const activeDynamicDateFilters = filters.dateFilters?.filter(df => 
     df.dateField !== 'All' && (df.startDate !== '' || df.endDate !== '' || df.filterBlankDates)
   ) || [];
@@ -1185,6 +1243,7 @@ export default function Dashboard({
     if (isDerivedActive) count++;
     if (isCancelReasonActive) count++;
     if (isLeadDsChannelActive) count++;
+    if (isPaymentPercentageActive) count++;
     if (isDateFieldActive && (filters.startDate !== '' || filters.endDate !== '' || filters.filterBlankDates)) count++;
     if (hasActiveDynamicFilters) count += activeDynamicDateFilters.length;
     return count;
@@ -1193,7 +1252,8 @@ export default function Dashboard({
     isPaymentActive, isLeadStageActive, isFunnelStageActive, isSheetStatusActive,
     isFormStatusActive, isGmailActive, isTaskActive, isDerivedActive,
     isCancelReasonActive, isLeadDsChannelActive, isDateFieldActive, filters.startDate,
-    filters.endDate, filters.filterBlankDates, hasActiveDynamicFilters, activeDynamicDateFilters
+    filters.endDate, filters.filterBlankDates, hasActiveDynamicFilters, activeDynamicDateFilters,
+    isPaymentPercentageActive, filters.minPaymentPercentage
   ]);
 
   // Extracted reusable table component to render at the bottom of multiple tabs
@@ -1551,11 +1611,11 @@ export default function Dashboard({
 
           {/* Funnel Stage */}
           <MultiSelectDropdown
-            label="Funnel Stage"
+            label="Funnel / Milestone Stage"
             options={dynamicFilterOptions.funnelStages}
             selectedString={filters.funnelStage}
             onChange={val => setFilters(p => ({ ...p, funnelStage: val }))}
-            placeholder="All Funnel Stages"
+            placeholder="All Stages/Milestones"
             isActive={isFunnelStageActive}
             isOpen={openDropdown === 'funnelStage'}
             onToggle={() => setOpenDropdown(p => p === 'funnelStage' ? null : 'funnelStage')}
@@ -1650,6 +1710,25 @@ export default function Dashboard({
             isOpen={openDropdown === 'leadDsChannel'}
             onToggle={() => setOpenDropdown(p => p === 'leadDsChannel' ? null : 'leadDsChannel')}
           />
+
+          {/* Min Payment Percentage */}
+          <div>
+            <label className={getFilterLabelClass(isPaymentPercentageActive)}>Min Payment %</label>
+            <select
+              value={filters.minPaymentPercentage || 'All'}
+              onChange={e => setFilters(p => ({ ...p, minPaymentPercentage: e.target.value }))}
+              className={getFilterSelectClass(isPaymentPercentageActive)}
+            >
+              <option value="All">Any Payment %</option>
+              <option value="0">&gt; 0% Paid</option>
+              <option value="10">&gt; 10% Paid</option>
+              <option value="25">&gt; 25% Paid</option>
+              <option value="50">&gt; 50% Paid</option>
+              <option value="75">&gt; 75% Paid</option>
+              <option value="90">&gt; 90% Paid</option>
+              <option value="100">100% Fully Paid</option>
+            </select>
+          </div>
 
           {/* Date Selector Field */}
           <div>
