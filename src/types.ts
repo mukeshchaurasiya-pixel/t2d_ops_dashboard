@@ -179,6 +179,14 @@ export interface DerivedFlags {
   isBlankPaymentType: boolean;
 }
 
+export interface DateFilter {
+  id: string;
+  dateField: string;
+  startDate: string;
+  endDate: string;
+  filterBlankDates?: boolean;
+}
+
 export interface FilterState {
   city: string;
   hubName: string;
@@ -204,6 +212,7 @@ export interface FilterState {
   cancelReason?: string;
   leadDsChannel?: string;
   readyToDeliver?: string;
+  dateFilters?: DateFilter[];
 }
 
 export interface DashboardKpis {

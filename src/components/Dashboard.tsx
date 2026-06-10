@@ -11,11 +11,72 @@ import {
   MapPin, User, Car, X, ShieldCheck, ArrowRight, RefreshCw,
   Clock, Sparkles, ShieldAlert, PhoneCall, Database
 } from 'lucide-react';
-import { CaseRow, FilterState, DashboardKpis, DashboardCharts } from '../types';
+import { CaseRow, FilterState, DashboardKpis, DashboardCharts, DateFilter } from '../types';
 import { getDerivedFlags, buildKpis, buildCharts, splitTasks } from '../data/mockData';
 import { AppUser } from '../lib/firebaseAuth';
 import { parseDateString } from '../lib/dateUtils';
 import { calculateOperationsMatrix, MatrixRow } from '../lib/matrixCalculator';
+
+const DATE_OPTIONS = [
+  {
+    label: "Core Case Dates",
+    options: [
+      { value: "tokenDate", label: "Token Date" },
+      { value: "tokenDateTime", label: "Token Date & Time" },
+      { value: "bookingDate", label: "Booking Date" },
+      { value: "expectedDeliveryDate", label: "Expected Delivery Date" },
+      { value: "expectedDeliveryTime", label: "Expected Delivery Time" },
+      { value: "actualDeliveryDate", label: "Actual Delivery Date" },
+      { value: "mlEstimatedDeliveryDate", label: "ML Est Delivery Date" }
+    ]
+  },
+  {
+    label: "Payments & OD",
+    options: [
+      { value: "lastPaymentDate", label: "Last Payment Date" },
+      { value: "expectedOdCompletionDate", label: "OD Completion Date" },
+      { value: "eddReviewerDate", label: "EDD Date (Reviewer)" }
+    ]
+  },
+  {
+    label: "Cancellations & Updates",
+    options: [
+      { value: "cancelReqDate", label: "Cancellation Req Date" },
+      { value: "cancellationDate", label: "Cancellation Date" },
+      { value: "tokenAutoCancellationExtendedDate", label: "Auto Cancel Ext Date" },
+      { value: "dealStatusUpdatedAt", label: "Deal Status Update Date" },
+      { value: "latestRemarkDate", label: "Latest Remark Date" },
+      { value: "updatedAt", label: "System Update Date" }
+    ]
+  },
+  {
+    label: "CRM & Outbound Calls",
+    options: [
+      { value: "lastCallAt", label: "Last Call Date" },
+      { value: "followupAt", label: "Followup Date" },
+      { value: "gmailPendencyDate", label: "Gmail Pendency Date" }
+    ]
+  },
+  {
+    label: "Milestones & Journey",
+    options: [
+      { value: "latestLeadCreationTimestamp", label: "Lead Creation Date" },
+      { value: "latestLoginTime", label: "Login Time" },
+      { value: "latestCreditAssessedTimestamp", label: "Credit Assessed Date" },
+      { value: "latestDiligenceAssessedTimestamp", label: "Diligence Assessed Date" },
+      { value: "latestFcuAssessedTimestamp", label: "FCU Assessed Date" },
+      { value: "tncGeneratedDate", label: "TnC Generated Date" },
+      { value: "tncAcceptedTimestamp", label: "TnC Accepted Date" },
+      { value: "fcuSentDate", label: "FCU Sent Date" },
+      { value: "sentToRcuTimestamp", label: "Sent to RCU Date" },
+      { value: "sentToOpsTimestamp", label: "Sent to Ops Date" },
+      { value: "submitToOpsTimestamp", label: "Submit to Ops Date" },
+      { value: "opsDisbursalTimestamp", label: "Ops Disbursal Date" },
+      { value: "financeDisbursedTimestamp", label: "Finance Disbursed Date" },
+      { value: "sheetLoginTimestamp", label: "Sheet Login Date" }
+    ]
+  }
+];
 
 interface DashboardProps {
   rows: CaseRow[];
@@ -217,7 +278,8 @@ export default function Dashboard({
     eddStatus: 'All',
     cancelReason: 'All',
     leadDsChannel: 'All',
-    readyToDeliver: 'All'
+    readyToDeliver: 'All',
+    dateFilters: []
   });
 
   // Cancelled-to-Delivered (C2D) conversions detection
@@ -436,7 +498,8 @@ export default function Dashboard({
       if (!matchesAny) return false;
     }
 
-    if (ignoreKey !== 'dateRange' && filters.dateField !== 'All' && (filters.startDate || filters.endDate)) {
+    // Evaluate legacy date filter if active
+    if (ignoreKey !== 'dateRange' && filters.dateField !== 'All') {
       const dateMap: Record<string, keyof CaseRow> = {
         tokenDate: 'tokenDate',
         bookingDate: 'bookingDate',
@@ -475,22 +538,97 @@ export default function Dashboard({
       const dateKey = dateMap[filters.dateField];
       if (dateKey) {
         const rawVal = row[dateKey];
-        if (!rawVal) return false;
-        const rowDate = parseDateString(String(rawVal));
-        if (!rowDate) return false;
+        if (filters.filterBlankDates) {
+          if (rawVal && parseDateString(String(rawVal)) !== null) return false;
+        } else {
+          if (!rawVal) return false;
+          const rowDate = parseDateString(String(rawVal));
+          if (!rowDate) return false;
 
-        if (filters.startDate) {
-          const start = parseDateString(filters.startDate);
-          if (start) {
-            start.setHours(0, 0, 0, 0);
-            if (rowDate < start) return false;
+          if (filters.startDate) {
+            const start = parseDateString(filters.startDate);
+            if (start) {
+              start.setHours(0, 0, 0, 0);
+              if (rowDate < start) return false;
+            }
+          }
+          if (filters.endDate) {
+            const end = parseDateString(filters.endDate);
+            if (end) {
+              end.setHours(23, 59, 59, 999);
+              if (rowDate > end) return false;
+            }
           }
         }
-        if (filters.endDate) {
-          const end = parseDateString(filters.endDate);
-          if (end) {
-            end.setHours(23, 59, 59, 999);
-            if (rowDate > end) return false;
+      }
+    }
+
+    // Evaluate dynamic date filters
+    if (ignoreKey !== 'dateRange' && filters.dateFilters && filters.dateFilters.length > 0) {
+      const dateMap: Record<string, keyof CaseRow> = {
+        tokenDate: 'tokenDate',
+        bookingDate: 'bookingDate',
+        expectedDeliveryDate: 'expectedDeliveryDate',
+        actualDeliveryDate: 'actualDeliveryDate',
+        lastPaymentDate: 'lastPaymentDate',
+        latestRemarkDate: 'latestRemarkDate',
+        cancellationDate: 'cancellationDate',
+        updatedAt: 'updatedAt',
+        expectedOdCompletionDate: 'expectedOdCompletionDate',
+        eddReviewerDate: 'eddReviewerDate',
+        tokenDateTime: 'tokenDateTime',
+        expectedDeliveryTime: 'expectedDeliveryTime',
+        cancelReqDate: 'cancelReqDate',
+        latestLeadCreationTimestamp: 'latestLeadCreationTimestamp',
+        latestLoginTime: 'latestLoginTime',
+        latestCreditAssessedTimestamp: 'latestCreditAssessedTimestamp',
+        latestDiligenceAssessedTimestamp: 'latestDiligenceAssessedTimestamp',
+        latestFcuAssessedTimestamp: 'latestFcuAssessedTimestamp',
+        tncGeneratedDate: 'tncGeneratedDate',
+        tncAcceptedTimestamp: 'tncAcceptedTimestamp',
+        fcuSentDate: 'fcuSentDate',
+        sentToRcuTimestamp: 'sentToRcuTimestamp',
+        sentToOpsTimestamp: 'sentToOpsTimestamp',
+        submitToOpsTimestamp: 'submitToOpsTimestamp',
+        opsDisbursalTimestamp: 'opsDisbursalTimestamp',
+        financeDisbursedTimestamp: 'financeDisbursedTimestamp',
+        lastCallAt: 'lastCallAt',
+        followupAt: 'followupAt',
+        sheetLoginTimestamp: 'sheetLoginTimestamp',
+        gmailPendencyDate: 'gmailPendencyDate',
+        mlEstimatedDeliveryDate: 'mlEstimatedDeliveryDate',
+        dealStatusUpdatedAt: 'dealStatusUpdatedAt',
+        tokenAutoCancellationExtendedDate: 'tokenAutoCancellationExtendedDate'
+      };
+
+      for (const df of filters.dateFilters) {
+        if (df.dateField === 'All') continue;
+        const dateKey = dateMap[df.dateField];
+        if (!dateKey) continue;
+        const rawVal = row[dateKey];
+
+        if (df.filterBlankDates) {
+          // If we want blank dates, row is only valid if rawVal is blank
+          if (rawVal && parseDateString(String(rawVal)) !== null) return false;
+        } else {
+          // Otherwise, we require a valid date
+          if (!rawVal) return false;
+          const rowDate = parseDateString(String(rawVal));
+          if (!rowDate) return false;
+
+          if (df.startDate) {
+            const start = parseDateString(df.startDate);
+            if (start) {
+              start.setHours(0, 0, 0, 0);
+              if (rowDate < start) return false;
+            }
+          }
+          if (df.endDate) {
+            const end = parseDateString(df.endDate);
+            if (end) {
+              end.setHours(23, 59, 59, 999);
+              if (rowDate > end) return false;
+            }
           }
         }
       }
@@ -712,8 +850,42 @@ export default function Dashboard({
       searchQuery: '',
       eddStatus: 'All',
       cancelReason: 'All',
-      leadDsChannel: 'All'
+      leadDsChannel: 'All',
+      readyToDeliver: 'All',
+      dateFilters: []
     });
+  };
+
+  const addDateFilter = () => {
+    setFilters(p => ({
+      ...p,
+      dateFilters: [
+        ...(p.dateFilters || []),
+        {
+          id: Math.random().toString(36).substring(2, 9),
+          dateField: 'All',
+          startDate: '',
+          endDate: '',
+          filterBlankDates: false
+        }
+      ]
+    }));
+  };
+
+  const removeDateFilter = (id: string) => {
+    setFilters(p => ({
+      ...p,
+      dateFilters: (p.dateFilters || []).filter(df => df.id !== id)
+    }));
+  };
+
+  const updateDateFilter = (id: string, updates: Partial<Omit<DateFilter, 'id'>>) => {
+    setFilters(p => ({
+      ...p,
+      dateFilters: (p.dateFilters || []).map(df => 
+        df.id === id ? { ...df, ...updates } : df
+      )
+    }));
   };
 
   const handleEditRowClick = async (index: number) => {
@@ -979,7 +1151,11 @@ export default function Dashboard({
   const isCancelReasonActive = filters.cancelReason !== 'All';
   const isLeadDsChannelActive = filters.leadDsChannel !== 'All';
   const isDateFieldActive = filters.dateField !== 'All';
-  const isDateRangeActive = isDateFieldActive && (filters.startDate !== '' || filters.endDate !== '' || filters.filterBlankDates);
+  const activeDynamicDateFilters = filters.dateFilters?.filter(df => 
+    df.dateField !== 'All' && (df.startDate !== '' || df.endDate !== '' || df.filterBlankDates)
+  ) || [];
+  const hasActiveDynamicFilters = activeDynamicDateFilters.length > 0;
+  const isDateRangeActive = (isDateFieldActive && (filters.startDate !== '' || filters.endDate !== '' || filters.filterBlankDates)) || hasActiveDynamicFilters;
 
   const activeFiltersCount = useMemo(() => {
     let count = 0;
@@ -998,13 +1174,15 @@ export default function Dashboard({
     if (isDerivedActive) count++;
     if (isCancelReasonActive) count++;
     if (isLeadDsChannelActive) count++;
-    if (isDateRangeActive) count++;
+    if (isDateFieldActive && (filters.startDate !== '' || filters.endDate !== '' || filters.filterBlankDates)) count++;
+    if (hasActiveDynamicFilters) count += activeDynamicDateFilters.length;
     return count;
   }, [
     isCityActive, isHubActive, isTokenTypeActive, isRmActive, isDcActive,
     isPaymentActive, isLeadStageActive, isFunnelStageActive, isSheetStatusActive,
     isFormStatusActive, isGmailActive, isTaskActive, isDerivedActive,
-    isCancelReasonActive, isLeadDsChannelActive, isDateRangeActive
+    isCancelReasonActive, isLeadDsChannelActive, isDateFieldActive, filters.startDate,
+    filters.endDate, filters.filterBlankDates, hasActiveDynamicFilters, activeDynamicDateFilters
   ]);
 
   // Extracted reusable table component to render at the bottom of multiple tabs
@@ -1592,6 +1770,132 @@ export default function Dashboard({
                 </button>
               )}
             </div>
+          </div>
+
+          {/* Dynamic Date Filters (Any number of filters can be added) */}
+          <div className="col-span-full border-t border-slate-100 pt-4 mt-2">
+            <div className="flex justify-between items-center mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-700">Additional Date Filters</span>
+                {filters.dateFilters && filters.dateFilters.length > 0 && (
+                  <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
+                    {filters.dateFilters.length} active
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={addDateFilter}
+                className="flex items-center gap-1 text-[11px] font-medium text-amber-600 hover:text-amber-700 bg-amber-50 hover:bg-amber-100/85 px-2.5 py-1 rounded-lg transition-all duration-150 cursor-pointer shadow-sm active:scale-95 hover:shadow"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Date Filter</span>
+              </button>
+            </div>
+
+            {(!filters.dateFilters || filters.dateFilters.length === 0) ? (
+              <div className="text-[11px] text-slate-400 italic bg-slate-50/50 rounded-xl p-3 border border-dashed border-slate-200/60 text-center">
+                No additional date filters active. Click "Add Date Filter" to filter by multiple date fields simultaneously.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2.5">
+                {filters.dateFilters.map((df) => {
+                  const isDfActive = df.dateField !== 'All';
+                  const isDfRangeActive = isDfActive && (df.startDate !== '' || df.endDate !== '' || df.filterBlankDates);
+                  return (
+                    <div
+                      key={df.id}
+                      className={`grid grid-cols-1 sm:grid-cols-12 gap-3 items-center p-3 rounded-xl border transition-all duration-200 ${
+                        isDfRangeActive
+                          ? 'border-amber-200 bg-amber-50/10 shadow-sm'
+                          : 'border-slate-150 bg-slate-50/40'
+                      }`}
+                    >
+                      {/* Date Parameter Select */}
+                      <div className="sm:col-span-4">
+                        <select
+                          value={df.dateField}
+                          onChange={(e) => updateDateFilter(df.id, { dateField: e.target.value })}
+                          className={`w-full text-xs p-1.5 border rounded-lg transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 cursor-pointer ${
+                            isDfActive
+                              ? 'border-amber-300 font-semibold text-amber-900 bg-amber-50/10'
+                              : 'border-slate-200 text-slate-650 bg-white'
+                          }`}
+                        >
+                          <option value="All">Select Date Parameter...</option>
+                          {DATE_OPTIONS.map((group) => (
+                            <optgroup key={group.label} label={group.label}>
+                              {group.options.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Blank Dates Checkbox */}
+                      <div className="sm:col-span-2 flex items-center justify-start sm:justify-center">
+                        <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={df.filterBlankDates || false}
+                            onChange={(e) => updateDateFilter(df.id, { filterBlankDates: e.target.checked })}
+                            disabled={!isDfActive}
+                            className="rounded border-slate-300 text-amber-500 focus:ring-amber-500 w-3.5 h-3.5 cursor-pointer disabled:cursor-not-allowed"
+                          />
+                          <span>Blank Only</span>
+                        </label>
+                      </div>
+
+                      {/* Date Bounds Inputs */}
+                      <div className="sm:col-span-5 flex items-center gap-1.5">
+                        <input
+                          type="date"
+                          disabled={!isDfActive || df.filterBlankDates}
+                          value={df.startDate}
+                          onChange={(e) => updateDateFilter(df.id, { startDate: e.target.value })}
+                          className={`w-full text-xs p-1.5 border rounded-lg transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 ${
+                            !isDfActive || df.filterBlankDates
+                              ? 'border-slate-100 bg-slate-100/50 text-slate-300 cursor-not-allowed'
+                              : df.startDate
+                                ? 'border-amber-300 bg-amber-50/40 text-amber-950 font-semibold shadow-sm'
+                                : 'border-slate-200 bg-white text-slate-700'
+                          }`}
+                        />
+                        <span className="text-[10px] text-slate-400">to</span>
+                        <input
+                          type="date"
+                          disabled={!isDfActive || df.filterBlankDates}
+                          value={df.endDate}
+                          onChange={(e) => updateDateFilter(df.id, { endDate: e.target.value })}
+                          className={`w-full text-xs p-1.5 border rounded-lg transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 ${
+                            !isDfActive || df.filterBlankDates
+                              ? 'border-slate-100 bg-slate-100/50 text-slate-300 cursor-not-allowed'
+                              : df.endDate
+                                ? 'border-amber-300 bg-amber-50/40 text-amber-950 font-semibold shadow-sm'
+                                : 'border-slate-200 bg-white text-slate-700'
+                          }`}
+                        />
+                      </div>
+
+                      {/* Remove Button */}
+                      <div className="sm:col-span-1 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => removeDateFilter(df.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all duration-150 cursor-pointer"
+                          title="Remove Filter"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
