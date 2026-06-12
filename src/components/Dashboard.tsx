@@ -395,7 +395,8 @@ export default function Dashboard({
   };
 
   const handleExportImage = () => {
-    const tableEl = document.getElementById('interactive-dataset-panel');
+    // Target table wrapper specifically
+    const tableEl = document.getElementById('interactive-dataset-table-wrapper');
     if (!tableEl) return;
 
     const exportBtn = document.getElementById('btn-export-image');
@@ -404,45 +405,85 @@ export default function Dashboard({
       exportBtn.setAttribute('disabled', 'true');
     }
 
-    const loadAndRender = () => {
+    const loadAndRenderHtmlToImage = () => {
       // @ts-ignore
-      window.html2canvas(tableEl, {
+      window.htmlToImage.toPng(tableEl, {
         backgroundColor: '#ffffff',
-        scale: 2,
-        useCORS: true,
-        logging: false,
-      }).then((canvas: HTMLCanvasElement) => {
+        style: {
+          margin: '0',
+          padding: '12px',
+        }
+      }).then((dataUrl: string) => {
         const link = document.createElement('a');
         link.download = 'cars24_ops_ledger.png';
-        link.href = canvas.toDataURL('image/png');
+        link.href = dataUrl;
         link.click();
         if (exportBtn) {
           exportBtn.innerHTML = 'Export PNG';
           exportBtn.removeAttribute('disabled');
         }
       }).catch((err: any) => {
-        console.error('Failed to export table as image', err);
-        alert('Failed to generate image export. Please try again.');
-        if (exportBtn) {
-          exportBtn.innerHTML = 'Export PNG';
-          exportBtn.removeAttribute('disabled');
-        }
+        console.warn('html-to-image failed, falling back to html2canvas...', err);
+        loadAndRenderHtml2Canvas();
       });
     };
 
+    const loadAndRenderHtml2Canvas = () => {
+      const renderCanvas = () => {
+        // @ts-ignore
+        window.html2canvas(tableEl, {
+          backgroundColor: '#ffffff',
+          scale: 2,
+          useCORS: true,
+          logging: false,
+        }).then((canvas: HTMLCanvasElement) => {
+          const link = document.createElement('a');
+          link.download = 'cars24_ops_ledger.png';
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+          if (exportBtn) {
+            exportBtn.innerHTML = 'Export PNG';
+            exportBtn.removeAttribute('disabled');
+          }
+        }).catch((err2: any) => {
+          console.error('html2canvas also failed', err2);
+          alert('Failed to generate image export. Please try again.');
+          if (exportBtn) {
+            exportBtn.innerHTML = 'Export PNG';
+            exportBtn.removeAttribute('disabled');
+          }
+        });
+      };
+
+      // @ts-ignore
+      if (window.html2canvas) {
+        renderCanvas();
+      } else {
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+        script.onload = renderCanvas;
+        script.onerror = () => {
+          alert('Failed to load image export fallback library. Please check your internet connection.');
+          if (exportBtn) {
+            exportBtn.innerHTML = 'Export PNG';
+            exportBtn.removeAttribute('disabled');
+          }
+        };
+        document.body.appendChild(script);
+      }
+    };
+
+    // Try html-to-image first (better Tailwind v4 CSS support)
     // @ts-ignore
-    if (window.html2canvas) {
-      loadAndRender();
+    if (window.htmlToImage) {
+      loadAndRenderHtmlToImage();
     } else {
       const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-      script.onload = loadAndRender;
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js';
+      script.onload = loadAndRenderHtmlToImage;
       script.onerror = () => {
-        alert('Failed to load image export library from CDN. Please check your internet connection.');
-        if (exportBtn) {
-          exportBtn.innerHTML = 'Export PNG';
-          exportBtn.removeAttribute('disabled');
-        }
+        console.warn('html-to-image CDN failed to load, trying html2canvas fallback...');
+        loadAndRenderHtml2Canvas();
       };
       document.body.appendChild(script);
     }
@@ -1404,7 +1445,7 @@ export default function Dashboard({
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" id="interactive-dataset-table-wrapper">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50 font-sans border-b border-slate-100/80 text-slate-500 select-none">
