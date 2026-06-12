@@ -591,7 +591,8 @@ export default function Dashboard({
         String(row.carRegNo || '').toLowerCase().includes(query) ||
         String(row.userId || '').toLowerCase().includes(query) ||
         String(row.make || '').toLowerCase().includes(query) ||
-        String(row.model || '').toLowerCase().includes(query)
+        String(row.model || '').toLowerCase().includes(query) ||
+        String(row.appointmentId || '').toLowerCase().includes(query)
       );
     }
 
