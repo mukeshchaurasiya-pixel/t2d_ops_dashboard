@@ -280,6 +280,22 @@ function MultiSelectDropdown({
   );
 }
 
+const AVAILABLE_ADDITIONAL_COLS: { key: keyof CaseRow; label: string }[] = [
+  { key: 'totalListingDays', label: 'Total Listing Days' },
+  { key: 'city', label: 'City' },
+  { key: 'carRegNo', label: 'Car Registration No' },
+  { key: 'make', label: 'Make' },
+  { key: 'model', label: 'Model' },
+  { key: 'variant', label: 'Variant' },
+  { key: 'hubCode', label: 'Hub Code' },
+  { key: 'cancelReason', label: 'Cancellation Reason' },
+  { key: 'sheetFinalStatus', label: 'Sheet Final Status' },
+  { key: 'formFinalStatus', label: 'Form Final Status' },
+  { key: 'deviationMitigationComment', label: 'Deviation Comments' },
+  { key: 'creditLtv', label: 'Credit LTV' },
+  { key: 'contactNumber', label: 'Contact Number' }
+];
+
 export default function Dashboard({ 
   rows, 
   setRows, 
@@ -381,6 +397,10 @@ export default function Dashboard({
   const [activeTab, setActiveTab] = useState<'ops' | 'performance' | 'loss' | 'ledger'>('ops');
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
+  // CSV Export Modal states
+  const [showCsvModal, setShowCsvModal] = useState(false);
+  const [additionalCsvCols, setAdditionalCsvCols] = useState<string[]>([]);
+
   // Sorting states
   const [sortField, setSortField] = useState<keyof CaseRow | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -393,6 +413,56 @@ export default function Dashboard({
       setSortDirection('asc');
     }
     setCurrentPage(1);
+  };
+
+  const handleExportCsv = () => {
+    // Basic standard columns
+    const standardHeader = ["Booking ID", "Loan ID", "Token Date", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"];
+    
+    // Add additional headers
+    const additionalHeaders = AVAILABLE_ADDITIONAL_COLS
+      .filter(col => additionalCsvCols.includes(String(col.key)))
+      .map(col => col.label);
+      
+    const headerRow = [...standardHeader, ...additionalHeaders].join(",");
+    
+    const dataRows = filteredRows.map(row => {
+      const standardVals = [
+        row.bookingId,
+        row.loanId,
+        row.tokenDate,
+        row.hubName,
+        row.allocatedRm,
+        row.tokenType,
+        row.paymentType,
+        row.leadStage,
+        row.taskBucket,
+        row.expectedDeliveryDate,
+        row.readyToDeliver,
+        row.expectedOdCompletionDate,
+        row.reviewerRemarks
+      ];
+      
+      const additionalVals = AVAILABLE_ADDITIONAL_COLS
+        .filter(col => additionalCsvCols.includes(String(col.key)))
+        .map(col => {
+          const val = row[col.key];
+          return val !== undefined && val !== null ? val : '';
+        });
+        
+      return [...standardVals, ...additionalVals]
+        .map(v => `"${String(v).replace(/"/g, '""')}"`)
+        .join(',');
+    });
+    
+    const csvContent = [headerRow, ...dataRows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'cars24_ops_filtered_dataset.csv';
+    link.click();
+    setShowCsvModal(false);
   };
 
   const handleExportImage = () => {
@@ -1437,18 +1507,8 @@ export default function Dashboard({
           <div className="flex gap-2">
             <button
               onClick={() => {
-                const csvContent = [
-                  ["Booking ID", "Loan ID", "Token Date", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"].join(","),
-                  ...filteredRows.map(row => [
-                    row.bookingId, row.loanId, row.tokenDate, row.hubName, row.allocatedRm, row.tokenType, row.paymentType, row.leadStage, row.taskBucket, row.expectedDeliveryDate, row.readyToDeliver, row.expectedOdCompletionDate, row.reviewerRemarks
-                  ].map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(','))
-                ].join('\n');
-                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = 'cars24_ops_filtered_dataset.csv';
-                link.click();
+                setAdditionalCsvCols([]); // reset choices
+                setShowCsvModal(true);
               }}
               className="p-1.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all shadow-xs"
             >
@@ -3462,6 +3522,81 @@ export default function Dashboard({
           </>
         )}
       </AnimatePresence>
+
+      {/* CSV Export Options Modal */}
+      {showCsvModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl shadow-xl max-w-lg w-full border border-slate-100 overflow-hidden transform scale-98 active:scale-100 transition-all duration-300">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-slate-800">Export CSV Ledger</h3>
+                <p className="text-xs text-slate-400 mt-1">Select additional columns to include in your export</p>
+              </div>
+              <button 
+                onClick={() => setShowCsvModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-605 hover:bg-slate-50 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-6 max-h-[50vh] overflow-y-auto space-y-4">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">Standard Columns (Always Included)</span>
+              <div className="p-3 bg-slate-50 rounded-xl text-[11px] text-slate-500 font-medium leading-relaxed">
+                Booking ID, Loan ID, Token Date, Hub, RM, Token Type, Payment Type, Lead Stage, Task List, Expected EDD, Ready?, OD Completion, Remarks
+              </div>
+              
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2 mt-4">Available Additional Columns</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {AVAILABLE_ADDITIONAL_COLS.map(col => {
+                  const isChecked = additionalCsvCols.includes(String(col.key));
+                  return (
+                    <label 
+                      key={col.key} 
+                      className={`flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer text-xs transition-all ${
+                        isChecked 
+                          ? 'border-amber-400 bg-amber-50/20 text-amber-900 font-semibold shadow-2xs' 
+                          : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      <input 
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          setAdditionalCsvCols(prev => {
+                            if (prev.includes(String(col.key))) {
+                              return prev.filter(k => k !== col.key);
+                            } else {
+                              return [...prev, String(col.key)];
+                            }
+                          });
+                        }}
+                        className="rounded text-amber-500 focus:ring-amber-500/20 w-4 h-4 border-slate-300"
+                      />
+                      <span className="truncate">{col.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            
+            <div className="p-5 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+              <button 
+                onClick={() => setShowCsvModal(false)}
+                className="p-2 px-4 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100 border border-slate-200 active:scale-95 transition-all"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleExportCsv}
+                className="p-2 px-5 rounded-xl text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 active:scale-95 transition-all shadow-xs"
+              >
+                Export Ledger
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
