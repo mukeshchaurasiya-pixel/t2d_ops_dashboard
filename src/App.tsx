@@ -166,7 +166,7 @@ export default function App() {
       if (row.hubName) hubsSet.add(row.hubName);
       if (row.tokenType) tokenTypeSet.add(row.tokenType);
       if (row.tokenTypeWithNrt) tokenTypeWithNrtSet.add(row.tokenTypeWithNrt);
-      if (row.assignedRm) rmSet.add(row.assignedRm);
+      if (row.allocatedRm) rmSet.add(row.allocatedRm);
       if (row.assignedDc) dcSet.add(row.assignedDc);
       if (row.paymentType) paymentSet.add(row.paymentType);
       if (row.leadStage) stagesSet.add(row.leadStage);

@@ -489,7 +489,7 @@ export default function Dashboard({
     if (ignoreKey !== 'hubName' && ignoreKey !== 'city_and_hub' && !matchMulti(filters.hubName, row.hubName)) return false;
     if (ignoreKey !== 'tokenType' && !matchMulti(filters.tokenType, row.tokenType)) return false;
     if (ignoreKey !== 'tokenTypeWithNrt' && !matchMulti(filters.tokenTypeWithNrt, row.tokenTypeWithNrt)) return false;
-    if (ignoreKey !== 'rmName' && !matchMulti(filters.rmName, row.assignedRm)) return false;
+    if (ignoreKey !== 'rmName' && !matchMulti(filters.rmName, row.allocatedRm)) return false;
     if (ignoreKey !== 'dcName' && !matchMulti(filters.dcName, row.assignedDc)) return false;
     if (ignoreKey !== 'paymentType' && !matchMulti(filters.paymentType, row.paymentType)) return false;
     if (ignoreKey !== 'leadStage' && !matchMulti(filters.leadStage, row.leadStage)) return false;
@@ -759,7 +759,7 @@ export default function Dashboard({
       if (row.city)                citiesSet.add(row.city.trim());
       // hubs computed separately (city-aware) — see cityFilteredHubs below
       if (row.tokenType)           tokenTypeSet.add(row.tokenType);
-      if (row.assignedRm)          rmSet.add(row.assignedRm);
+      if (row.allocatedRm)          rmSet.add(row.allocatedRm);
       if (row.assignedDc)          dcSet.add(row.assignedDc);
       if (row.paymentType)         paymentSet.add(row.paymentType);
       if (row.leadStage)           stagesSet.add(row.leadStage);
@@ -1276,7 +1276,7 @@ export default function Dashboard({
                 const csvContent = [
                   ["Booking ID", "Loan ID", "Token Date", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"].join(","),
                   ...filteredRows.map(row => [
-                    row.bookingId, row.loanId, row.tokenDate, row.hubName, row.assignedRm, row.tokenType, row.paymentType, row.leadStage, row.taskBucket, row.expectedDeliveryDate, row.readyToDeliver, row.expectedOdCompletionDate, row.reviewerRemarks
+                    row.bookingId, row.loanId, row.tokenDate, row.hubName, row.allocatedRm, row.tokenType, row.paymentType, row.leadStage, row.taskBucket, row.expectedDeliveryDate, row.readyToDeliver, row.expectedOdCompletionDate, row.reviewerRemarks
                   ].map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(','))
                 ].join('\n');
                 const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -1360,8 +1360,8 @@ export default function Dashboard({
                       <td className="p-3.5 whitespace-normal break-words max-w-[150px]" title={row.hubName}>
                         {row.hubName}
                       </td>
-                      <td className="p-3.5 whitespace-nowrap" title={row.assignedRm}>
-                        {row.assignedRm ? row.assignedRm.split('@')[0] : <span className="text-slate-400 italic">-</span>}
+                      <td className="p-3.5 whitespace-nowrap" title={row.allocatedRm}>
+                        {row.allocatedRm ? row.allocatedRm.split('@')[0] : <span className="text-slate-400 italic">-</span>}
                       </td>
                       <td className="p-3.5">
                         <span className="p-1 px-2 text-[10px] font-mono font-medium rounded-md bg-slate-100 text-slate-800">
@@ -1560,11 +1560,11 @@ export default function Dashboard({
 
           {/* RM Name */}
           <MultiSelectDropdown
-            label="Assigned RM"
+            label="Allocated RM"
             options={dynamicFilterOptions.rms}
             selectedString={filters.rmName}
             onChange={val => setFilters(p => ({ ...p, rmName: val }))}
-            placeholder="All RMs"
+            placeholder="All Allocated RMs"
             showBlank={true}
             isActive={isRmActive}
             isOpen={openDropdown === 'rmName'}

@@ -12,7 +12,7 @@ function runVerification() {
   if (Array.isArray(SEED_CASE_ROWS) && SEED_CASE_ROWS.length > 0) {
     console.log(`[PASS] SEED_CASE_ROWS successfully loaded. Found ${SEED_CASE_ROWS.length} cases.`);
     const firstRow = SEED_CASE_ROWS[0];
-    console.log(`Sample Case: BookingID: ${firstRow.bookingId}, City: ${firstRow.city}, RM: ${firstRow.assignedRm}`);
+    console.log(`Sample Case: BookingID: ${firstRow.bookingId}, City: ${firstRow.city}, RM: ${firstRow.allocatedRm}`);
     if (firstRow.bookingId && firstRow.city && firstRow.leadStage) {
       console.log('[PASS] Mock row structure matches CaseRow interface.');
     } else {
@@ -70,8 +70,9 @@ function runVerification() {
     }
 
     // Check if local saving is handled when accessToken is not available
-    const hasLocalSaveFallback = dashboardContent.includes('alert("Changes saved locally.') || 
-                                  dashboardContent.includes('// Save locally anyway');
+    const hasLocalSaveFallback = dashboardContent.includes('Your changes are saved locally in this session.') || 
+                                  dashboardContent.includes('// Save locally as a fallback') ||
+                                  dashboardContent.includes('// Save locally (anonymous / demo mode)');
     if (hasLocalSaveFallback) {
       console.log('[PASS] local save fallback with setRows mapping exists and runs gracefully.');
     } else {

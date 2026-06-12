@@ -19,7 +19,7 @@ export interface CaseRow {
   hubCode?: string;
   hubName?: string;
   city?: string;
-  assignedRm?: string;
+  allocatedRm?: string;
   assignedDc?: string;
   caAssignedLms?: string;
   sm?: string;
