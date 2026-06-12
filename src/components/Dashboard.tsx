@@ -380,6 +380,74 @@ export default function Dashboard({
   const [activeTab, setActiveTab] = useState<'ops' | 'performance' | 'loss' | 'ledger'>('ops');
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
+  // Sorting states
+  const [sortField, setSortField] = useState<keyof CaseRow | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  const handleSort = (field: keyof CaseRow) => {
+    if (sortField === field) {
+      setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+    setCurrentPage(1);
+  };
+
+  const handleExportImage = () => {
+    const tableEl = document.getElementById('interactive-dataset-panel');
+    if (!tableEl) return;
+
+    const exportBtn = document.getElementById('btn-export-image');
+    if (exportBtn) {
+      exportBtn.innerHTML = 'Exporting...';
+      exportBtn.setAttribute('disabled', 'true');
+    }
+
+    const loadAndRender = () => {
+      // @ts-ignore
+      window.html2canvas(tableEl, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      }).then((canvas: HTMLCanvasElement) => {
+        const link = document.createElement('a');
+        link.download = 'cars24_ops_ledger.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        if (exportBtn) {
+          exportBtn.innerHTML = 'Export PNG';
+          exportBtn.removeAttribute('disabled');
+        }
+      }).catch((err: any) => {
+        console.error('Failed to export table as image', err);
+        alert('Failed to generate image export. Please try again.');
+        if (exportBtn) {
+          exportBtn.innerHTML = 'Export PNG';
+          exportBtn.removeAttribute('disabled');
+        }
+      });
+    };
+
+    // @ts-ignore
+    if (window.html2canvas) {
+      loadAndRender();
+    } else {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      script.onload = loadAndRender;
+      script.onerror = () => {
+        alert('Failed to load image export library from CDN. Please check your internet connection.');
+        if (exportBtn) {
+          exportBtn.innerHTML = 'Export PNG';
+          exportBtn.removeAttribute('disabled');
+        }
+      };
+      document.body.appendChild(script);
+    }
+  };
+
   const matchMulti = (filterVal: string, rowVal: any) => {
     if (filterVal === 'All') return true;
     if (filterVal === '') return false;
@@ -733,10 +801,29 @@ export default function Dashboard({
     return true;
   }, [filters, eddLabels]);
 
-  // Filtered rows memoized
+  // Filtered rows memoized (sorted if sortField is selected)
   const filteredRows = useMemo(() => {
-    return rows.filter(row => isRowMatching(row));
-  }, [rows, isRowMatching]);
+    const matched = rows.filter(row => isRowMatching(row));
+    if (!sortField) return matched;
+
+    return [...matched].sort((a, b) => {
+      let valA = a[sortField];
+      let valB = b[sortField];
+
+      // Handle numeric fields
+      if (typeof valA === 'number' && typeof valB === 'number') {
+        return sortDirection === 'asc' ? valA - valB : valB - valA;
+      }
+
+      // Handle string comparisons (including ISO dates)
+      const strA = String(valA || '').toLowerCase();
+      const strB = String(valB || '').toLowerCase();
+
+      if (strA < strB) return sortDirection === 'asc' ? -1 : 1;
+      if (strA > strB) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [rows, isRowMatching, sortField, sortDirection]);
 
   // Static filter options built from all rows — no cross-filtering to avoid render loops
   const dynamicFilterOptions = useMemo(() => {
@@ -1258,6 +1345,23 @@ export default function Dashboard({
 
   // Extracted reusable table component to render at the bottom of multiple tabs
   const renderInteractiveTable = () => {
+    const renderSortableHeader = (label: string, field: keyof CaseRow, extraClass: string = "") => {
+      const isSorted = sortField === field;
+      return (
+        <th 
+          className={`p-3.5 font-semibold cursor-pointer hover:bg-slate-100 transition-colors select-none ${extraClass}`}
+          onClick={() => handleSort(field)}
+        >
+          <div className="flex items-center gap-1">
+            <span>{label}</span>
+            <span className="text-[10px] text-slate-400 font-normal">
+              {isSorted ? (sortDirection === 'asc' ? '▲' : '▼') : '↕'}
+            </span>
+          </div>
+        </th>
+      );
+    };
+
     return (
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mt-6" id="interactive-dataset-panel">
         <div className="p-5 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
@@ -1290,6 +1394,13 @@ export default function Dashboard({
             >
               Export CSV Ledger
             </button>
+            <button
+              id="btn-export-image"
+              onClick={handleExportImage}
+              className="p-1.5 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all border border-slate-200 shadow-xs"
+            >
+              Export PNG
+            </button>
           </div>
         </div>
 
@@ -1297,17 +1408,17 @@ export default function Dashboard({
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50 font-sans border-b border-slate-100/80 text-slate-500 select-none">
-                <th className="p-3.5 pl-5 font-semibold">Booking ID</th>
-                <th className="p-3.5 font-semibold">Loan ID</th>
-                <th className="p-3.5 font-semibold">Token Date</th>
-                <th className="p-3.5 font-semibold text-slate-600">Hub</th>
-                <th className="p-3.5 font-semibold">RM Name</th>
-                <th className="p-3.5 font-semibold">Payment Type</th>
-                <th className="p-3.5 font-semibold">Lead Stage</th>
+                {renderSortableHeader("Booking ID", "bookingId", "pl-5")}
+                {renderSortableHeader("Loan ID", "loanId")}
+                {renderSortableHeader("Token Date", "tokenDate")}
+                {renderSortableHeader("Hub", "hubName")}
+                {renderSortableHeader("RM Name", "allocatedRm")}
+                {renderSortableHeader("Payment Type", "paymentType")}
+                {renderSortableHeader("Lead Stage", "leadStage")}
                 <th className="p-3.5 font-semibold">Task List</th>
-                <th className="p-3.5 font-semibold">Expected EDD</th>
-                <th className="p-3.5 font-semibold">Ready?</th>
-                <th className="p-3.5 font-semibold">OD Completion</th>
+                {renderSortableHeader("Expected EDD", "expectedDeliveryDate")}
+                {renderSortableHeader("Ready?", "readyToDeliver")}
+                {renderSortableHeader("OD Completion", "expectedOdCompletionDate")}
                 <th className="p-3.5 text-right pr-5 font-semibold">Control Action</th>
               </tr>
             </thead>
