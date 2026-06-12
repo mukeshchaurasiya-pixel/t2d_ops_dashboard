@@ -238,6 +238,8 @@ export function mapCsvRows(parsed: string[][]): CaseRow[] {
     'lead_ds_channel': 'leadDsChannel',
     'leaddschannel': 'leadDsChannel',
     'foir': 'foir',
+    'total_listing_days': 'totalListingDays',
+    'totallistingdays': 'totalListingDays',
 
     // Milestones / Journey timestamps
     'latest_lead_creation_timestamp': 'latestLeadCreationTimestamp',
@@ -431,7 +433,8 @@ export function mapCsvRows(parsed: string[][]): CaseRow[] {
       gmailPendencySource: "",
       gmailPendencyDate: "",
       confidenceScore: "",
-      mlEstimatedDeliveryDate: ""
+      mlEstimatedDeliveryDate: "",
+      totalListingDays: 0
     };
 
     // Map values dynamically
@@ -442,7 +445,7 @@ export function mapCsvRows(parsed: string[][]): CaseRow[] {
       const key = mappingTable[headerName] || mappingTable[headerName.replace(/[\s_]/g, '')];
       if (key) {
         const rawVal = normalizeStr(cell.trim());
-        if (key === 'amountCollected' || key === 'amountPending' || key === 'totalExpectedAmount' || key === 'paymentPercentage' || key === 'totalCallAttempts' || key === 'totalConnectedCalls') {
+        if (key === 'amountCollected' || key === 'amountPending' || key === 'totalExpectedAmount' || key === 'paymentPercentage' || key === 'totalCallAttempts' || key === 'totalConnectedCalls' || key === 'totalListingDays') {
           rowObj[key] = parseFloat(rawVal.replace(/[^0-9.-]/g, '')) || 0;
         } else {
           rowObj[key] = rawVal;

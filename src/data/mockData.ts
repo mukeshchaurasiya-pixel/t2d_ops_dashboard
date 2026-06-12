@@ -236,6 +236,33 @@ export function buildEddDistribution(rows: CaseRow[]): Record<string, number> {
   return result;
 }
 
+function buildListingDaysDistribution(rows: CaseRow[]): Record<string, number> {
+  const result: Record<string, number> = {
+    '0-7': 0,
+    '7-15': 0,
+    '15-30': 0,
+    '30-60': 0,
+    '60+': 0
+  };
+
+  rows.forEach(row => {
+    const days = Number(row.totalListingDays || 0);
+    if (days >= 0 && days <= 7) {
+      result['0-7']++;
+    } else if (days > 7 && days <= 15) {
+      result['7-15']++;
+    } else if (days > 15 && days <= 30) {
+      result['15-30']++;
+    } else if (days > 30 && days <= 60) {
+      result['30-60']++;
+    } else if (days > 60) {
+      result['60+']++;
+    }
+  });
+
+  return result;
+}
+
 export function buildCharts(rows: CaseRow[]): DashboardCharts {
   // Build readyToDeliver with a fixed order: Blank → Yes → No
   const rtdRaw = groupCount(rows, 'readyToDeliver');
@@ -265,7 +292,8 @@ export function buildCharts(rows: CaseRow[]): DashboardCharts {
     sheetFinalStatus: groupCount(rows, 'sheetFinalStatus'),
     formFinalStatus: groupCount(rows, 'formFinalStatus'),
     eddDistribution: buildEddDistribution(rows),
-    leadDsChannel: groupCount(rows.filter(r => r.leadStage === 'CANCELLED' || r.dealStatus === 'CANCEL' || r.cancelReason), 'leadDsChannel')
+    leadDsChannel: groupCount(rows.filter(r => r.leadStage === 'CANCELLED' || r.dealStatus === 'CANCEL' || r.cancelReason), 'leadDsChannel'),
+    listingDaysDistribution: buildListingDaysDistribution(rows)
   };
 }
 
@@ -284,6 +312,7 @@ export const SEED_CASE_ROWS: CaseRow[] = [
     hubName: "Delhi South Hub",
     city: "Delhi-NCR",
     allocatedRm: "Pradeep Kumar",
+    totalListingDays: 5,
     assignedDc: "Rohit Sharma",
     caAssignedLms: "LMS-9112",
     sm: "Sanjay Singh",
@@ -411,6 +440,7 @@ export const SEED_CASE_ROWS: CaseRow[] = [
     hubName: "Mumbai West Hub",
     city: "Mumbai",
     allocatedRm: "Vikram Malhotra",
+    totalListingDays: 12,
     assignedDc: "Nehal Patel",
     caAssignedLms: "LMS-3310",
     sm: "Yashvardhan K",
@@ -538,6 +568,7 @@ export const SEED_CASE_ROWS: CaseRow[] = [
     hubName: "Bangalore Whitefield Hub",
     city: "Bangalore",
     allocatedRm: "Nisha Hegde",
+    totalListingDays: 20,
     assignedDc: "Koushik Naidu",
     caAssignedLms: "LMS-1087",
     sm: "Aniruddh R",
@@ -665,6 +696,7 @@ export const SEED_CASE_ROWS: CaseRow[] = [
     hubName: "Gurgaon Hub",
     city: "Delhi-NCR",
     allocatedRm: "Pradeep Kumar",
+    totalListingDays: 45,
     assignedDc: "Sandeep Yadav",
     caAssignedLms: "LMS-9112",
     sm: "Sanjay Singh",
@@ -792,6 +824,7 @@ export const SEED_CASE_ROWS: CaseRow[] = [
     hubName: "Mumbai South Hub",
     city: "Mumbai",
     allocatedRm: "Yogesh Patil",
+    totalListingDays: 80,
     assignedDc: "Nehal Patel",
     caAssignedLms: "LMS-3310",
     sm: "Yashvardhan K",

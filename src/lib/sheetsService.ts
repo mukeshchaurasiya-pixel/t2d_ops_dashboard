@@ -403,6 +403,8 @@ export async function fetchSingleRowLatest(
     'latestremarkby': 'latestRemarkBy',
     'latest_remark_date': 'latestRemarkDate',
     'latestremarkdate': 'latestRemarkDate',
+    'total_listing_days': 'totalListingDays',
+    'totallistingdays': 'totalListingDays',
 
     // Underwriting / Credit Risk / Safety Flags
     'rc_case_type': 'rcCaseType',

@@ -314,7 +314,8 @@ export default function Dashboard({
     leadDsChannel: 'All',
     readyToDeliver: 'All',
     dateFilters: [],
-    minPaymentPercentage: 'All'
+    minPaymentPercentage: 'All',
+    listingDaysBucket: 'All'
   });
 
   // Cancelled-to-Delivered (C2D) conversions detection
@@ -625,6 +626,22 @@ export default function Dashboard({
     if (ignoreKey !== 'sheetFinalStatus' && !matchMulti(filters.sheetFinalStatus, row.sheetFinalStatus)) return false;
     if (ignoreKey !== 'formFinalStatus' && !matchMulti(filters.formFinalStatus, row.formFinalStatus)) return false;
     if (ignoreKey !== 'gmailPendencyStatus' && !matchMulti(filters.gmailPendencyStatus, row.gmailPendencyStatus)) return false;
+
+    if (ignoreKey !== 'listingDaysBucket' && filters.listingDaysBucket && filters.listingDaysBucket !== 'All') {
+      const days = Number(row.totalListingDays || 0);
+      const bucket = filters.listingDaysBucket;
+      if (bucket === '0-7') {
+        if (!(days >= 0 && days <= 7)) return false;
+      } else if (bucket === '7-15') {
+        if (!(days > 7 && days <= 15)) return false;
+      } else if (bucket === '15-30') {
+        if (!(days > 15 && days <= 30)) return false;
+      } else if (bucket === '30-60') {
+        if (!(days > 30 && days <= 60)) return false;
+      } else if (bucket === '60+') {
+        if (!(days > 60)) return false;
+      }
+    }
 
     if (ignoreKey !== 'taskBucket' && filters.taskBucket !== 'All') {
       const selectedTasks = filters.taskBucket.split('|||').map(s => s.trim().toLowerCase());
@@ -1037,7 +1054,8 @@ export default function Dashboard({
       leadDsChannel: 'All',
       readyToDeliver: 'All',
       dateFilters: [],
-      minPaymentPercentage: 'All'
+      minPaymentPercentage: 'All',
+      listingDaysBucket: 'All'
     });
   };
 
@@ -2277,7 +2295,7 @@ export default function Dashboard({
       {activeTab === 'ops' && (
         <>
           {/* 3. Visual Charts Grid (Bento columns) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6" id="bento-charts">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" id="bento-charts">
             {/* Lead Stage Split */}
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
               <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
@@ -2300,6 +2318,14 @@ export default function Dashboard({
                 EDD Distribution
               </h4>
               {renderSvgBarChart('EDD Distribution', charts.eddDistribution, "bg-rose-500", "eddStatus")}
+            </div>
+
+            {/* Total Listing Days */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+              <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+                Total Listing Days
+              </h4>
+              {renderSvgBarChart('Total Listing Days', charts.listingDaysDistribution, "bg-emerald-500", "listingDaysBucket")}
             </div>
           </div>
 

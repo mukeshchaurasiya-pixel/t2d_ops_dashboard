@@ -160,6 +160,7 @@ export interface CaseRow {
   gmailPendencyDate?: string;
   confidenceScore?: string;
   mlEstimatedDeliveryDate?: string;
+  totalListingDays?: number;
 }
 
 export interface DerivedFlags {
@@ -214,6 +215,7 @@ export interface FilterState {
   readyToDeliver?: string;
   dateFilters?: DateFilter[];
   minPaymentPercentage?: string;
+  listingDaysBucket: string;
 }
 
 export interface DashboardKpis {
@@ -248,4 +250,5 @@ export interface DashboardCharts {
   formFinalStatus: Record<string, number>;
   eddDistribution: Record<string, number>;
   leadDsChannel?: Record<string, number>;
+  listingDaysDistribution: Record<string, number>;
 }
