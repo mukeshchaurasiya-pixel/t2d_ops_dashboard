@@ -3,175 +3,78 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { 
   Building, RefreshCcw, LogOut, AlertCircle, FileSpreadsheet, Lock, HelpCircle, Settings, Database, Save, ExternalLink, Clock, ArrowLeft, History, RefreshCw
 } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import LoginPage from './components/LoginPage';
-import { CaseRow, UserSession, AuditLog } from './types';
+import { CaseRow } from './types';
 import { SEED_CASE_ROWS } from './data/mockData';
-import { initAuth, logout, AppUser } from './lib/firebaseAuth';
+import { logout } from './lib/firebaseAuth';
 import { getCleanSpreadsheetId } from './lib/sheetsService';
+import { getSheetAccessCacheKeys } from './lib/sheetAccessCache';
+import { useAdminData } from './hooks/useAdminData';
+import { useAuthBootstrap } from './hooks/useAuthBootstrap';
+import { useCaseData } from './hooks/useCaseData';
+import { useSheetConfig } from './hooks/useSheetConfig';
+import { useSyncState } from './hooks/useSyncState';
 
 export default function App() {
   const [rows, setRows] = useState<CaseRow[]>(SEED_CASE_ROWS);
-
-  // Sync state tracking
-  const [lastSynced, setLastSynced] = useState<Date | null>(() => {
-    const val = localStorage.getItem('cars24_lastSynced');
-    return val ? new Date(val) : null;
-  });
-  const [syncStatusText, setSyncStatusText] = useState<string>('Never synced');
-
-  const updateLastSynced = (date: Date) => {
-    setLastSynced(date);
-    localStorage.setItem('cars24_lastSynced', date.toISOString());
-  };
-
-  const getSheetAccessCacheKeys = (activeSheetId: string, activeUserEmail?: string | null) => {
-    const emailKey = String(activeUserEmail || 'anonymous').trim().toLowerCase();
-    const suffix = `${emailKey}_${activeSheetId}`;
-    return {
-      verifiedKey: `cars24_sheet_access_verified_${suffix}`,
-      timeKey: `cars24_sheet_access_time_${suffix}`,
-      legacyVerifiedKey: `cars24_sheet_access_verified_${activeSheetId}`,
-      legacyTimeKey: `cars24_sheet_access_time_${activeSheetId}`,
-    };
-  };
-
-  // Relative time helper
-  const getRelativeTimeString = (date: Date | null) => {
-    if (!date) return 'Never synced';
-    const diffMs = Date.now() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffSecs = Math.floor(diffMs / 1000);
-
-    if (diffSecs < 60) {
-      return 'Just now';
-    }
-    if (diffMins < 60) {
-      return `Last synced: ${diffMins}m ago`;
-    }
-    const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) {
-      return `Last synced: ${diffHours}h ago`;
-    }
-    return `Last synced: ${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-  };
-
-  useEffect(() => {
-    const updateText = () => {
-      setSyncStatusText(getRelativeTimeString(lastSynced));
-    };
-    updateText();
-    const interval = setInterval(updateText, 10000);
-    return () => clearInterval(interval);
-  }, [lastSynced]);
-
-  // Spreadsheet Settings State - Persistent locally in browser storage
-  const [sheetId, setSheetId] = useState<string>(() => localStorage.getItem('cars24_sheetId') || '1ARJ8AzOwNxqdTZA7bd7zPAacabIoBImXqReqzSTrIy4');
-  const [sheetName, setSheetName] = useState<string>(() => localStorage.getItem('cars24_sheetName') || 'Sheet1');
+  const { syncStatusText, updateLastSynced } = useSyncState();
+  const {
+    sheetId,
+    setSheetId,
+    sheetName,
+    setSheetName,
+    showConfigPanel,
+    setShowConfigPanel,
+    tempSheetId,
+    setTempSheetId,
+    tempSheetName,
+    setTempSheetName,
+  } = useSheetConfig();
   const [appTitle, setAppTitle] = useState<string>('CARS24 T2D Ops Dashboard');
-
-  // Admin configuration state (accessible by Mukesh only)
-  const [showConfigPanel, setShowConfigPanel] = useState<boolean>(false);
-  const [tempSheetId, setTempSheetId] = useState<string>(() => localStorage.getItem('cars24_sheetId') || '1ARJ8AzOwNxqdTZA7bd7zPAacabIoBImXqReqzSTrIy4');
-  const [tempSheetName, setTempSheetName] = useState<string>(() => localStorage.getItem('cars24_sheetName') || 'Sheet1');
-
-  // Authentication & State Preservation Loader/Control States
-  const [user, setUser] = useState<AppUser | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [restoreLoading, setRestoreLoading] = useState<boolean>(false);
-  const [demoMode, setDemoMode] = useState<boolean>(false);
-  const [loginError, setLoginError] = useState<string | null>(null);
+  const { syncing, loadCachedRows, syncCasesFromSheets } = useCaseData(setRows, updateLastSynced);
+  const {
+    user,
+    setUser,
+    accessToken,
+    setAccessToken,
+    restoreLoading,
+    setRestoreLoading,
+    demoMode,
+    setDemoMode,
+    loginError,
+    setLoginError,
+  } = useAuthBootstrap({
+    sheetId,
+    sheetName,
+    setSheetId,
+    setSheetName,
+    setRows,
+    loadCachedRows,
+    syncCasesFromSheets,
+  });
 
   // Routing and View States
   const [viewMode, setViewMode] = useState<'dashboard' | 'admin'>('dashboard');
   const [adminTab, setAdminTab] = useState<'settings' | 'sessions' | 'audits'>('settings');
-
-  // Session tracking & active minutes states
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [userSessions, setUserSessions] = useState<UserSession[]>([]);
-  const [loadingSessions, setLoadingSessions] = useState<boolean>(false);
-  const [globalAuditLogs, setGlobalAuditLogs] = useState<AuditLog[]>([]);
-  const [loadingAudits, setLoadingAudits] = useState<boolean>(false);
-
-  // Check if current user is an admin
-  const isAdmin = useMemo(() => {
-    if (!user || !user.email) return false;
-    const emailLower = user.email.toLowerCase().trim();
-    return emailLower === 'mukesh.chaurasiya@cars24.com' || emailLower === 'chourasiyamukesh008@gmail.com';
-  }, [user]);
-
-  // Fetch session history and audit logs
-  const fetchAdminData = async () => {
-    if (!isAdmin) return;
-    setLoadingSessions(true);
-    setLoadingAudits(true);
-    try {
-      const { getUserSessions, getAllAuditLogs } = await import('./lib/supabaseDb');
-      
-      const sessionPromise = getUserSessions()
-        .then(res => setUserSessions(res))
-        .catch(err => console.warn(err));
-
-      const auditPromise = getAllAuditLogs()
-        .then(res => setGlobalAuditLogs(res))
-        .catch(err => console.warn(err));
-
-      await Promise.all([sessionPromise, auditPromise]);
-    } catch (err) {
-      console.warn("Failed to load admin logs:", err);
-    } finally {
-      setLoadingSessions(false);
-      setLoadingAudits(false);
-    }
-  };
-
-  // User Session Heartbeat Activity Tracking
-  useEffect(() => {
-    if (!user || !user.email || demoMode) {
-      setActiveSessionId(null);
-      return;
-    }
-
-    let sessionId: string | null = null;
-    let heartbeatInterval: any = null;
-
-    const initSession = async () => {
-      try {
-        const { startUserSession, heartbeatUserSession } = await import('./lib/supabaseDb');
-        sessionId = await startUserSession(user.email!);
-        setActiveSessionId(sessionId);
-
-        // Run heartbeat every 1 minute (60,000 ms)
-        heartbeatInterval = setInterval(async () => {
-          if (sessionId) {
-            await heartbeatUserSession(sessionId);
-          }
-        }, 60000);
-      } catch (err) {
-        console.warn("Could not track user session activity:", err);
-      }
-    };
-
-    initSession();
-
-    return () => {
-      if (heartbeatInterval) {
-        clearInterval(heartbeatInterval);
-      }
-    };
-  }, [user?.email, demoMode]);
-
-  // Fetch session history and audit logs for admin when toggled
-  useEffect(() => {
-    if (viewMode === 'admin' && isAdmin) {
-      fetchAdminData();
-    }
-  }, [viewMode, isAdmin]);
+  const {
+    isAdmin,
+    activeSessionId,
+    userSessions,
+    loadingSessions,
+    globalAuditLogs,
+    loadingAudits,
+    fetchAdminData,
+  } = useAdminData({
+    userEmail: user?.email,
+    demoMode,
+    viewMode,
+  });
 
   // Handler to persist settings and re-query spreadsheet automatically
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -189,10 +92,14 @@ export default function App() {
         await saveSharedConfig(cleanId, tempSheetName, user.email || '');
 
         if (accessToken) {
-          const { fetchSheetDataDirect } = await import('./lib/sheetsService');
-          const sheetRows = await fetchSheetDataDirect(cleanId, tempSheetName, accessToken, user.email);
-          setRows(sheetRows);
-          updateLastSynced(new Date());
+          await syncCasesFromSheets({
+            accessToken,
+            sheetId: cleanId,
+            sheetName: tempSheetName,
+            userEmail: user.email,
+            replaceRowsOnEmpty: true,
+            updateTimestampOnEmpty: true,
+          });
           setLoginError(null);
           alert("Configuration saved and globally synchronized!");
         } else {
@@ -210,200 +117,6 @@ export default function App() {
       alert("Offline configuration updated successfully.");
     }
   };
-
-  // Synchronize spreadsheet parameters with localStorage
-  useEffect(() => {
-    localStorage.setItem('cars24_sheetId', sheetId);
-  }, [sheetId]);
-
-  useEffect(() => {
-    localStorage.setItem('cars24_sheetName', sheetName);
-  }, [sheetName]);
-
-  // Load initial data snapshot from Supabase DB on mount
-  useEffect(() => {
-    const loadCache = async () => {
-      setRestoreLoading(true);
-      try {
-        const { getCasesFromDb } = await import('./lib/supabaseDb');
-        const dbRows = await getCasesFromDb();
-        if (dbRows && dbRows.length > 0) {
-          setRows(dbRows);
-          if (!localStorage.getItem('cars24_lastSynced')) {
-            updateLastSynced(new Date());
-          }
-        }
-      } catch (err) {
-        console.warn("Could not load initial cached cases from Supabase DB:", err);
-      } finally {
-        setRestoreLoading(false);
-      }
-    };
-    loadCache();
-  }, []);
-
-  const triggerAutoSync = async (activeToken: string, activeSheetId: string, activeSheetName: string, userEmail: string | null) => {
-    setSyncing(true);
-    try {
-      const { fetchSheetDataDirect } = await import('./lib/sheetsService');
-      const { upsertCasesToDb } = await import('./lib/supabaseDb');
-      
-      const sheetRows = await fetchSheetDataDirect(activeSheetId, activeSheetName, activeToken, userEmail);
-      if (sheetRows && sheetRows.length > 0) {
-        await upsertCasesToDb(sheetRows, userEmail || 'system_sync');
-        setRows(sheetRows);
-        updateLastSynced(new Date());
-        console.log(`Auto-synchronized ${sheetRows.length} rows from Google Sheets.`);
-      }
-    } catch (err) {
-      console.warn("Background auto-sync failed:", err);
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  // Auth subscriber to auto-load saved state on boot or login
-  useEffect(() => {
-    const unsubscribe = initAuth(
-      async (authedUser, token) => {
-        let activeSheetId = sheetId;
-        let activeSheetName = sheetName;
-
-        setRestoreLoading(true);
-        setLoginError(null);
-
-        try {
-          // Fetch the globally synced spreadsheet configurations from Firestore first
-          const { getSharedConfig, saveSharedConfig } = await import('./lib/firebaseAuth');
-          const sharedConfig = await getSharedConfig();
-          if (sharedConfig?.sheetId) {
-            activeSheetId = sharedConfig.sheetId;
-            activeSheetName = sharedConfig.sheetName;
-            setSheetId(sharedConfig.sheetId);
-            setSheetName(sharedConfig.sheetName);
-          } else if (sheetId && authedUser) {
-            // Seed Firestore with the active config so state persists for someone else who logs in
-            try {
-              await saveSharedConfig(sheetId, sheetName, authedUser.email || '');
-            } catch (pErr) {
-              console.warn("Could not auto-sync config to Firestore on auth listener:", pErr);
-            }
-          }
-        } catch (dbErr) {
-          console.warn("Failed to retrieve global Firestore workspace config:", dbErr);
-        }
-
-        // --- SHEET ACCESS SECURITY CHECK ---
-        const cacheKeys = getSheetAccessCacheKeys(activeSheetId, authedUser?.email);
-        const cachedVerified = localStorage.getItem(cacheKeys.verifiedKey) === 'true';
-        const cachedTime = Number(localStorage.getItem(cacheKeys.timeKey) || 0);
-        const isCacheValid = Date.now() - cachedTime < 7 * 24 * 60 * 60 * 1000; // 7 days cache validity
-
-        if (cachedVerified && isCacheValid) {
-          // Access is already verified recently, load immediately from DB cache without forcing Google re-login!
-          setUser(authedUser);
-          setAccessToken(token);
-          setRestoreLoading(false);
-          if (token) {
-            triggerAutoSync(token, activeSheetId, activeSheetName, authedUser.email);
-          }
-          return;
-        }
-
-        if (token) {
-          // Verify access using active Google token
-          try {
-            const { verifySheetAccess } = await import('./lib/sheetsService');
-            const hasAccess = await verifySheetAccess(activeSheetId, token);
-            if (hasAccess) {
-              localStorage.setItem(cacheKeys.verifiedKey, 'true');
-              localStorage.setItem(cacheKeys.timeKey, String(Date.now()));
-              localStorage.removeItem(cacheKeys.legacyVerifiedKey);
-              localStorage.removeItem(cacheKeys.legacyTimeKey);
-              setUser(authedUser);
-              setAccessToken(token);
-              triggerAutoSync(token, activeSheetId, activeSheetName, authedUser.email);
-            } else {
-              console.warn("Google Sheet access verification failed.");
-              setLoginError("Restricted Access: Your Google account does not have view permission on the configured Google Sheet.");
-              setUser(authedUser);
-              setAccessToken(null);
-              setRows([]);
-              localStorage.removeItem(cacheKeys.verifiedKey);
-              localStorage.removeItem(cacheKeys.timeKey);
-              localStorage.removeItem(cacheKeys.legacyVerifiedKey);
-              localStorage.removeItem(cacheKeys.legacyTimeKey);
-            }
-          } catch (err: any) {
-            console.error("Access verification error:", err);
-            setLoginError(`Verification failed: ${err.message || err}`);
-          }
-        } else {
-          // No active token and cache is expired/missing
-          console.warn("No active Google token to verify sheet access.");
-          setLoginError("Google authentication expired. Please sign in again to verify sheet access permissions.");
-          setUser(null);
-          setAccessToken(null);
-        }
-
-        setRestoreLoading(false);
-      },
-      () => {
-        setUser(null);
-        setAccessToken(null);
-      }
-    );
-    return () => unsubscribe();
-  }, [sheetId, sheetName]);
-
-  // Dynamically analyze rows to provide filter options for Dashboard
-  const filterOptions = useMemo(() => {
-    const citiesSet = new Set<string>();
-    const hubsSet = new Set<string>();
-    const tokenTypeSet = new Set<string>();
-    const tokenTypeWithNrtSet = new Set<string>();
-    const rmSet = new Set<string>();
-    const dcSet = new Set<string>();
-    const paymentSet = new Set<string>();
-    const stagesSet = new Set<string>();
-    const dealSet = new Set<string>();
-    const funnelSet = new Set<string>();
-    const sheetFinalSet = new Set<string>();
-    const formFinalSet = new Set<string>();
-    const gmailPendencySet = new Set<string>();
-
-    rows.forEach(row => {
-      if (row.city) citiesSet.add(row.city);
-      if (row.hubName) hubsSet.add(row.hubName);
-      if (row.tokenType) tokenTypeSet.add(row.tokenType);
-      if (row.tokenTypeWithNrt) tokenTypeWithNrtSet.add(row.tokenTypeWithNrt);
-      if (row.allocatedRm) rmSet.add(row.allocatedRm);
-      if (row.assignedDc) dcSet.add(row.assignedDc);
-      if (row.paymentType) paymentSet.add(row.paymentType);
-      if (row.leadStage) stagesSet.add(row.leadStage);
-      if (row.dealStatus) dealSet.add(row.dealStatus);
-      if (row.funnelStage) funnelSet.add(row.funnelStage);
-      if (row.sheetFinalStatus) sheetFinalSet.add(row.sheetFinalStatus);
-      if (row.formFinalStatus) formFinalSet.add(row.formFinalStatus);
-      if (row.gmailPendencyStatus) gmailPendencySet.add(row.gmailPendencyStatus);
-    });
-
-    return {
-      cities: Array.from(citiesSet).sort(),
-      hubs: Array.from(hubsSet).sort(),
-      tokenTypes: Array.from(tokenTypeSet).sort(),
-      tokenTypesWithNrt: Array.from(tokenTypeWithNrtSet).sort(),
-      rms: Array.from(rmSet).sort(),
-      dcs: Array.from(dcSet).sort(),
-      paymentTypes: Array.from(paymentSet).sort(),
-      leadStages: Array.from(stagesSet).sort(),
-      dealStatuses: Array.from(dealSet).sort(),
-      funnelStages: Array.from(funnelSet).sort(),
-      sheetFinalStatuses: Array.from(sheetFinalSet).sort(),
-      formFinalStatuses: Array.from(formFinalSet).sort(),
-      gmailPendencyStatuses: Array.from(gmailPendencySet).sort(),
-    };
-  }, [rows]);
 
   const handleSignIn = async () => {
     setRestoreLoading(true);
@@ -439,14 +152,12 @@ export default function App() {
         
         if (activeSheetId) {
           try {
-            const { fetchSheetDataDirect } = await import('./lib/sheetsService');
-            const { upsertCasesToDb } = await import('./lib/supabaseDb');
-            const sheetRows = await fetchSheetDataDirect(activeSheetId, activeSheetName, res.accessToken, res.user.email);
-            if (sheetRows && sheetRows.length > 0) {
-              await upsertCasesToDb(sheetRows, res.user.email || 'system_sync');
-              setRows(sheetRows);
-              updateLastSynced(new Date());
-            }
+            await syncCasesFromSheets({
+              accessToken: res.accessToken,
+              sheetId: activeSheetId,
+              sheetName: activeSheetName,
+              userEmail: res.user.email,
+            });
           } catch (sheetErr: any) {
             console.warn("Could not sync spreadsheet on sign in:", sheetErr);
             setLoginError(`Signed in, but Google Sheets API sync failed. Using cached database snapshot instead.`);
@@ -460,8 +171,6 @@ export default function App() {
       setRestoreLoading(false);
     }
   };
-
-  const [syncing, setSyncing] = useState<boolean>(false);
 
   const handleSyncFromSheets = async (forcedToken?: string | null) => {
     const activeToken = forcedToken !== undefined ? forcedToken : accessToken;
@@ -478,16 +187,14 @@ export default function App() {
       return;
     }
 
-    setSyncing(true);
     try {
-      const { fetchSheetDataDirect } = await import('./lib/sheetsService');
-      const { upsertCasesToDb } = await import('./lib/supabaseDb');
-      
-      const sheetRows = await fetchSheetDataDirect(sheetId, sheetName, activeToken, user?.email);
-      if (sheetRows && sheetRows.length > 0) {
-        await upsertCasesToDb(sheetRows, user?.email || 'system_sync');
-        setRows(sheetRows);
-        updateLastSynced(new Date());
+      const sheetRows = await syncCasesFromSheets({
+        accessToken: activeToken,
+        sheetId,
+        sheetName,
+        userEmail: user?.email,
+      });
+      if (sheetRows.length > 0) {
         alert(`Successfully synchronized ${sheetRows.length} rows from Google Sheets!`);
       } else {
         alert("Spreadsheet sync returned empty content.");
@@ -495,8 +202,6 @@ export default function App() {
     } catch (err: any) {
       console.error("Manual Google Sheets sync failed:", err);
       alert(`Sync failed: ${err.message || err}`);
-    } finally {
-      setSyncing(false);
     }
   };
 
@@ -514,8 +219,7 @@ export default function App() {
       localStorage.removeItem(cacheKeys.legacyVerifiedKey);
       localStorage.removeItem(cacheKeys.legacyTimeKey);
       // Reload DB cache rows so they are clean
-      const { getCasesFromDb } = await import('./lib/supabaseDb');
-      const dbRows = await getCasesFromDb();
+      const dbRows = await loadCachedRows();
       if (dbRows && dbRows.length > 0) {
         setRows(dbRows);
       }
@@ -1131,7 +835,6 @@ export default function App() {
               <Dashboard 
                 rows={rows} 
                 setRows={setRows} 
-                filterOptions={filterOptions} 
                 sheetId={sheetId}
                 sheetName={sheetName}
                 accessToken={demoMode ? null : accessToken}

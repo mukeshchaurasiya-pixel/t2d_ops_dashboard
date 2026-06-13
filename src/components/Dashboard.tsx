@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Filter, Search, AlertCircle, FileSpreadsheet, Eye, ExternalLink, Calendar, 
@@ -20,6 +20,13 @@ import { getDerivedFlags, buildKpis, buildCharts, splitTasks } from '../data/moc
 import { AppUser } from '../lib/firebaseAuth';
 import { parseDateString } from '../lib/dateUtils';
 import { calculateOperationsMatrix, MatrixRow } from '../lib/matrixCalculator';
+import {
+  buildEddLabels,
+  createDerivedLabels,
+  DEFAULT_FILTERS,
+  isRowMatchingFilter,
+  MILESTONE_STAGES,
+} from '../lib/dashboardFilters';
 
 const DATE_OPTIONS = [
   {
@@ -82,44 +89,9 @@ const DATE_OPTIONS = [
   }
 ];
 
-const MILESTONE_STAGES = [
-  'Lead Created',
-  'Case Logged In',
-  'Credit Assessed',
-  'Diligence Assessed',
-  'T&C Accepted',
-  'FCU Checked',
-  'Submitted To Ops',
-  'Finance Disbursed'
-];
-
-const getMilestoneStatus = (row: CaseRow, milestone: string): boolean => {
-  switch (milestone) {
-    case 'Lead Created':
-      return !!row.latestLeadCreationTimestamp;
-    case 'Case Logged In':
-      return !!(row.latestLoginTime || row.sheetLoginTimestamp);
-    case 'Credit Assessed':
-      return !!row.latestCreditAssessedTimestamp;
-    case 'Diligence Assessed':
-      return !!row.latestDiligenceAssessedTimestamp;
-    case 'T&C Accepted':
-      return !!row.tncAcceptedTimestamp;
-    case 'FCU Checked':
-      return !!(row.latestFcuAssessedTimestamp || row.fcuSentDate);
-    case 'Submitted To Ops':
-      return !!(row.submitToOpsTimestamp || row.sentToOpsTimestamp);
-    case 'Finance Disbursed':
-      return !!(row.financeDisbursedTimestamp || row.opsDisbursalTimestamp);
-    default:
-      return false;
-  }
-};
-
 interface DashboardProps {
   rows: CaseRow[];
   setRows: React.Dispatch<React.SetStateAction<CaseRow[]>>;
-  filterOptions: Record<string, string[]>;
   sheetId: string;
   sheetName: string;
   accessToken: string | null;
@@ -148,7 +120,6 @@ const AVAILABLE_ADDITIONAL_COLS: { key: keyof CaseRow; label: string }[] = [
 export default function Dashboard({ 
   rows, 
   setRows, 
-  filterOptions,
   sheetId,
   sheetName,
   accessToken,
@@ -156,34 +127,7 @@ export default function Dashboard({
   onSyncFromSheets,
   isSyncing
 }: DashboardProps) {
-  const [filters, setFilters] = useState<FilterState>({
-    city: 'All',
-    hubName: 'All',
-    tokenType: 'All',
-    tokenTypeWithNrt: 'All',
-    rmName: 'All',
-    dcName: 'All',
-    paymentType: 'All',
-    leadStage: 'All',
-    dealStatus: 'All',
-    funnelStage: 'All',
-    sheetFinalStatus: 'All',
-    formFinalStatus: 'All',
-    gmailPendencyStatus: 'All',
-    taskBucket: 'All',
-    derivedStatus: 'All',
-    dateField: 'All',
-    startDate: '',
-    endDate: '',
-    searchQuery: '',
-    eddStatus: 'All',
-    cancelReason: 'All',
-    leadDsChannel: 'All',
-    readyToDeliver: 'All',
-    dateFilters: [],
-    minPaymentPercentage: 'All',
-    listingDaysBucket: 'All'
-  });
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
 
   // Cancelled-to-Delivered (C2D) conversions detection
   const c2dStats = useMemo(() => {
@@ -414,19 +358,6 @@ export default function Dashboard({
     }
   };
 
-  const matchMulti = (filterVal: string, rowVal: any) => {
-    if (filterVal === 'All') return true;
-    if (filterVal === '') return false;
-    if (!filterVal) return true;
-    const selected = filterVal.split('|||').map(s => s.trim().toLowerCase());
-    const rowStr = String(rowVal || '').trim().toLowerCase();
-    
-    if (selected.includes('blank')) {
-      if (rowStr === '') return true;
-    }
-    return selected.includes(rowStr);
-  };
-
   // Debounced search text state
   const [localSearch, setLocalSearch] = useState(filters.searchQuery);
 
@@ -454,334 +385,10 @@ export default function Dashboard({
     setCurrentPage(1);
   }, [filters]);
 
-  // Pre-calculate all EDD labels once per mount / day
-  const eddLabels = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+  const eddLabels = useMemo(() => buildEddLabels(), []);
 
-    const getOrdinalSuffix = (day: number) => {
-      if (day > 3 && day < 21) return 'th';
-      switch (day % 10) {
-        case 1:  return "st";
-        case 2:  return "nd";
-        case 3:  return "rd";
-        default: return "th";
-      }
-    };
-
-    const formatDateWithSuffix = (date: Date) => {
-      const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-      const day = date.getDate();
-      const month = months[date.getMonth()];
-      return `${day}${getOrdinalSuffix(day)} ${month}`;
-    };
-
-    const addDays = (d: Date, n: number) => {
-      const newD = new Date(d.getTime());
-      newD.setDate(newD.getDate() + n);
-      return newD;
-    };
-
-    const formatRange = (start: Date, end: Date) => {
-      const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-      const startDay = start.getDate();
-      const endDay = end.getDate();
-      const startMonth = months[start.getMonth()];
-      const endMonth = months[end.getMonth()];
-      
-      if (startMonth === endMonth) {
-        return `${startDay}${getOrdinalSuffix(startDay)} to ${endDay}${getOrdinalSuffix(endDay)} ${startMonth}`;
-      }
-      return `${startDay}${getOrdinalSuffix(startDay)} ${startMonth} to ${endDay}${getOrdinalSuffix(endDay)} ${endMonth}`;
-    };
-
-    return {
-      today,
-      labelToday: formatDateWithSuffix(today),
-      labelD1: formatDateWithSuffix(addDays(today, 1)),
-      labelD2: formatDateWithSuffix(addDays(today, 2)),
-      labelD3_6: formatRange(addDays(today, 3), addDays(today, 6)),
-      labelD7Plus: `${formatDateWithSuffix(addDays(today, 7))} +`
-    };
-  }, []);
-
-  // Helper to evaluate if a row matches the current filters, optionally ignoring one specific filter
   const isRowMatching = useCallback((row: CaseRow, ignoreKey?: string) => {
-    // If fuzzy search query is active, ignore all other filters and only do fuzzy text search
-    if (filters.searchQuery) {
-      const query = filters.searchQuery.toLowerCase();
-      return (
-        String(row.bookingId || '').toLowerCase().includes(query) ||
-        String(row.carRegNo || '').toLowerCase().includes(query) ||
-        String(row.userId || '').toLowerCase().includes(query) ||
-        String(row.make || '').toLowerCase().includes(query) ||
-        String(row.model || '').toLowerCase().includes(query) ||
-        String(row.appointmentId || '').toLowerCase().includes(query)
-      );
-    }
-
-    if (ignoreKey !== 'city' && ignoreKey !== 'city_and_hub' && !matchMulti(filters.city, row.city)) return false;
-    if (ignoreKey !== 'hubName' && ignoreKey !== 'city_and_hub' && !matchMulti(filters.hubName, row.hubName)) return false;
-    if (ignoreKey !== 'tokenType' && !matchMulti(filters.tokenType, row.tokenType)) return false;
-    if (ignoreKey !== 'tokenTypeWithNrt' && !matchMulti(filters.tokenTypeWithNrt, row.tokenTypeWithNrt)) return false;
-    if (ignoreKey !== 'rmName' && !matchMulti(filters.rmName, row.allocatedRm)) return false;
-    if (ignoreKey !== 'dcName' && !matchMulti(filters.dcName, row.assignedDc)) return false;
-    if (ignoreKey !== 'paymentType' && !matchMulti(filters.paymentType, row.paymentType)) return false;
-    if (ignoreKey !== 'leadStage' && !matchMulti(filters.leadStage, row.leadStage)) return false;
-    if (ignoreKey !== 'dealStatus' && !matchMulti(filters.dealStatus, row.dealStatus)) return false;
-    if (ignoreKey !== 'funnelStage' && filters.funnelStage !== 'All') {
-      const selectedStages = filters.funnelStage.split('|||').map(s => s.trim());
-      const rowMatchesFunnel = selectedStages.some(stage => {
-        if (MILESTONE_STAGES.includes(stage)) {
-          return getMilestoneStatus(row, stage);
-        }
-        return String(row.funnelStage || '').toLowerCase() === stage.toLowerCase();
-      });
-      if (!rowMatchesFunnel) return false;
-    }
-
-    if (filters.minPaymentPercentage && filters.minPaymentPercentage !== 'All') {
-      const thresholdPct = parseFloat(filters.minPaymentPercentage);
-      if (!isNaN(thresholdPct)) {
-        const rowPct = Number(row.paymentPercentage || 0);
-        const normalizedRowPct = rowPct > 1 ? rowPct / 100 : rowPct;
-        if (normalizedRowPct < (thresholdPct / 100)) return false;
-      }
-    }
-    if (ignoreKey !== 'sheetFinalStatus' && !matchMulti(filters.sheetFinalStatus, row.sheetFinalStatus)) return false;
-    if (ignoreKey !== 'formFinalStatus' && !matchMulti(filters.formFinalStatus, row.formFinalStatus)) return false;
-    if (ignoreKey !== 'gmailPendencyStatus' && !matchMulti(filters.gmailPendencyStatus, row.gmailPendencyStatus)) return false;
-
-    if (ignoreKey !== 'listingDaysBucket' && filters.listingDaysBucket && filters.listingDaysBucket !== 'All') {
-      const days = Number(row.totalListingDays || 0);
-      const bucket = filters.listingDaysBucket;
-      if (bucket === '0-7') {
-        if (!(days >= 0 && days <= 7)) return false;
-      } else if (bucket === '7-15') {
-        if (!(days > 7 && days <= 15)) return false;
-      } else if (bucket === '15-30') {
-        if (!(days > 15 && days <= 30)) return false;
-      } else if (bucket === '30-60') {
-        if (!(days > 30 && days <= 60)) return false;
-      } else if (bucket === '60+') {
-        if (!(days > 60)) return false;
-      }
-    }
-
-    if (ignoreKey !== 'taskBucket' && filters.taskBucket !== 'All') {
-      const selectedTasks = filters.taskBucket.split('|||').map(s => s.trim().toLowerCase());
-      const rowTasks = splitTasks(row.taskBucket || '').map(s => s.trim().toLowerCase());
-      
-      const matchesBlank = selectedTasks.includes('blank') && rowTasks.length === 0;
-      const matchesAnyTask = selectedTasks.some(t => rowTasks.includes(t));
-      
-      if (!matchesBlank && !matchesAnyTask) return false;
-    }
-
-    if (ignoreKey !== 'derivedStatus' && filters.derivedStatus !== 'All') {
-      const selectedIssues = filters.derivedStatus.split('|||');
-      const flags = getDerivedFlags(row);
-      
-      const matchesAny = selectedIssues.some(issue => {
-        if (issue === 'Alert Cases' && flags.isAlertCase) return true;
-        if (issue === 'EDD Missing' && flags.isEddMissing) return true;
-        if (issue === 'EDD Breached' && flags.isEddBreached) return true;
-        if (issue === 'PMax Stuck' && flags.isPmaxStuck) return true;
-        if (issue === 'Customer Connect Pending' && flags.isCustomerConnectPending) return true;
-        if (issue === 'High Payment Pending Delivery' && flags.isHighPaymentPendingDelivery) return true;
-        if (issue === 'Cancelled After Payment' && flags.isCancelledAfterPayment) return true;
-        if (issue === 'OD Pending' && flags.isOdPending) return true;
-        if (issue === 'Blank Payment Type' && flags.isBlankPaymentType) return true;
-        if (issue === 'Payment Pending' && flags.isPaymentPending) return true;
-        if (issue === 'Any Active Task' && Boolean(row.taskBucket)) return true;
-        
-        if (row.taskBucket && String(row.taskBucket).toLowerCase().includes(issue.toLowerCase())) return true;
-        return false;
-      });
-      
-      if (!matchesAny) return false;
-    }
-
-    // Evaluate legacy date filter if active
-    if (ignoreKey !== 'dateRange' && filters.dateField !== 'All') {
-      const dateMap: Record<string, keyof CaseRow> = {
-        tokenDate: 'tokenDate',
-        bookingDate: 'bookingDate',
-        expectedDeliveryDate: 'expectedDeliveryDate',
-        actualDeliveryDate: 'actualDeliveryDate',
-        lastPaymentDate: 'lastPaymentDate',
-        latestRemarkDate: 'latestRemarkDate',
-        cancellationDate: 'cancellationDate',
-        updatedAt: 'updatedAt',
-        expectedOdCompletionDate: 'expectedOdCompletionDate',
-        eddReviewerDate: 'eddReviewerDate',
-        tokenDateTime: 'tokenDateTime',
-        expectedDeliveryTime: 'expectedDeliveryTime',
-        cancelReqDate: 'cancelReqDate',
-        latestLeadCreationTimestamp: 'latestLeadCreationTimestamp',
-        latestLoginTime: 'latestLoginTime',
-        latestCreditAssessedTimestamp: 'latestCreditAssessedTimestamp',
-        latestDiligenceAssessedTimestamp: 'latestDiligenceAssessedTimestamp',
-        latestFcuAssessedTimestamp: 'latestFcuAssessedTimestamp',
-        tncGeneratedDate: 'tncGeneratedDate',
-        tncAcceptedTimestamp: 'tncAcceptedTimestamp',
-        fcuSentDate: 'fcuSentDate',
-        sentToRcuTimestamp: 'sentToRcuTimestamp',
-        sentToOpsTimestamp: 'sentToOpsTimestamp',
-        submitToOpsTimestamp: 'submitToOpsTimestamp',
-        opsDisbursalTimestamp: 'opsDisbursalTimestamp',
-        financeDisbursedTimestamp: 'financeDisbursedTimestamp',
-        lastCallAt: 'lastCallAt',
-        followupAt: 'followupAt',
-        sheetLoginTimestamp: 'sheetLoginTimestamp',
-        gmailPendencyDate: 'gmailPendencyDate',
-        mlEstimatedDeliveryDate: 'mlEstimatedDeliveryDate',
-        dealStatusUpdatedAt: 'dealStatusUpdatedAt',
-        tokenAutoCancellationExtendedDate: 'tokenAutoCancellationExtendedDate'
-      };
-      const dateKey = dateMap[filters.dateField];
-      if (dateKey) {
-        const rawVal = row[dateKey];
-        if (filters.filterBlankDates) {
-          if (rawVal && parseDateString(String(rawVal)) !== null) return false;
-        } else {
-          if (!rawVal) return false;
-          const rowDate = parseDateString(String(rawVal));
-          if (!rowDate) return false;
-
-          if (filters.startDate) {
-            const start = parseDateString(filters.startDate);
-            if (start) {
-              start.setHours(0, 0, 0, 0);
-              if (rowDate < start) return false;
-            }
-          }
-          if (filters.endDate) {
-            const end = parseDateString(filters.endDate);
-            if (end) {
-              end.setHours(23, 59, 59, 999);
-              if (rowDate > end) return false;
-            }
-          }
-        }
-      }
-    }
-
-    // Evaluate dynamic date filters
-    if (ignoreKey !== 'dateRange' && filters.dateFilters && filters.dateFilters.length > 0) {
-      const dateMap: Record<string, keyof CaseRow> = {
-        tokenDate: 'tokenDate',
-        bookingDate: 'bookingDate',
-        expectedDeliveryDate: 'expectedDeliveryDate',
-        actualDeliveryDate: 'actualDeliveryDate',
-        lastPaymentDate: 'lastPaymentDate',
-        latestRemarkDate: 'latestRemarkDate',
-        cancellationDate: 'cancellationDate',
-        updatedAt: 'updatedAt',
-        expectedOdCompletionDate: 'expectedOdCompletionDate',
-        eddReviewerDate: 'eddReviewerDate',
-        tokenDateTime: 'tokenDateTime',
-        expectedDeliveryTime: 'expectedDeliveryTime',
-        cancelReqDate: 'cancelReqDate',
-        latestLeadCreationTimestamp: 'latestLeadCreationTimestamp',
-        latestLoginTime: 'latestLoginTime',
-        latestCreditAssessedTimestamp: 'latestCreditAssessedTimestamp',
-        latestDiligenceAssessedTimestamp: 'latestDiligenceAssessedTimestamp',
-        latestFcuAssessedTimestamp: 'latestFcuAssessedTimestamp',
-        tncGeneratedDate: 'tncGeneratedDate',
-        tncAcceptedTimestamp: 'tncAcceptedTimestamp',
-        fcuSentDate: 'fcuSentDate',
-        sentToRcuTimestamp: 'sentToRcuTimestamp',
-        sentToOpsTimestamp: 'sentToOpsTimestamp',
-        submitToOpsTimestamp: 'submitToOpsTimestamp',
-        opsDisbursalTimestamp: 'opsDisbursalTimestamp',
-        financeDisbursedTimestamp: 'financeDisbursedTimestamp',
-        lastCallAt: 'lastCallAt',
-        followupAt: 'followupAt',
-        sheetLoginTimestamp: 'sheetLoginTimestamp',
-        gmailPendencyDate: 'gmailPendencyDate',
-        mlEstimatedDeliveryDate: 'mlEstimatedDeliveryDate',
-        dealStatusUpdatedAt: 'dealStatusUpdatedAt',
-        tokenAutoCancellationExtendedDate: 'tokenAutoCancellationExtendedDate'
-      };
-
-      for (const df of filters.dateFilters) {
-        if (df.dateField === 'All') continue;
-        const dateKey = dateMap[df.dateField];
-        if (!dateKey) continue;
-        const rawVal = row[dateKey];
-
-        if (df.filterBlankDates) {
-          // If we want blank dates, row is only valid if rawVal is blank
-          if (rawVal && parseDateString(String(rawVal)) !== null) return false;
-        } else {
-          // Otherwise, we require a valid date
-          if (!rawVal) return false;
-          const rowDate = parseDateString(String(rawVal));
-          if (!rowDate) return false;
-
-          if (df.startDate) {
-            const start = parseDateString(df.startDate);
-            if (start) {
-              start.setHours(0, 0, 0, 0);
-              if (rowDate < start) return false;
-            }
-          }
-          if (df.endDate) {
-            const end = parseDateString(df.endDate);
-            if (end) {
-              end.setHours(23, 59, 59, 999);
-              if (rowDate > end) return false;
-            }
-          }
-        }
-      }
-    }
-
-    if (ignoreKey !== 'eddStatus' && filters.eddStatus && filters.eddStatus !== 'All') {
-      let rowBucket = 'Blank / Empty';
-
-      if (row.expectedDeliveryDate) {
-        const edd = parseDateString(row.expectedDeliveryDate);
-        if (edd) {
-          const eddDate = new Date(edd.getFullYear(), edd.getMonth(), edd.getDate(), 0, 0, 0, 0);
-          const diffTime = eddDate.getTime() - eddLabels.today.getTime();
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-          if (diffDays < 0) {
-            rowBucket = 'Overdue / Breached';
-          } else if (diffDays === 0) {
-            rowBucket = eddLabels.labelToday;
-          } else if (diffDays === 1) {
-            rowBucket = eddLabels.labelD1;
-          } else if (diffDays === 2) {
-            rowBucket = eddLabels.labelD2;
-          } else if (diffDays >= 3 && diffDays <= 6) {
-            rowBucket = eddLabels.labelD3_6;
-          } else {
-            rowBucket = eddLabels.labelD7Plus;
-          }
-        }
-      }
-
-      if (rowBucket !== filters.eddStatus) {
-        return false;
-      }
-    }
-
-    if (ignoreKey !== 'cancelReason' && !matchMulti(filters.cancelReason, row.cancelReason)) return false;
-    if (ignoreKey !== 'leadDsChannel' && !matchMulti(filters.leadDsChannel, row.leadDsChannel)) return false;
-
-    if (ignoreKey !== 'readyToDeliver' && filters.readyToDeliver && filters.readyToDeliver !== 'All') {
-      const rtdVal = (row.readyToDeliver || '').trim();
-      if (filters.readyToDeliver === 'Blank') {
-        if (rtdVal !== '') return false;
-      } else {
-        if (rtdVal.toLowerCase() !== filters.readyToDeliver.toLowerCase()) return false;
-      }
-    }
-
-    return true;
+    return isRowMatchingFilter(row, filters, eddLabels, ignoreKey);
   }, [filters, eddLabels]);
 
   // Filtered rows memoized (sorted if sortField is selected)
@@ -981,45 +588,10 @@ export default function Dashboard({
   }, [selectedRowIndex, filteredRows]);
 
 
-  const derivedLabels = useMemo(() => {
-    const labels: Record<string, string> = {
-      'Any Active Task': 'Any Active Task / Pending Item'
-    };
-    allUniqueTasks.forEach(task => {
-      labels[task] = `Task: ${task}`;
-    });
-    return labels;
-  }, [allUniqueTasks]);
+  const derivedLabels = useMemo(() => createDerivedLabels(allUniqueTasks), [allUniqueTasks]);
 
   const resetFilters = () => {
-    setFilters({
-      city: 'All',
-      hubName: 'All',
-      tokenType: 'All',
-      tokenTypeWithNrt: 'All',
-      rmName: 'All',
-      dcName: 'All',
-      paymentType: 'All',
-      leadStage: 'All',
-      dealStatus: 'All',
-      funnelStage: 'All',
-      sheetFinalStatus: 'All',
-      formFinalStatus: 'All',
-      gmailPendencyStatus: 'All',
-      taskBucket: 'All',
-      derivedStatus: 'All',
-      dateField: 'All',
-      startDate: '',
-      endDate: '',
-      searchQuery: '',
-      eddStatus: 'All',
-      cancelReason: 'All',
-      leadDsChannel: 'All',
-      readyToDeliver: 'All',
-      dateFilters: [],
-      minPaymentPercentage: 'All',
-      listingDaysBucket: 'All'
-    });
+    setFilters(DEFAULT_FILTERS);
   };
 
   const syncDateFilters = (dfList: DateFilter[], legacyField: string): DateFilter[] => {
