@@ -163,6 +163,10 @@ export interface CaseRow {
   totalListingDays?: number;
 }
 
+export type CaseEditorDraft = Partial<CaseRow> & {
+  newRemarkAddition?: string;
+};
+
 export interface DerivedFlags {
   isAlertCase: boolean;
   isActiveToken: boolean;
@@ -270,4 +274,3 @@ export interface UserSession {
   last_active_time?: string;
   duration_minutes: number;
 }
-

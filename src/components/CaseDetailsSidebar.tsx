@@ -9,7 +9,7 @@ import {
   ExternalLink, RefreshCw, X, ShieldCheck, Clock, Activity, Sparkles, 
   Database, CheckCircle, PhoneCall, AlertCircle, Search, ShieldAlert, FileSpreadsheet
 } from 'lucide-react';
-import { CaseRow, AuditLog } from '../types';
+import { CaseRow, AuditLog, CaseEditorDraft } from '../types';
 import { splitTasks } from '../data/mockData';
 
 interface CaseDetailsSidebarProps {
@@ -17,8 +17,8 @@ interface CaseDetailsSidebarProps {
   onClose: () => void;
   selectedRow: CaseRow | null;
   fetchingLatestRow: boolean;
-  tempRowData: any;
-  setTempRowData: React.Dispatch<React.SetStateAction<any>>;
+  tempRowData: CaseEditorDraft;
+  setTempRowData: React.Dispatch<React.SetStateAction<CaseEditorDraft>>;
   saveSuccess: boolean;
   savingRow: boolean;
   handleSaveActionables: () => void;

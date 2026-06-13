@@ -11,7 +11,7 @@ import {
   MapPin, User, Car, X, ShieldCheck, ArrowRight, RefreshCw,
   Clock, Sparkles, ShieldAlert, PhoneCall, Database
 } from 'lucide-react';
-import { CaseRow, FilterState, DashboardKpis, DashboardCharts as DashboardChartsData, DateFilter, AuditLog } from '../types';
+import { CaseRow, FilterState, DashboardKpis, DashboardCharts as DashboardChartsData, DateFilter } from '../types';
 import { CaseDetailsSidebar } from './CaseDetailsSidebar';
 import MultiSelectDropdown from './MultiSelectDropdown';
 import DashboardKpiCards from './DashboardKpiCards';
@@ -20,12 +20,14 @@ import { getDerivedFlags, buildKpis, buildCharts, splitTasks } from '../data/moc
 import { AppUser } from '../lib/firebaseAuth';
 import { parseDateString } from '../lib/dateUtils';
 import { calculateOperationsMatrix, MatrixRow } from '../lib/matrixCalculator';
+import { useCaseEditor } from '../hooks/useCaseEditor';
 import {
+  buildDynamicFilterOptions,
   buildEddLabels,
   createDerivedLabels,
   DEFAULT_FILTERS,
+  getCityFilteredHubs,
   isRowMatchingFilter,
-  MILESTONE_STAGES,
 } from '../lib/dashboardFilters';
 
 const DATE_OPTIONS = [
@@ -162,17 +164,6 @@ export default function Dashboard({
       c2dBookingsCount: c2dBookingIds.size
     };
   }, [rows]);
-
-  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
-  const [sidebarTab, setSidebarTab] = useState<'actions' | 'journey' | 'pmax' | 'copilot' | 'raw_data' | 'history'>('actions');
-  const [rawSearchQuery, setRawSearchQuery] = useState('');
-  const [tempRowData, setTempRowData] = useState<Partial<CaseRow>>({});
-  const [savingRow, setSavingRow] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-  const [fetchingLatestRow, setFetchingLatestRow] = useState(false);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [loadingAuditLogs, setLoadingAuditLogs] = useState<boolean>(false);
-
 
   // Dynamically extract all unique task values from current set of rows
   const allUniqueTasks = useMemo(() => {
@@ -427,113 +418,29 @@ export default function Dashboard({
     });
   }, [rows, isRowMatching, sortField, sortDirection]);
 
-  // Static filter options built from all rows — no cross-filtering to avoid render loops
-  const dynamicFilterOptions = useMemo(() => {
-    const citiesSet = new Set<string>();
-    const tokenTypeSet = new Set<string>();
-    const rmSet = new Set<string>();
-    const dcSet = new Set<string>();
-    const paymentSet = new Set<string>();
-    const stagesSet = new Set<string>();
-    const funnelSet = new Set<string>();
-    const sheetFinalSet = new Set<string>();
-    const formFinalSet = new Set<string>();
-    const gmailPendencySet = new Set<string>();
-    const tasksSet = new Set<string>();
-    const derivedSet = new Set<string>();
-    const cancelReasonsSet = new Set<string>();
-    const leadDsChannelsSet = new Set<string>();
-
-    rows.forEach(row => {
-      if (row.city)                citiesSet.add(row.city.trim());
-      // hubs computed separately (city-aware) — see cityFilteredHubs below
-      if (row.tokenType)           tokenTypeSet.add(row.tokenType);
-      if (row.allocatedRm)          rmSet.add(row.allocatedRm);
-      if (row.assignedDc)          dcSet.add(row.assignedDc);
-      if (row.paymentType)         paymentSet.add(row.paymentType);
-      if (row.leadStage)           stagesSet.add(row.leadStage);
-      if (row.funnelStage)         funnelSet.add(row.funnelStage);
-      if (row.sheetFinalStatus)    sheetFinalSet.add(row.sheetFinalStatus);
-      if (row.formFinalStatus)     formFinalSet.add(row.formFinalStatus);
-      if (row.gmailPendencyStatus) gmailPendencySet.add(row.gmailPendencyStatus);
-      if (row.cancelReason)        cancelReasonsSet.add(row.cancelReason);
-      if (row.leadDsChannel)       leadDsChannelsSet.add(row.leadDsChannel);
-      if (row.taskBucket) {
-        splitTasks(row.taskBucket).forEach(t => { if (t.trim()) tasksSet.add(t.trim()); });
-      }
-      const flags = getDerivedFlags(row);
-      if (flags.isAlertCase)                 derivedSet.add('Alert Cases');
-      if (flags.isEddMissing)                derivedSet.add('EDD Missing');
-      if (flags.isEddBreached)               derivedSet.add('EDD Breached');
-      if (flags.isPmaxStuck)                 derivedSet.add('PMax Stuck');
-      if (flags.isCustomerConnectPending)    derivedSet.add('Customer Connect Pending');
-      if (flags.isHighPaymentPendingDelivery)derivedSet.add('High Payment Pending Delivery');
-      if (flags.isCancelledAfterPayment)     derivedSet.add('Cancelled After Payment');
-      if (flags.isOdPending)                 derivedSet.add('OD Pending');
-      if (flags.isBlankPaymentType)          derivedSet.add('Blank Payment Type');
-      if (flags.isPaymentPending)            derivedSet.add('Payment Pending');
-      if (row.taskBucket) {
-        derivedSet.add('Any Active Task');
-        splitTasks(row.taskBucket).forEach(t => { if (t.trim()) derivedSet.add(t.trim()); });
-      }
-    });
-
-    const coreOrder = [
-      'Alert Cases', 'EDD Missing', 'EDD Breached', 'PMax Stuck',
-      'Customer Connect Pending', 'High Payment Pending Delivery',
-      'Cancelled After Payment', 'OD Pending', 'Blank Payment Type',
-      'Payment Pending', 'Any Active Task'
-    ];
-    const sortedDerived = Array.from(derivedSet).sort((a, b) => {
-      const idxA = coreOrder.indexOf(a);
-      const idxB = coreOrder.indexOf(b);
-      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-      if (idxA !== -1) return -1;
-      if (idxB !== -1) return 1;
-      return a.localeCompare(b);
-    });
-
-    return {
-      cities:               Array.from(citiesSet).sort(),
-      tokenTypes:           Array.from(tokenTypeSet).sort(),
-      rms:                  Array.from(rmSet).sort(),
-      dcs:                  Array.from(dcSet).sort(),
-      paymentTypes:         Array.from(paymentSet).sort(),
-      leadStages:           Array.from(stagesSet).sort(),
-      funnelStages:         [
-        ...MILESTONE_STAGES,
-        ...Array.from(funnelSet).filter(f => !MILESTONE_STAGES.includes(f)).sort()
-      ],
-      sheetFinalStatuses:   Array.from(sheetFinalSet).sort(),
-      formFinalStatuses:    Array.from(formFinalSet).sort(),
-      gmailPendencyStatuses:Array.from(gmailPendencySet).sort(),
-      tasks:                Array.from(tasksSet).sort(),
-      derivedOptions:       sortedDerived,
-      cancelReasons:        Array.from(cancelReasonsSet).sort(),
-      leadDsChannels:       Array.from(leadDsChannelsSet).sort()
-    };
-  }, [rows]); // ← only rows, never filters — prevents render loops
-
-  // City-aware hub options: only show hubs belonging to rows in the selected city.
-  // Safe: pure derivation from [rows, filters.city] — never calls setFilters.
-  const cityFilteredHubs = useMemo(() => {
-    const selectedCities = filters.city === 'All'
-      ? null
-      : filters.city.split('|||').map(s => s.trim().toLowerCase());
-    const hubsSet = new Set<string>();
-    rows.forEach(row => {
-      if (!row.hubName) return;
-      if (selectedCities === null) {
-        hubsSet.add(row.hubName.trim());
-      } else {
-        const rowCity = String(row.city || '').trim().toLowerCase();
-        if (selectedCities.includes(rowCity)) {
-          hubsSet.add(row.hubName.trim());
-        }
-      }
-    });
-    return Array.from(hubsSet).sort();
-  }, [rows, filters.city]);
+  const {
+    selectedRowIndex,
+    selectedRow,
+    tempRowData,
+    setTempRowData,
+    savingRow,
+    saveSuccess,
+    fetchingLatestRow,
+    auditLogs,
+    loadingAuditLogs,
+    closeEditor,
+    handleEditRowClick,
+    handleSaveActionables,
+  } = useCaseEditor({
+    accessToken,
+    filteredRows,
+    setRows,
+    sheetId,
+    sheetName,
+    user,
+  });
+  const dynamicFilterOptions = useMemo(() => buildDynamicFilterOptions(rows), [rows]);
+  const cityFilteredHubs = useMemo(() => getCityFilteredHubs(rows, filters.city), [rows, filters.city]);
 
   // When city filter changes, clear hub selection (hub from old city is irrelevant)
   const prevCityRef = React.useRef(filters.city);
@@ -560,33 +467,6 @@ export default function Dashboard({
 
   // Executive Operations Matrix Ledger
   const matrix = useMemo(() => calculateOperationsMatrix(filteredRows), [filteredRows]);
-
-  // Fetch audit logs when active case selection changes
-  useEffect(() => {
-    if (selectedRowIndex === null) {
-      setAuditLogs([]);
-      return;
-    }
-    
-    const fetchLogs = async () => {
-      const targetRow = filteredRows[selectedRowIndex];
-      if (!targetRow || !targetRow.bookingId) return;
-
-      setLoadingAuditLogs(true);
-      try {
-        const { getAuditLogs } = await import('../lib/supabaseDb');
-        const logs = await getAuditLogs(targetRow.bookingId);
-        setAuditLogs(logs);
-      } catch (err) {
-        console.warn("Failed to fetch audit logs for booking:", err);
-      } finally {
-        setLoadingAuditLogs(false);
-      }
-    };
-
-    fetchLogs();
-  }, [selectedRowIndex, filteredRows]);
-
 
   const derivedLabels = useMemo(() => createDerivedLabels(allUniqueTasks), [allUniqueTasks]);
 
@@ -637,160 +517,15 @@ export default function Dashboard({
     });
   };
 
-  const handleEditRowClick = async (index: number) => {
-    setSelectedRowIndex(index);
-    setSidebarTab('actions');
-    setRawSearchQuery('');
-    const originalRow = filteredRows[index];
-    setTempRowData({
-      readyToDeliver: originalRow.readyToDeliver || '',
-      expectedOdCompletionDate: originalRow.expectedOdCompletionDate || '',
-      eddReviewerDate: originalRow.eddReviewerDate || '',
-      reviewerRemarks: originalRow.reviewerRemarks || '',
-      latestRemark: originalRow.latestRemark || '',
-      latestRemarkBy: originalRow.latestRemarkBy || '',
-      latestRemarkDate: originalRow.latestRemarkDate || '',
-      newRemarkAddition: ''
-    });
-
-    if (accessToken) {
-      setFetchingLatestRow(true);
-      try {
-        const { fetchSingleRowLatest } = await import('../lib/sheetsService');
-        const latestFields = await fetchSingleRowLatest(sheetId, sheetName, accessToken, originalRow._rowNumber);
-        
-        setTempRowData(prev => ({
-          ...prev,
-          readyToDeliver: latestFields.readyToDeliver !== undefined ? (latestFields.readyToDeliver || '') : prev.readyToDeliver,
-          expectedOdCompletionDate: latestFields.expectedOdCompletionDate !== undefined ? (latestFields.expectedOdCompletionDate || '') : prev.expectedOdCompletionDate,
-          eddReviewerDate: latestFields.eddReviewerDate !== undefined ? (latestFields.eddReviewerDate || '') : prev.eddReviewerDate,
-          reviewerRemarks: latestFields.reviewerRemarks !== undefined ? (latestFields.reviewerRemarks || '') : prev.reviewerRemarks,
-          latestRemark: latestFields.latestRemark !== undefined ? (latestFields.latestRemark || '') : prev.latestRemark,
-          latestRemarkBy: latestFields.latestRemarkBy !== undefined ? (latestFields.latestRemarkBy || '') : prev.latestRemarkBy,
-          latestRemarkDate: latestFields.latestRemarkDate !== undefined ? (latestFields.latestRemarkDate || '') : prev.latestRemarkDate,
-        }));
-
-        // Merge latest properties directly into the local dashboard state row
-        setRows(prevRows => {
-          return prevRows.map(row => {
-            if (row.bookingId === originalRow.bookingId) {
-              return {
-                ...row,
-                ...latestFields
-              };
-            }
-            return row;
-          });
-        });
-      } catch (err) {
-        console.warn("Failed to retrieve latest single-row data:", err);
-      } finally {
-        setFetchingLatestRow(false);
-      }
-    }
-  };
-
-  const handleSaveActionables = () => {
-    if (selectedRowIndex === null) return;
-    if (!user) {
-      alert("Please connect your Google Account to edit actionables.");
-      return;
-    }
-
-    setSavingRow(true);
-    try {
-      const targetRow = filteredRows[selectedRowIndex];
-      const timestampStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
-
-      // Concatenate extra comment/remark addition if filled
-      const originalRemarks = tempRowData.reviewerRemarks || '';
-      const newAddition = (tempRowData as any).newRemarkAddition || '';
-      
-      let combinedRemarks = originalRemarks;
-      if (newAddition.trim()) {
-        const emailSuffix = user?.email ? ` (${user.email.split('@')[0]})` : '';
-        const dateStr = new Date().toISOString().slice(0, 10);
-        const appendStr = originalRemarks 
-          ? `${originalRemarks}\n\n[${dateStr}${emailSuffix}]: ${newAddition.trim()}` 
-          : `[${dateStr}${emailSuffix}]: ${newAddition.trim()}`;
-        combinedRemarks = appendStr;
-      }
-
-      const updatedRow = {
-        ...targetRow,
-        ...tempRowData,
-        reviewerRemarks: combinedRemarks,
-        updatedAt: timestampStr
-      };
-      // Ensure transient state helper is removed from final row model
-      delete (updatedRow as any).newRemarkAddition;
-
-      // 1. Save to Supabase DB first, then Google Sheets
-      import('../lib/supabaseDb')
-        .then(({ updateSingleCaseInDb }) => {
-          return updateSingleCaseInDb(targetRow.bookingId, updatedRow, user.email || 'unknown_user');
-        })
-        .then(() => {
-          // 2. Try to save to Google Sheets in the background if accessToken is present
-          if (accessToken) {
-            return import('../lib/sheetsService')
-              .then(({ writeActionablesToSheet }) => {
-                return writeActionablesToSheet(sheetId, sheetName, accessToken, targetRow._rowNumber, {
-                  readyToDeliver: updatedRow.readyToDeliver,
-                  expectedOdCompletionDate: updatedRow.expectedOdCompletionDate,
-                  eddReviewerDate: updatedRow.eddReviewerDate,
-                  reviewerRemarks: updatedRow.reviewerRemarks,
-                  updatedAt: updatedRow.updatedAt
-                });
-              });
-          }
-        })
-        .then(() => {
-          setRows(prevRows => {
-            return prevRows.map(row => {
-              if (row.bookingId === targetRow.bookingId) {
-                return updatedRow;
-              }
-              return row;
-            });
-          });
-          setSavingRow(false);
-          setSaveSuccess(true);
-          setSelectedRowIndex(null);
-          setTimeout(() => setSaveSuccess(false), 2500);
-        })
-        .catch(err => {
-          console.error("Failed to save to database or Google Sheet:", err);
-          alert(`Failed to save: ${err.message || err}\n\nYour changes are saved locally in this session.`);
-          
-          // Save locally as fallback
-          setRows(prevRows => {
-            return prevRows.map(row => {
-              if (row.bookingId === targetRow.bookingId) {
-                return updatedRow;
-              }
-              return row;
-            });
-          });
-          setSavingRow(false);
-          setSelectedRowIndex(null);
-        });
-    } catch (err: any) {
-      console.error("Failed to prepare or trigger save:", err);
-      alert(`An error occurred while preparing your changes to save:\n${err.message || err}`);
-      setSavingRow(false);
-    }
-  };
-
   // Utility to format INR currencies
   const formatCurrency = (val: number) => {
     if (val >= 10000000) {
-      return '₹' + (val / 10000000).toFixed(1) + ' Cr';
+      return 'â‚¹' + (val / 10000000).toFixed(1) + ' Cr';
     }
     if (val >= 100000) {
-      return '₹' + (val / 100000).toFixed(1) + ' L';
+      return 'â‚¹' + (val / 100000).toFixed(1) + ' L';
     }
-    return '₹' + val.toLocaleString('en-IN');
+    return 'â‚¹' + val.toLocaleString('en-IN');
   };
 
 
@@ -881,7 +616,7 @@ export default function Dashboard({
           <div className="flex items-center gap-1">
             <span>{label}</span>
             <span className="text-[10px] text-slate-400 font-normal">
-              {isSorted ? (sortDirection === 'asc' ? '▲' : '▼') : '↕'}
+              {isSorted ? (sortDirection === 'asc' ? 'â–²' : 'â–¼') : 'â†•'}
             </span>
           </div>
         </th>
@@ -1662,7 +1397,7 @@ export default function Dashboard({
               : 'text-slate-400 hover:text-slate-700 font-sans'
           }`}
         >
-          📁 Operations Console
+          ðŸ“ Operations Console
           {activeTab === 'ops' && (
             <motion.div
               layoutId="activeTabUnderline"
@@ -1678,7 +1413,7 @@ export default function Dashboard({
               : 'text-slate-400 hover:text-slate-700 font-sans'
           }`}
         >
-          📊 Performance & Hubs
+          ðŸ“Š Performance & Hubs
           {activeTab === 'performance' && (
             <motion.div
               layoutId="activeTabUnderline"
@@ -1694,7 +1429,7 @@ export default function Dashboard({
               : 'text-slate-400 hover:text-slate-700 font-sans'
           }`}
         >
-          ⚠️ Loss & Cancellations
+          âš ï¸ Loss & Cancellations
           {activeTab === 'loss' && (
             <motion.div
               layoutId="activeTabUnderline"
@@ -1710,7 +1445,7 @@ export default function Dashboard({
               : 'text-slate-400 hover:text-slate-700 font-sans'
           }`}
         >
-          📈 Executive Ledger
+          ðŸ“ˆ Executive Ledger
           {activeTab === 'ledger' && (
             <motion.div
               layoutId="activeTabUnderline"
@@ -1768,7 +1503,7 @@ export default function Dashboard({
           <div className="p-5 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2 bg-slate-50/50">
             <div>
               <h3 className="font-sans font-semibold text-slate-800 text-sm">
-                📈 Executive Operations Ledger
+                ðŸ“ˆ Executive Operations Ledger
               </h3>
               <p className="text-[11px] text-slate-400">
                 Dynamic cohort comparison of targets vs actuals, inflow volumes, and turnaround times (TAT).
@@ -1810,7 +1545,7 @@ export default function Dashboard({
                           className="p-2.5 pl-5 border-r border-slate-200 sticky left-0 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500" 
                           colSpan={matrix.columns.length + 1}
                         >
-                          📁 {category}
+                          ðŸ“ {category}
                         </td>
                       </tr>
                       {rowsList.map(row => (
@@ -1850,8 +1585,8 @@ export default function Dashboard({
       {/* 5. Detail Control Sidebar Slider Drawer */}
       <CaseDetailsSidebar
         isOpen={selectedRowIndex !== null}
-        onClose={() => setSelectedRowIndex(null)}
-        selectedRow={selectedRowIndex !== null ? filteredRows[selectedRowIndex] : null}
+        onClose={closeEditor}
+        selectedRow={selectedRow}
         fetchingLatestRow={fetchingLatestRow}
         tempRowData={tempRowData}
         setTempRowData={setTempRowData}
@@ -1875,7 +1610,7 @@ export default function Dashboard({
                 onClick={() => setShowCsvModal(false)}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-slate-605 hover:bg-slate-50 transition-colors"
               >
-                ✕
+                âœ•
               </button>
             </div>
             
