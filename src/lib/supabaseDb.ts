@@ -4,7 +4,7 @@
  */
 
 import { supabase } from './supabaseClient';
-import { CaseRow } from '../types';
+import { CaseRow, AuditLog } from '../types';
 
 /**
  * Fetches all cases cached in the Supabase PostgreSQL table.
@@ -99,4 +99,40 @@ export async function updateSingleCaseInDb(
     console.error(`Failed to update case ${bookingId} in Supabase DB:`, error.message);
     throw new Error(error.message);
   }
+}
+
+/**
+ * Writes audit log entries for changes to Supabase table.
+ */
+export async function writeAuditLogs(
+  logs: Omit<AuditLog, 'id' | 'changed_at'>[]
+): Promise<void> {
+  if (logs.length === 0) return;
+
+  const { error } = await supabase
+    .from('audit_logs')
+    .insert(logs);
+
+  if (error) {
+    console.error('Failed to write audit logs to Supabase DB:', error.message);
+    throw new Error(error.message);
+  }
+}
+
+/**
+ * Fetches audit logs for a specific Booking ID.
+ */
+export async function getAuditLogs(bookingId: string): Promise<AuditLog[]> {
+  const { data, error } = await supabase
+    .from('audit_logs')
+    .select('*')
+    .eq('booking_id', bookingId)
+    .order('changed_at', { ascending: false });
+
+  if (error) {
+    console.error(`Failed to fetch audit logs for case ${bookingId}:`, error.message);
+    throw new Error(error.message);
+  }
+
+  return (data || []) as AuditLog[];
 }

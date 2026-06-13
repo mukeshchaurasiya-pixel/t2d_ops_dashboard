@@ -31,3 +31,29 @@ ON public.dashboard_cases
 FOR ALL 
 USING (true) 
 WITH CHECK (true);
+
+-- 6. Create the audit_logs table for tracking history
+CREATE TABLE IF NOT EXISTS public.audit_logs (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    booking_id TEXT NOT NULL,
+    changed_by TEXT NOT NULL,
+    changed_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::TEXT, NOW()) NOT NULL,
+    column_name TEXT NOT NULL,
+    old_value TEXT,
+    new_value TEXT
+);
+
+-- Index for fast history lookup by Booking ID
+CREATE INDEX IF NOT EXISTS idx_audit_logs_booking_id ON public.audit_logs (booking_id);
+
+-- Enable RLS for audit_logs
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public read audit" ON public.audit_logs;
+DROP POLICY IF EXISTS "Allow public write audit" ON public.audit_logs;
+
+CREATE POLICY "Allow public read audit" 
+ON public.audit_logs FOR SELECT USING (true);
+
+CREATE POLICY "Allow public write audit" 
+ON public.audit_logs FOR INSERT WITH CHECK (true);

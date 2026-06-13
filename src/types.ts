@@ -252,3 +252,13 @@ export interface DashboardCharts {
   leadDsChannel?: Record<string, number>;
   listingDaysDistribution: Record<string, number>;
 }
+
+export interface AuditLog {
+  id?: string;
+  booking_id: string;
+  changed_by: string;
+  changed_at?: string;
+  column_name: string;
+  old_value: string | null;
+  new_value: string | null;
+}

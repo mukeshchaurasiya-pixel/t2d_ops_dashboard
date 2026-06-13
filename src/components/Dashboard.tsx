@@ -11,7 +11,7 @@ import {
   MapPin, User, Car, X, ShieldCheck, ArrowRight, RefreshCw,
   Clock, Sparkles, ShieldAlert, PhoneCall, Database
 } from 'lucide-react';
-import { CaseRow, FilterState, DashboardKpis, DashboardCharts, DateFilter } from '../types';
+import { CaseRow, FilterState, DashboardKpis, DashboardCharts, DateFilter, AuditLog } from '../types';
 import { getDerivedFlags, buildKpis, buildCharts, splitTasks } from '../data/mockData';
 import { AppUser } from '../lib/firebaseAuth';
 import { parseDateString } from '../lib/dateUtils';
@@ -373,12 +373,15 @@ export default function Dashboard({
   }, [rows]);
 
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
-  const [sidebarTab, setSidebarTab] = useState<'actions' | 'journey' | 'pmax' | 'copilot' | 'raw_data'>('actions');
+  const [sidebarTab, setSidebarTab] = useState<'actions' | 'journey' | 'pmax' | 'copilot' | 'raw_data' | 'history'>('actions');
   const [rawSearchQuery, setRawSearchQuery] = useState('');
   const [tempRowData, setTempRowData] = useState<Partial<CaseRow>>({});
   const [savingRow, setSavingRow] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [fetchingLatestRow, setFetchingLatestRow] = useState(false);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [loadingAuditLogs, setLoadingAuditLogs] = useState<boolean>(false);
+
 
   // Dynamically extract all unique task values from current set of rows
   const allUniqueTasks = useMemo(() => {
@@ -1092,6 +1095,32 @@ export default function Dashboard({
   // Executive Operations Matrix Ledger
   const matrix = useMemo(() => calculateOperationsMatrix(filteredRows), [filteredRows]);
 
+  // Fetch audit logs when active case selection changes
+  useEffect(() => {
+    if (selectedRowIndex === null) {
+      setAuditLogs([]);
+      return;
+    }
+    
+    const fetchLogs = async () => {
+      const targetRow = filteredRows[selectedRowIndex];
+      if (!targetRow || !targetRow.bookingId) return;
+
+      setLoadingAuditLogs(true);
+      try {
+        const { getAuditLogs } = await import('../lib/supabaseDb');
+        const logs = await getAuditLogs(targetRow.bookingId);
+        setAuditLogs(logs);
+      } catch (err) {
+        console.warn("Failed to fetch audit logs for booking:", err);
+      } finally {
+        setLoadingAuditLogs(false);
+      }
+    };
+
+    fetchLogs();
+  }, [selectedRowIndex, filteredRows]);
+
 
   const derivedLabels = useMemo(() => {
     const labels: Record<string, string> = {
@@ -1266,9 +1295,36 @@ export default function Dashboard({
       delete (updatedRow as any).newRemarkAddition;
 
       // 1. Save to Supabase DB first, then Google Sheets
+      const auditedColumns: (keyof CaseRow)[] = [
+        'readyToDeliver',
+        'expectedOdCompletionDate',
+        'eddReviewerDate',
+        'reviewerRemarks'
+      ];
+      
+      const logsToInsert: any[] = [];
+      auditedColumns.forEach(col => {
+        const oldVal = targetRow[col] !== undefined && targetRow[col] !== null ? String(targetRow[col]).trim() : '';
+        const newVal = updatedRow[col] !== undefined && updatedRow[col] !== null ? String(updatedRow[col]).trim() : '';
+        
+        if (oldVal !== newVal) {
+          logsToInsert.push({
+            booking_id: targetRow.bookingId,
+            changed_by: user.email || 'unknown_user',
+            column_name: col,
+            old_value: oldVal || null,
+            new_value: newVal || null
+          });
+        }
+      });
+
       import('../lib/supabaseDb')
-        .then(({ updateSingleCaseInDb }) => {
-          return updateSingleCaseInDb(targetRow.bookingId, updatedRow);
+        .then(({ updateSingleCaseInDb, writeAuditLogs }) => {
+          const dbPromise = updateSingleCaseInDb(targetRow.bookingId, updatedRow);
+          const auditPromise = logsToInsert.length > 0 
+            ? writeAuditLogs(logsToInsert) 
+            : Promise.resolve();
+          return Promise.all([dbPromise, auditPromise]);
         })
         .then(() => {
           // 2. Try to save to Google Sheets in the background if accessToken is present
@@ -2723,6 +2779,18 @@ export default function Dashboard({
                   <Database className="w-4 h-4" />
                   <span>RAW DATA</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setSidebarTab('history')}
+                  className={`flex-1 min-w-[90px] py-3 text-center border-b-2 transition-all cursor-pointer flex flex-col items-center gap-1 leading-none ${
+                    sidebarTab === 'history'
+                      ? 'border-amber-500 text-amber-600 bg-white'
+                      : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100/50'
+                  }`}
+                >
+                  <Clock className="w-4 h-4" />
+                  <span>HISTORY</span>
+                </button>
               </div>
 
               {/* Slider Content */}
@@ -3535,6 +3603,67 @@ export default function Dashboard({
                         </tbody>
                       </table>
                     </div>
+                  </div>
+                )}
+
+                {sidebarTab === 'history' && (
+                  <div className="space-y-4">
+                    <h4 className="flex items-center gap-1.5 text-xs font-bold text-slate-850 uppercase tracking-wider pb-1.5 border-b border-slate-100">
+                      <Clock className="w-4 h-4 text-amber-500" /> Case Revision History
+                    </h4>
+                    
+                    {loadingAuditLogs ? (
+                      <div className="flex flex-col items-center justify-center p-8 text-slate-400 gap-2">
+                        <RefreshCw className="w-5 h-5 animate-spin text-amber-500" />
+                        <span className="text-xs">Loading change timeline...</span>
+                      </div>
+                    ) : auditLogs.length === 0 ? (
+                      <div className="p-8 text-center text-slate-400 italic text-xs bg-slate-50 border border-slate-200/50 rounded-2xl">
+                        No changes have been logged for this case yet.
+                      </div>
+                    ) : (
+                      <div className="relative pl-6 border-l border-slate-200 space-y-5 py-2">
+                        {auditLogs.map((log) => {
+                          const columnLabels = {
+                            readyToDeliver: "Ready to Deliver?",
+                            expectedOdCompletionDate: "Expected OD Date",
+                            eddReviewerDate: "Reviewer EDD",
+                            reviewerRemarks: "Reviewer Remarks"
+                          };
+                          const friendlyCol = (columnLabels as any)[log.column_name] || log.column_name;
+                          const formattedDate = log.changed_at 
+                            ? new Date(log.changed_at).toLocaleString() 
+                            : 'Unknown Date';
+                          
+                          return (
+                            <div key={log.id} className="relative text-xs">
+                              {/* Bullet dot */}
+                              <div className="absolute -left-[30.5px] top-1 w-2.5 h-2.5 rounded-full bg-amber-500 border-2 border-white ring-4 ring-amber-50 shrink-0" />
+                              
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center justify-between text-[9px] text-slate-400 font-medium">
+                                  <span className="font-bold text-slate-700">{log.changed_by.split('@')[0]}</span>
+                                  <span>{formattedDate}</span>
+                                </div>
+                                <div className="font-semibold text-slate-800">
+                                  Modified <span className="text-amber-600 font-extrabold">{friendlyCol}</span>
+                                </div>
+                                
+                                {/* Diff Block */}
+                                <div className="mt-1 bg-slate-50 p-2.5 border border-slate-200/50 rounded-xl space-y-1 font-mono text-[10px] leading-relaxed">
+                                  <div className="text-rose-600 bg-rose-50/50 px-1.5 py-0.5 rounded border border-rose-100/30 line-through truncate" title={log.old_value || ''}>
+                                    - {log.old_value || 'Empty'}
+                                  </div>
+                                  <div className="text-emerald-700 bg-emerald-50/50 px-1.5 py-0.5 rounded border border-emerald-100/30 truncate" title={log.new_value || ''}>
+                                    + {log.new_value || 'Empty'}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
