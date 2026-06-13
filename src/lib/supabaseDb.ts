@@ -322,3 +322,22 @@ export async function getUserSessions(): Promise<UserSession[]> {
 
   return (data || []) as UserSession[];
 }
+
+/**
+ * Fetches all audit logs (limit 200) for admin overview.
+ */
+export async function getAllAuditLogs(): Promise<AuditLog[]> {
+  const { data, error } = await supabase
+    .from('audit_logs')
+    .select('*')
+    .order('changed_at', { ascending: false })
+    .limit(200);
+
+  if (error) {
+    console.error('Failed to fetch all audit logs:', error.message);
+    throw new Error(error.message);
+  }
+
+  return (data || []) as AuditLog[];
+}
+
