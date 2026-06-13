@@ -520,12 +520,12 @@ export default function Dashboard({
   // Utility to format INR currencies
   const formatCurrency = (val: number) => {
     if (val >= 10000000) {
-      return 'â‚¹' + (val / 10000000).toFixed(1) + ' Cr';
+      return 'INR ' + (val / 10000000).toFixed(1) + ' Cr';
     }
     if (val >= 100000) {
-      return 'â‚¹' + (val / 100000).toFixed(1) + ' L';
+      return 'INR ' + (val / 100000).toFixed(1) + ' L';
     }
-    return 'â‚¹' + val.toLocaleString('en-IN');
+    return 'INR ' + val.toLocaleString('en-IN');
   };
 
 
@@ -616,7 +616,7 @@ export default function Dashboard({
           <div className="flex items-center gap-1">
             <span>{label}</span>
             <span className="text-[10px] text-slate-400 font-normal">
-              {isSorted ? (sortDirection === 'asc' ? 'â–²' : 'â–¼') : 'â†•'}
+              {isSorted ? (sortDirection === 'asc' ? '^' : 'v') : '<>'}
             </span>
           </div>
         </th>
@@ -1397,7 +1397,7 @@ export default function Dashboard({
               : 'text-slate-400 hover:text-slate-700 font-sans'
           }`}
         >
-          ðŸ“ Operations Console
+          Operations Console
           {activeTab === 'ops' && (
             <motion.div
               layoutId="activeTabUnderline"
@@ -1413,7 +1413,7 @@ export default function Dashboard({
               : 'text-slate-400 hover:text-slate-700 font-sans'
           }`}
         >
-          ðŸ“Š Performance & Hubs
+          Performance & Hubs
           {activeTab === 'performance' && (
             <motion.div
               layoutId="activeTabUnderline"
@@ -1429,7 +1429,7 @@ export default function Dashboard({
               : 'text-slate-400 hover:text-slate-700 font-sans'
           }`}
         >
-          âš ï¸ Loss & Cancellations
+          Loss & Cancellations
           {activeTab === 'loss' && (
             <motion.div
               layoutId="activeTabUnderline"
@@ -1445,7 +1445,7 @@ export default function Dashboard({
               : 'text-slate-400 hover:text-slate-700 font-sans'
           }`}
         >
-          ðŸ“ˆ Executive Ledger
+          Executive Ledger
           {activeTab === 'ledger' && (
             <motion.div
               layoutId="activeTabUnderline"
@@ -1503,7 +1503,7 @@ export default function Dashboard({
           <div className="p-5 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2 bg-slate-50/50">
             <div>
               <h3 className="font-sans font-semibold text-slate-800 text-sm">
-                ðŸ“ˆ Executive Operations Ledger
+                Executive Operations Ledger
               </h3>
               <p className="text-[11px] text-slate-400">
                 Dynamic cohort comparison of targets vs actuals, inflow volumes, and turnaround times (TAT).
@@ -1545,7 +1545,7 @@ export default function Dashboard({
                           className="p-2.5 pl-5 border-r border-slate-200 sticky left-0 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500" 
                           colSpan={matrix.columns.length + 1}
                         >
-                          ðŸ“ {category}
+                          {category}
                         </td>
                       </tr>
                       {rowsList.map(row => (
@@ -1610,7 +1610,7 @@ export default function Dashboard({
                 onClick={() => setShowCsvModal(false)}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-slate-605 hover:bg-slate-50 transition-colors"
               >
-                âœ•
+                <X className="w-4 h-4" />
               </button>
             </div>
             
