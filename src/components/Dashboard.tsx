@@ -120,6 +120,8 @@ interface DashboardProps {
   sheetName: string;
   accessToken: string | null;
   user: AppUser | null;
+  onSyncFromSheets?: (forcedToken?: string | null) => Promise<void>;
+  isSyncing?: boolean;
 }
 
 interface MultiSelectDropdownProps {
@@ -303,7 +305,9 @@ export default function Dashboard({
   sheetId,
   sheetName,
   accessToken,
-  user
+  user,
+  onSyncFromSheets,
+  isSyncing
 }: DashboardProps) {
   const [filters, setFilters] = useState<FilterState>({
     city: 'All',
@@ -1257,60 +1261,56 @@ export default function Dashboard({
       // Ensure transient state helper is removed from final row model
       delete (updatedRow as any).newRemarkAddition;
 
-      // Auto-save inline edits directly back to Google Sheet if we have authority
-      if (accessToken) {
-        import('../lib/sheetsService')
-          .then(({ writeActionablesToSheet }) => {
-            return writeActionablesToSheet(sheetId, sheetName, accessToken, targetRow._rowNumber, {
-              readyToDeliver: updatedRow.readyToDeliver,
-              expectedOdCompletionDate: updatedRow.expectedOdCompletionDate,
-              eddReviewerDate: updatedRow.eddReviewerDate,
-              reviewerRemarks: updatedRow.reviewerRemarks,
-              updatedAt: updatedRow.updatedAt
-            });
-          })
-          .then(() => {
-            setRows(prevRows => {
-              return prevRows.map(row => {
-                if (row.bookingId === targetRow.bookingId) {
-                  return updatedRow;
-                }
-                return row;
+      // 1. Save to Supabase DB first, then Google Sheets
+      import('../lib/supabaseDb')
+        .then(({ updateSingleCaseInDb }) => {
+          return updateSingleCaseInDb(targetRow.bookingId, updatedRow);
+        })
+        .then(() => {
+          // 2. Try to save to Google Sheets in the background if accessToken is present
+          if (accessToken) {
+            return import('../lib/sheetsService')
+              .then(({ writeActionablesToSheet }) => {
+                return writeActionablesToSheet(sheetId, sheetName, accessToken, targetRow._rowNumber, {
+                  readyToDeliver: updatedRow.readyToDeliver,
+                  expectedOdCompletionDate: updatedRow.expectedOdCompletionDate,
+                  eddReviewerDate: updatedRow.eddReviewerDate,
+                  reviewerRemarks: updatedRow.reviewerRemarks,
+                  updatedAt: updatedRow.updatedAt
+                });
               });
+          }
+        })
+        .then(() => {
+          setRows(prevRows => {
+            return prevRows.map(row => {
+              if (row.bookingId === targetRow.bookingId) {
+                return updatedRow;
+              }
+              return row;
             });
-            setSavingRow(false);
-            setSaveSuccess(true);
-            setTimeout(() => setSaveSuccess(false), 2500);
-          })
-          .catch(err => {
-            console.error("Direct sync to Google Sheets failed:", err);
-            alert(`Failed to save directly to Google Sheet:\n${err.message || err}\n\nYour changes are saved locally in this session.`);
-            // Save locally as a fallback
-            setRows(prevRows => {
-              return prevRows.map(row => {
-                if (row.bookingId === targetRow.bookingId) {
-                  return updatedRow;
-                }
-                return row;
-              });
+          });
+          setSavingRow(false);
+          setSaveSuccess(true);
+          setSelectedRowIndex(null);
+          setTimeout(() => setSaveSuccess(false), 2500);
+        })
+        .catch(err => {
+          console.error("Failed to save to database or Google Sheet:", err);
+          alert(`Failed to save: ${err.message || err}\n\nYour changes are saved locally in this session.`);
+          
+          // Save locally as fallback
+          setRows(prevRows => {
+            return prevRows.map(row => {
+              if (row.bookingId === targetRow.bookingId) {
+                return updatedRow;
+              }
+              return row;
             });
-            setSavingRow(false);
-            setSelectedRowIndex(null);
           });
-      } else {
-        // Save locally (anonymous / demo mode)
-        setRows(prevRows => {
-          return prevRows.map(row => {
-            if (row.bookingId === targetRow.bookingId) {
-              return updatedRow;
-            }
-            return row;
-          });
+          setSavingRow(false);
+          setSelectedRowIndex(null);
         });
-        setSavingRow(false);
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 2500);
-      }
     } catch (err: any) {
       console.error("Failed to prepare or trigger save:", err);
       alert(`An error occurred while preparing your changes to save:\n${err.message || err}`);
@@ -1744,14 +1744,28 @@ export default function Dashboard({
     <div className="space-y-6" id="cars24-ops-dashboard-wrapper">
       {/* 1. Filtering System (Dense bento control area) */}
       <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-        <div className="flex items-center gap-2 mb-4">
-          <Filter className="w-4 h-4 text-amber-500" />
-          <h3 className="font-sans font-semibold text-slate-800 text-sm">
-            Operational Handshake Filters
-          </h3>
-          <span className="text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full font-bold">
-            {activeFiltersCount} Active Mappings
-          </span>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-amber-500" />
+            <h3 className="font-sans font-semibold text-slate-800 text-sm">
+              Operational Handshake Filters
+            </h3>
+            <span className="text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full font-bold">
+              {activeFiltersCount} Active Mappings
+            </span>
+          </div>
+
+          {onSyncFromSheets && (
+            <button
+              onClick={() => onSyncFromSheets(accessToken)}
+              disabled={isSyncing}
+              className="p-2 px-3.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white font-extrabold shadow-sm transition-all text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 select-none shrink-0"
+              title="Pull latest data snapshot from Google Sheets and save to Supabase cache database"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              {isSyncing ? 'Syncing...' : 'Sync with Google Sheets'}
+            </button>
+          )}
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">

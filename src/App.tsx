@@ -88,6 +88,25 @@ export default function App() {
     localStorage.setItem('cars24_sheetName', sheetName);
   }, [sheetName]);
 
+  // Load initial data snapshot from Supabase DB on mount
+  useEffect(() => {
+    const loadCache = async () => {
+      setRestoreLoading(true);
+      try {
+        const { getCasesFromDb } = await import('./lib/supabaseDb');
+        const dbRows = await getCasesFromDb();
+        if (dbRows && dbRows.length > 0) {
+          setRows(dbRows);
+        }
+      } catch (err) {
+        console.warn("Could not load initial cached cases from Supabase DB:", err);
+      } finally {
+        setRestoreLoading(false);
+      }
+    };
+    loadCache();
+  }, []);
+
   // Auth subscriber to auto-load saved state on boot or login
   useEffect(() => {
     const unsubscribe = initAuth(
@@ -118,22 +137,7 @@ export default function App() {
           }
         } catch (dbErr) {
           console.warn("Failed to retrieve global Firestore workspace config:", dbErr);
-        }
-
-        if (activeSheetId && token) {
-          try {
-            // Fetch latest rows directly from Google Sheet acting as the Database
-            const { fetchSheetDataDirect } = await import('./lib/sheetsService');
-            const sheetRows = await fetchSheetDataDirect(activeSheetId, activeSheetName, token, authedUser.email);
-            setRows(sheetRows);
-          } catch (sheetErr: any) {
-            console.warn("Could not automatically fetch active Google Sheet on reload:", sheetErr);
-            setLoginError(`Session restored but failed to read sheet: ${sheetErr.message || sheetErr}`);
-            setRows([]); // Data will be only loaded who has access to sheet
-          } finally {
-            setRestoreLoading(false);
-          }
-        } else {
+        } finally {
           setRestoreLoading(false);
         }
       },
@@ -229,12 +233,15 @@ export default function App() {
         if (activeSheetId) {
           try {
             const { fetchSheetDataDirect } = await import('./lib/sheetsService');
+            const { upsertCasesToDb } = await import('./lib/supabaseDb');
             const sheetRows = await fetchSheetDataDirect(activeSheetId, activeSheetName, res.accessToken, res.user.email);
-            setRows(sheetRows);
+            if (sheetRows && sheetRows.length > 0) {
+              await upsertCasesToDb(sheetRows);
+              setRows(sheetRows);
+            }
           } catch (sheetErr: any) {
             console.warn("Could not sync spreadsheet on sign in:", sheetErr);
-            setLoginError(`Signed in, but Sheets API failed to load: ${sheetErr.message || 'Check your Sheet ID & permissions.'}`);
-            setRows([]); // Data will be only loaded who has access to sheet
+            setLoginError(`Signed in, but Google Sheets API sync failed. Using cached database snapshot instead.`);
           }
         }
       }
@@ -243,6 +250,44 @@ export default function App() {
       setLoginError(err.message || "Failed to authenticate or authorization popup was closed.");
     } finally {
       setRestoreLoading(false);
+    }
+  };
+
+  const [syncing, setSyncing] = useState<boolean>(false);
+
+  const handleSyncFromSheets = async (forcedToken?: string | null) => {
+    const activeToken = forcedToken !== undefined ? forcedToken : accessToken;
+    if (!sheetId) {
+      alert("Please configure a Google Sheet ID first.");
+      return;
+    }
+
+    // If no Google token is available, trigger Google OAuth re-authentication/login
+    if (!activeToken) {
+      const { googleSignIn } = await import('./lib/firebaseAuth');
+      alert("Connecting to Google for synchronization...");
+      await googleSignIn(); // Redirects page to get token
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      const { fetchSheetDataDirect } = await import('./lib/sheetsService');
+      const { upsertCasesToDb } = await import('./lib/supabaseDb');
+      
+      const sheetRows = await fetchSheetDataDirect(sheetId, sheetName, activeToken, user?.email);
+      if (sheetRows && sheetRows.length > 0) {
+        await upsertCasesToDb(sheetRows);
+        setRows(sheetRows);
+        alert(`Successfully synchronized ${sheetRows.length} rows from Google Sheets!`);
+      } else {
+        alert("Spreadsheet sync returned empty content.");
+      }
+    } catch (err: any) {
+      console.error("Manual Google Sheets sync failed:", err);
+      alert(`Sync failed: ${err.message || err}`);
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -551,6 +596,8 @@ export default function App() {
             sheetName={sheetName}
             accessToken={demoMode ? null : accessToken}
             user={user}
+            onSyncFromSheets={handleSyncFromSheets}
+            isSyncing={syncing}
           />
         </div>
       </main>
