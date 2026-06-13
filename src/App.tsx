@@ -281,7 +281,7 @@ export default function App() {
             const { upsertCasesToDb } = await import('./lib/supabaseDb');
             const sheetRows = await fetchSheetDataDirect(activeSheetId, activeSheetName, res.accessToken, res.user.email);
             if (sheetRows && sheetRows.length > 0) {
-              await upsertCasesToDb(sheetRows);
+              await upsertCasesToDb(sheetRows, res.user.email || 'system_sync');
               setRows(sheetRows);
             }
           } catch (sheetErr: any) {
@@ -322,7 +322,7 @@ export default function App() {
       
       const sheetRows = await fetchSheetDataDirect(sheetId, sheetName, activeToken, user?.email);
       if (sheetRows && sheetRows.length > 0) {
-        await upsertCasesToDb(sheetRows);
+        await upsertCasesToDb(sheetRows, user?.email || 'system_sync');
         setRows(sheetRows);
         alert(`Successfully synchronized ${sheetRows.length} rows from Google Sheets!`);
       } else {

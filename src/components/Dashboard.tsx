@@ -1295,36 +1295,9 @@ export default function Dashboard({
       delete (updatedRow as any).newRemarkAddition;
 
       // 1. Save to Supabase DB first, then Google Sheets
-      const auditedColumns: (keyof CaseRow)[] = [
-        'readyToDeliver',
-        'expectedOdCompletionDate',
-        'eddReviewerDate',
-        'reviewerRemarks'
-      ];
-      
-      const logsToInsert: any[] = [];
-      auditedColumns.forEach(col => {
-        const oldVal = targetRow[col] !== undefined && targetRow[col] !== null ? String(targetRow[col]).trim() : '';
-        const newVal = updatedRow[col] !== undefined && updatedRow[col] !== null ? String(updatedRow[col]).trim() : '';
-        
-        if (oldVal !== newVal) {
-          logsToInsert.push({
-            booking_id: targetRow.bookingId,
-            changed_by: user.email || 'unknown_user',
-            column_name: col,
-            old_value: oldVal || null,
-            new_value: newVal || null
-          });
-        }
-      });
-
       import('../lib/supabaseDb')
-        .then(({ updateSingleCaseInDb, writeAuditLogs }) => {
-          const dbPromise = updateSingleCaseInDb(targetRow.bookingId, updatedRow);
-          const auditPromise = logsToInsert.length > 0 
-            ? writeAuditLogs(logsToInsert) 
-            : Promise.resolve();
-          return Promise.all([dbPromise, auditPromise]);
+        .then(({ updateSingleCaseInDb }) => {
+          return updateSingleCaseInDb(targetRow.bookingId, updatedRow, user.email || 'unknown_user');
         })
         .then(() => {
           // 2. Try to save to Google Sheets in the background if accessToken is present
@@ -3628,7 +3601,19 @@ export default function Dashboard({
                             readyToDeliver: "Ready to Deliver?",
                             expectedOdCompletionDate: "Expected OD Date",
                             eddReviewerDate: "Reviewer EDD",
-                            reviewerRemarks: "Reviewer Remarks"
+                            reviewerRemarks: "Reviewer Remarks",
+                            onDemandStatus: "On Demand Status",
+                            expectedDeliveryDate: "Expected Delivery Date",
+                            paymentPercentage: "Payment Percentage",
+                            sheetFinalStatus: "Sheet Final Status",
+                            formFinalStatus: "Form Final Status",
+                            confidenceScore: "Confidence Score",
+                            leadStage: "Lead Stage",
+                            dealStatus: "Deal Status",
+                            allocatedRm: "Allocated RM",
+                            assignedDc: "Assigned DC",
+                            deliveryStatus: "Delivery Status",
+                            taskBucket: "Task Bucket"
                           };
                           const friendlyCol = (columnLabels as any)[log.column_name] || log.column_name;
                           const formattedDate = log.changed_at 

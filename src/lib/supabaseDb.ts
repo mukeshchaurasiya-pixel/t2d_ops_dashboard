@@ -42,9 +42,60 @@ export async function getCasesFromDb(): Promise<CaseRow[]> {
 }
 
 /**
+ * Detects changes between oldRow and newRow for a list of audited columns.
+ */
+function detectChanges(
+  oldRow: CaseRow,
+  newRow: CaseRow,
+  changedBy: string
+): Omit<AuditLog, 'id' | 'changed_at'>[] {
+  const auditedColumns: (keyof CaseRow)[] = [
+    'readyToDeliver',
+    'expectedOdCompletionDate',
+    'eddReviewerDate',
+    'reviewerRemarks',
+    'onDemandStatus',
+    'expectedDeliveryDate',
+    'paymentPercentage',
+    'sheetFinalStatus',
+    'formFinalStatus',
+    'confidenceScore',
+    'leadStage',
+    'dealStatus',
+    'allocatedRm',
+    'assignedDc',
+    'deliveryStatus',
+    'taskBucket'
+  ];
+
+  const logs: Omit<AuditLog, 'id' | 'changed_at'>[] = [];
+  auditedColumns.forEach(col => {
+    const oldValRaw = oldRow[col];
+    const newValRaw = newRow[col];
+
+    const oldVal = oldValRaw !== undefined && oldValRaw !== null ? String(oldValRaw).trim() : '';
+    const newVal = newValRaw !== undefined && newValRaw !== null ? String(newValRaw).trim() : '';
+
+    if (oldVal !== newVal) {
+      logs.push({
+        booking_id: newRow.bookingId,
+        changed_by: changedBy,
+        column_name: col,
+        old_value: oldVal || null,
+        new_value: newVal || null
+      });
+    }
+  });
+  return logs;
+}
+
+/**
  * Batch upserts case rows from Google Sheet into the Supabase table.
  */
-export async function upsertCasesToDb(rows: CaseRow[]): Promise<void> {
+export async function upsertCasesToDb(
+  rows: CaseRow[],
+  changedByEmail?: string
+): Promise<void> {
   if (rows.length === 0) return;
 
   // Deduplicate by normalized lowercase bookingId to prevent "ON CONFLICT DO UPDATE" target errors
@@ -59,13 +110,26 @@ export async function upsertCasesToDb(rows: CaseRow[]): Promise<void> {
   });
   const uniqueRows = Array.from(uniqueRowsMap.values());
 
+  // 1. Fetch existing rows from database to compare
+  const existingRowsMap = new Map<string, CaseRow>();
+  try {
+    const allExisting = await getCasesFromDb();
+    allExisting.forEach(r => {
+      if (r.bookingId) {
+        existingRowsMap.set(String(r.bookingId).trim().toLowerCase(), r);
+      }
+    });
+  } catch (err) {
+    console.warn('Could not fetch existing cases for batch auditing:', err);
+  }
+
+  // 2. Perform bulk upsert in chunks to avoid URL size or payload limitations if the dataset is huge
   const payload = uniqueRows.map(row => ({
     booking_id: String(row.bookingId).trim(),
     row_data: row,
     updated_at: new Date().toISOString()
   }));
 
-  // Perform bulk upsert in chunks to avoid URL size or payload limitations if the dataset is huge
   const chunkSize = 200;
   for (let i = 0; i < payload.length; i += chunkSize) {
     const chunk = payload.slice(i, i + chunkSize);
@@ -78,6 +142,28 @@ export async function upsertCasesToDb(rows: CaseRow[]): Promise<void> {
       throw new Error(error.message);
     }
   }
+
+  // 3. Detect changes and write audit logs in background/after upsert
+  const changedBy = changedByEmail || 'system_sync';
+  const logsToInsert: Omit<AuditLog, 'id' | 'changed_at'>[] = [];
+  
+  uniqueRows.forEach(row => {
+    if (!row.bookingId) return;
+    const cleanId = String(row.bookingId).trim().toLowerCase();
+    const oldRow = existingRowsMap.get(cleanId);
+    if (oldRow) {
+      const rowLogs = detectChanges(oldRow, row, changedBy);
+      logsToInsert.push(...rowLogs);
+    }
+  });
+
+  if (logsToInsert.length > 0) {
+    try {
+      await writeAuditLogs(logsToInsert);
+    } catch (logErr) {
+      console.warn('Failed to write batch audit logs:', logErr);
+    }
+  }
 }
 
 /**
@@ -85,8 +171,25 @@ export async function upsertCasesToDb(rows: CaseRow[]): Promise<void> {
  */
 export async function updateSingleCaseInDb(
   bookingId: string,
-  updatedRow: CaseRow
+  updatedRow: CaseRow,
+  changedByEmail?: string
 ): Promise<void> {
+  // 1. Fetch old row for comparison
+  let oldRow: CaseRow | null = null;
+  try {
+    const { data } = await supabase
+      .from('dashboard_cases')
+      .select('row_data')
+      .eq('booking_id', bookingId)
+      .maybeSingle();
+    if (data) {
+      oldRow = data.row_data as CaseRow;
+    }
+  } catch (err) {
+    console.warn(`Could not fetch existing row for bookingId ${bookingId}:`, err);
+  }
+
+  // 2. Perform the update
   const { error } = await supabase
     .from('dashboard_cases')
     .upsert({
@@ -98,6 +201,18 @@ export async function updateSingleCaseInDb(
   if (error) {
     console.error(`Failed to update case ${bookingId} in Supabase DB:`, error.message);
     throw new Error(error.message);
+  }
+
+  // 3. Detect and write audit logs
+  if (oldRow) {
+    const logs = detectChanges(oldRow, updatedRow, changedByEmail || 'unknown_user');
+    if (logs.length > 0) {
+      try {
+        await writeAuditLogs(logs);
+      } catch (logErr) {
+        console.warn(`Failed to write audit logs for bookingId ${bookingId}:`, logErr);
+      }
+    }
   }
 }
 
