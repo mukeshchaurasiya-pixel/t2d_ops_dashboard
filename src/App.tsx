@@ -30,6 +30,17 @@ export default function App() {
     localStorage.setItem('cars24_lastSynced', date.toISOString());
   };
 
+  const getSheetAccessCacheKeys = (activeSheetId: string, activeUserEmail?: string | null) => {
+    const emailKey = String(activeUserEmail || 'anonymous').trim().toLowerCase();
+    const suffix = `${emailKey}_${activeSheetId}`;
+    return {
+      verifiedKey: `cars24_sheet_access_verified_${suffix}`,
+      timeKey: `cars24_sheet_access_time_${suffix}`,
+      legacyVerifiedKey: `cars24_sheet_access_verified_${activeSheetId}`,
+      legacyTimeKey: `cars24_sheet_access_time_${activeSheetId}`,
+    };
+  };
+
   // Relative time helper
   const getRelativeTimeString = (date: Date | null) => {
     if (!date) return 'Never synced';
@@ -283,11 +294,9 @@ export default function App() {
         }
 
         // --- SHEET ACCESS SECURITY CHECK ---
-        const cacheKey = `cars24_sheet_access_verified_${activeSheetId}`;
-        const cacheTimeKey = `cars24_sheet_access_time_${activeSheetId}`;
-        
-        const cachedVerified = localStorage.getItem(cacheKey) === 'true';
-        const cachedTime = Number(localStorage.getItem(cacheTimeKey) || 0);
+        const cacheKeys = getSheetAccessCacheKeys(activeSheetId, authedUser?.email);
+        const cachedVerified = localStorage.getItem(cacheKeys.verifiedKey) === 'true';
+        const cachedTime = Number(localStorage.getItem(cacheKeys.timeKey) || 0);
         const isCacheValid = Date.now() - cachedTime < 7 * 24 * 60 * 60 * 1000; // 7 days cache validity
 
         if (cachedVerified && isCacheValid) {
@@ -307,8 +316,10 @@ export default function App() {
             const { verifySheetAccess } = await import('./lib/sheetsService');
             const hasAccess = await verifySheetAccess(activeSheetId, token);
             if (hasAccess) {
-              localStorage.setItem(cacheKey, 'true');
-              localStorage.setItem(cacheTimeKey, String(Date.now()));
+              localStorage.setItem(cacheKeys.verifiedKey, 'true');
+              localStorage.setItem(cacheKeys.timeKey, String(Date.now()));
+              localStorage.removeItem(cacheKeys.legacyVerifiedKey);
+              localStorage.removeItem(cacheKeys.legacyTimeKey);
               setUser(authedUser);
               setAccessToken(token);
               triggerAutoSync(token, activeSheetId, activeSheetName, authedUser.email);
@@ -318,8 +329,10 @@ export default function App() {
               setUser(authedUser);
               setAccessToken(null);
               setRows([]);
-              localStorage.removeItem(cacheKey);
-              localStorage.removeItem(cacheTimeKey);
+              localStorage.removeItem(cacheKeys.verifiedKey);
+              localStorage.removeItem(cacheKeys.timeKey);
+              localStorage.removeItem(cacheKeys.legacyVerifiedKey);
+              localStorage.removeItem(cacheKeys.legacyTimeKey);
             }
           } catch (err: any) {
             console.error("Access verification error:", err);
@@ -490,13 +503,16 @@ export default function App() {
   const handleSignOut = async () => {
     setRestoreLoading(true);
     try {
+      const cacheKeys = getSheetAccessCacheKeys(sheetId, user?.email);
       await logout();
       setUser(null);
       setAccessToken(null);
       setDemoMode(false);
       setLoginError(null);
-      localStorage.removeItem(`cars24_sheet_access_verified_${sheetId}`);
-      localStorage.removeItem(`cars24_sheet_access_time_${sheetId}`);
+      localStorage.removeItem(cacheKeys.verifiedKey);
+      localStorage.removeItem(cacheKeys.timeKey);
+      localStorage.removeItem(cacheKeys.legacyVerifiedKey);
+      localStorage.removeItem(cacheKeys.legacyTimeKey);
       // Reload DB cache rows so they are clean
       const { getCasesFromDb } = await import('./lib/supabaseDb');
       const dbRows = await getCasesFromDb();

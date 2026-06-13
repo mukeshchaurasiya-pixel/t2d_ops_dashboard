@@ -41,6 +41,40 @@ export async function getCasesFromDb(): Promise<CaseRow[]> {
   return allCases;
 }
 
+async function getExistingCasesByBookingIds(bookingIds: string[]): Promise<Map<string, CaseRow>> {
+  const existingRows = new Map<string, CaseRow>();
+  const uniqueBookingIds = Array.from(
+    new Set(
+      bookingIds
+        .map(id => String(id || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  const chunkSize = 500;
+  for (let i = 0; i < uniqueBookingIds.length; i += chunkSize) {
+    const chunk = uniqueBookingIds.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('dashboard_cases')
+      .select('booking_id,row_data')
+      .in('booking_id', chunk);
+
+    if (error) {
+      console.error('Failed to fetch existing cases for targeted diff:', error.message);
+      throw new Error(error.message);
+    }
+
+    (data || []).forEach((record: any) => {
+      const cleanId = String(record.booking_id || '').trim().toLowerCase();
+      if (cleanId) {
+        existingRows.set(cleanId, record.row_data as CaseRow);
+      }
+    });
+  }
+
+  return existingRows;
+}
+
 /**
  * Detects changes between oldRow and newRow for a list of audited columns.
  */
@@ -111,14 +145,10 @@ export async function upsertCasesToDb(
   const uniqueRows = Array.from(uniqueRowsMap.values());
 
   // 1. Fetch existing rows from database to compare
-  const existingRowsMap = new Map<string, CaseRow>();
+  const bookingIds = uniqueRows.map(row => String(row.bookingId || '').trim()).filter(Boolean);
+  let existingRowsMap = new Map<string, CaseRow>();
   try {
-    const allExisting = await getCasesFromDb();
-    allExisting.forEach(r => {
-      if (r.bookingId) {
-        existingRowsMap.set(String(r.bookingId).trim().toLowerCase(), r);
-      }
-    });
+    existingRowsMap = await getExistingCasesByBookingIds(bookingIds);
   } catch (err) {
     console.warn('Could not fetch existing cases for batch auditing:', err);
   }
@@ -340,4 +370,3 @@ export async function getAllAuditLogs(): Promise<AuditLog[]> {
 
   return (data || []) as AuditLog[];
 }
-

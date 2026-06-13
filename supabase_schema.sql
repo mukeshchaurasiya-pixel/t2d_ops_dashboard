@@ -32,7 +32,27 @@ FOR ALL
 USING (true) 
 WITH CHECK (true);
 
--- 6. Create the audit_logs table for tracking history
+-- 6. Create shared spreadsheet configuration table
+CREATE TABLE IF NOT EXISTS public.shared_config (
+    id TEXT NOT NULL PRIMARY KEY,
+    sheet_id TEXT NOT NULL,
+    sheet_name TEXT NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::TEXT, NOW()) NOT NULL,
+    updated_by TEXT
+);
+
+ALTER TABLE public.shared_config ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public read shared config" ON public.shared_config;
+DROP POLICY IF EXISTS "Allow public write shared config" ON public.shared_config;
+
+CREATE POLICY "Allow public read shared config"
+ON public.shared_config FOR SELECT USING (true);
+
+CREATE POLICY "Allow public write shared config"
+ON public.shared_config FOR ALL USING (true) WITH CHECK (true);
+
+-- 7. Create the audit_logs table for tracking history
 CREATE TABLE IF NOT EXISTS public.audit_logs (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     booking_id TEXT NOT NULL,
@@ -58,7 +78,7 @@ ON public.audit_logs FOR SELECT USING (true);
 CREATE POLICY "Allow public write audit" 
 ON public.audit_logs FOR INSERT WITH CHECK (true);
 
--- 7. Create the user_sessions table for tracking activity duration
+-- 8. Create the user_sessions table for tracking activity duration
 CREATE TABLE IF NOT EXISTS public.user_sessions (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     user_email TEXT NOT NULL,
@@ -80,4 +100,3 @@ ON public.user_sessions FOR SELECT USING (true);
 
 CREATE POLICY "Allow public write sessions" 
 ON public.user_sessions FOR ALL USING (true) WITH CHECK (true);
-
