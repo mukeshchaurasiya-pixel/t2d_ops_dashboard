@@ -81,7 +81,7 @@ export function getDerivedFlags(row: CaseRow): DerivedFlags {
   const isAlertVisible = String(row.isAlertVisible || '').toLowerCase();
   const onDemandStatus = row.onDemandStatus;
 
-  const isCancelledCase = leadStage === 'CANCELLED' || dealStatus === 'CANCEL';
+  const isCancelledCase = leadStage === 'CANCELLED' || leadStage === 'RETURNED' || dealStatus === 'CANCEL';
   
   let isEddBreached = false;
   if (expectedDeliveryDate && !actualDeliveryDate) {
@@ -292,7 +292,7 @@ export function buildCharts(rows: CaseRow[]): DashboardCharts {
     sheetFinalStatus: groupCount(rows, 'sheetFinalStatus'),
     formFinalStatus: groupCount(rows, 'formFinalStatus'),
     eddDistribution: buildEddDistribution(rows),
-    leadDsChannel: groupCount(rows.filter(r => r.leadStage === 'CANCELLED' || r.dealStatus === 'CANCEL' || r.cancelReason), 'leadDsChannel'),
+    leadDsChannel: groupCount(rows.filter(r => r.leadStage === 'CANCELLED' || r.leadStage === 'RETURNED' || r.dealStatus === 'CANCEL' || r.cancelReason), 'leadDsChannel'),
     listingDaysDistribution: buildListingDaysDistribution(rows)
   };
 }
@@ -707,7 +707,7 @@ export const SEED_CASE_ROWS: CaseRow[] = [
     cancellationDate: "2026-06-04",
     autoCancelledFlag: "false",
     tokenAutoCancellationExtendedDate: "",
-    leadStage: "CANCELLED",
+    leadStage: "RETURNED",
     tokenType: "PAID_TOKEN",
     tokenTypeWithNrt: "PAID_TOKEN_NRT",
     paymentType: "PMAX",
@@ -717,7 +717,7 @@ export const SEED_CASE_ROWS: CaseRow[] = [
     bookingDate: "2026-05-31",
     expectedDeliveryDate: "2026-06-03",
     expectedDeliveryTime: "",
-    actualDeliveryDate: "",
+    actualDeliveryDate: "2026-06-03",
     lastPaymentDate: "2026-05-30",
     latestRemarkDate: "2026-06-04 15:45:00",
     updatedAt: "2026-06-04 16:30:00",

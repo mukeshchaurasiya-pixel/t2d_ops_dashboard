@@ -531,6 +531,10 @@ export async function fetchSingleRowLatest(
     }
   });
 
+  if (updatedFields.actualDeliveryDate && updatedFields.actualDeliveryDate.trim() !== '' && String(updatedFields.dealStatus).toUpperCase() === 'CANCEL') {
+    updatedFields.leadStage = 'RETURNED';
+  }
+
   return updatedFields;
 }
 

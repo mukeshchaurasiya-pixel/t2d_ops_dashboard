@@ -453,6 +453,10 @@ export function mapCsvRows(parsed: string[][]): CaseRow[] {
       }
     });
 
+    if (rowObj.actualDeliveryDate && rowObj.actualDeliveryDate.trim() !== '' && String(rowObj.dealStatus).toUpperCase() === 'CANCEL') {
+      rowObj.leadStage = 'RETURNED';
+    }
+
     result.push(rowObj as CaseRow);
   }
 

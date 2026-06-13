@@ -349,12 +349,12 @@ export default function Dashboard({
     const c2dBookingIds = new Set<string>();
 
     Object.entries(userBookings).forEach(([userId, uRows]) => {
-      const hasCancelled = uRows.some(r => r.leadStage === 'CANCELLED' || r.dealStatus === 'CANCEL' || r.cancelReason);
+      const hasCancelled = uRows.some(r => r.leadStage === 'CANCELLED' || r.leadStage === 'RETURNED' || r.dealStatus === 'CANCEL' || r.cancelReason);
       const hasDelivered = uRows.some(r => r.leadStage === 'DELIVERED');
       if (hasCancelled && hasDelivered) {
         c2dUserIds.add(userId);
         uRows.forEach(r => {
-          if (r.leadStage === 'CANCELLED' || r.dealStatus === 'CANCEL' || r.cancelReason) {
+          if (r.leadStage === 'CANCELLED' || r.leadStage === 'RETURNED' || r.dealStatus === 'CANCEL' || r.cancelReason) {
             c2dBookingIds.add(r.bookingId);
           }
         });
@@ -1603,6 +1603,8 @@ export default function Dashboard({
                         <span className={`p-1 px-2.5 rounded-full text-[10px] font-bold ${
                           row.leadStage === 'DELIVERED' 
                             ? 'bg-emerald-50 text-emerald-700' 
+                            : row.leadStage === 'RETURNED'
+                            ? 'bg-purple-50 text-purple-700 font-extrabold border border-purple-100'
                             : row.leadStage === 'CANCELLED' 
                             ? 'bg-rose-50 text-rose-700' 
                             : 'bg-amber-50 text-amber-700'
