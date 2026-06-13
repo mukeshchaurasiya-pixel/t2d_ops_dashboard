@@ -262,3 +262,12 @@ export interface AuditLog {
   old_value: string | null;
   new_value: string | null;
 }
+
+export interface UserSession {
+  id?: string;
+  user_email: string;
+  login_time?: string;
+  last_active_time?: string;
+  duration_minutes: number;
+}
+

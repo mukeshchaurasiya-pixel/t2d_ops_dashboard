@@ -57,3 +57,27 @@ ON public.audit_logs FOR SELECT USING (true);
 
 CREATE POLICY "Allow public write audit" 
 ON public.audit_logs FOR INSERT WITH CHECK (true);
+
+-- 7. Create the user_sessions table for tracking activity duration
+CREATE TABLE IF NOT EXISTS public.user_sessions (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_email TEXT NOT NULL,
+    login_time TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::TEXT, NOW()) NOT NULL,
+    last_active_time TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::TEXT, NOW()) NOT NULL,
+    duration_minutes INTEGER DEFAULT 0 NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_sessions_email ON public.user_sessions (user_email);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_login ON public.user_sessions (login_time DESC);
+
+ALTER TABLE public.user_sessions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public read sessions" ON public.user_sessions;
+DROP POLICY IF EXISTS "Allow public write sessions" ON public.user_sessions;
+
+CREATE POLICY "Allow public read sessions" 
+ON public.user_sessions FOR SELECT USING (true);
+
+CREATE POLICY "Allow public write sessions" 
+ON public.user_sessions FOR ALL USING (true) WITH CHECK (true);
+

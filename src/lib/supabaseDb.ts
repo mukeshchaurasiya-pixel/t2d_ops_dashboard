@@ -4,7 +4,7 @@
  */
 
 import { supabase } from './supabaseClient';
-import { CaseRow, AuditLog } from '../types';
+import { CaseRow, AuditLog, UserSession } from '../types';
 
 /**
  * Fetches all cases cached in the Supabase PostgreSQL table.
@@ -250,4 +250,75 @@ export async function getAuditLogs(bookingId: string): Promise<AuditLog[]> {
   }
 
   return (data || []) as AuditLog[];
+}
+
+/**
+ * Starts a new user activity tracking session in Supabase DB.
+ * Returns the UUID of the created session.
+ */
+export async function startUserSession(email: string): Promise<string> {
+  const { data, error } = await supabase
+    .from('user_sessions')
+    .insert({
+      user_email: email,
+      login_time: new Date().toISOString(),
+      last_active_time: new Date().toISOString(),
+      duration_minutes: 0
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    console.error('Failed to create user session in Supabase:', error.message);
+    throw new Error(error.message);
+  }
+
+  return data.id;
+}
+
+/**
+ * Updates user session activity heartbeat, recalculating active minutes.
+ */
+export async function heartbeatUserSession(sessionId: string): Promise<void> {
+  try {
+    const { data } = await supabase
+      .from('user_sessions')
+      .select('login_time')
+      .eq('id', sessionId)
+      .maybeSingle();
+
+    if (data && data.login_time) {
+      const loginMs = new Date(data.login_time).getTime();
+      const currentMs = Date.now();
+      const diffMins = Math.max(1, Math.round((currentMs - loginMs) / 60000));
+
+      await supabase
+        .from('user_sessions')
+        .update({
+          last_active_time: new Date().toISOString(),
+          duration_minutes: diffMins
+        })
+        .eq('id', sessionId);
+    }
+  } catch (err) {
+    console.warn('Failed to update user session heartbeat:', err);
+  }
+}
+
+/**
+ * Retrieves list of user sessions (recent first) for admin metrics.
+ */
+export async function getUserSessions(): Promise<UserSession[]> {
+  const { data, error } = await supabase
+    .from('user_sessions')
+    .select('*')
+    .order('login_time', { ascending: false })
+    .limit(200);
+
+  if (error) {
+    console.error('Failed to fetch user sessions:', error.message);
+    throw new Error(error.message);
+  }
+
+  return (data || []) as UserSession[];
 }

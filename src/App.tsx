@@ -6,11 +6,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { 
-  Building, RefreshCcw, LogOut, AlertCircle, FileSpreadsheet, Lock, HelpCircle, Settings, Database, Save, ExternalLink
+  Building, RefreshCcw, LogOut, AlertCircle, FileSpreadsheet, Lock, HelpCircle, Settings, Database, Save, ExternalLink, Clock
 } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import LoginPage from './components/LoginPage';
-import { CaseRow } from './types';
+import { CaseRow, UserSession } from './types';
 import { SEED_CASE_ROWS } from './data/mockData';
 import { initAuth, logout, AppUser } from './lib/firebaseAuth';
 import { getCleanSpreadsheetId } from './lib/sheetsService';
@@ -35,12 +35,72 @@ export default function App() {
   const [demoMode, setDemoMode] = useState<boolean>(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
+  // Session tracking & active minutes states
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [userSessions, setUserSessions] = useState<UserSession[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState<boolean>(false);
+
   // Check if current user is an admin
   const isAdmin = useMemo(() => {
     if (!user || !user.email) return false;
     const emailLower = user.email.toLowerCase().trim();
     return emailLower === 'mukesh.chaurasiya@cars24.com' || emailLower === 'chourasiyamukesh008@gmail.com';
   }, [user]);
+
+  // User Session Heartbeat Activity Tracking
+  useEffect(() => {
+    if (!user || !user.email || demoMode) {
+      setActiveSessionId(null);
+      return;
+    }
+
+    let sessionId: string | null = null;
+    let heartbeatInterval: any = null;
+
+    const initSession = async () => {
+      try {
+        const { startUserSession, heartbeatUserSession } = await import('./lib/supabaseDb');
+        sessionId = await startUserSession(user.email!);
+        setActiveSessionId(sessionId);
+
+        // Run heartbeat every 1 minute (60,000 ms)
+        heartbeatInterval = setInterval(async () => {
+          if (sessionId) {
+            await heartbeatUserSession(sessionId);
+          }
+        }, 60000);
+      } catch (err) {
+        console.warn("Could not track user session activity:", err);
+      }
+    };
+
+    initSession();
+
+    return () => {
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+      }
+    };
+  }, [user?.email, demoMode]);
+
+  // Fetch session history for admin
+  useEffect(() => {
+    if (showConfigPanel && isAdmin) {
+      const fetchSessions = async () => {
+        setLoadingSessions(true);
+        try {
+          const { getUserSessions } = await import('./lib/supabaseDb');
+          const sessions = await getUserSessions();
+          setUserSessions(sessions);
+        } catch (err) {
+          console.warn("Failed to fetch user sessions:", err);
+        } finally {
+          setLoadingSessions(false);
+        }
+      };
+      fetchSessions();
+    }
+  }, [showConfigPanel, isAdmin]);
 
   // Handler to persist settings and re-query spreadsheet automatically
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -617,6 +677,83 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </motion.div>
+        )}
+
+        {/* Admin Operator Activity Log Panel */}
+        {showConfigPanel && user && isAdmin && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl space-y-4"
+          >
+            <div className="flex items-center justify-between text-amber-500 pb-2 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <Clock className="w-5 h-5 text-amber-500" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-white">Operator Activity Log</h3>
+              </div>
+              <button 
+                type="button"
+                onClick={async () => {
+                  setLoadingSessions(true);
+                  try {
+                    const { getUserSessions } = await import('./lib/supabaseDb');
+                    const sessions = await getUserSessions();
+                    setUserSessions(sessions);
+                  } catch (err) {
+                    console.warn("Failed to fetch user sessions:", err);
+                  } finally {
+                    setLoadingSessions(false);
+                  }
+                }}
+                className="text-[10px] font-bold uppercase text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+              >
+                Refresh Log
+              </button>
+            </div>
+
+            {loadingSessions ? (
+              <div className="text-center py-8 text-xs text-slate-400 font-mono animate-pulse">
+                Fetching operator session records...
+              </div>
+            ) : userSessions.length === 0 ? (
+              <div className="text-center py-8 text-xs text-slate-500 italic">
+                No session logs recorded yet.
+              </div>
+            ) : (
+              <div className="max-h-60 overflow-y-auto rounded-xl border border-slate-800/80 bg-slate-950/40">
+                <table className="w-full text-left border-collapse text-[11px]">
+                  <thead>
+                    <tr className="bg-slate-950 text-slate-400 uppercase font-bold tracking-wider border-b border-slate-800 select-none">
+                      <th className="p-3">User Email</th>
+                      <th className="p-3">Login Time</th>
+                      <th className="p-3">Last Active</th>
+                      <th className="p-3 text-right">Duration</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/50 text-slate-300">
+                    {userSessions.map((sess) => {
+                      const loginTimeStr = sess.login_time 
+                        ? new Date(sess.login_time).toLocaleString() 
+                        : '-';
+                      const lastActiveStr = sess.last_active_time 
+                        ? new Date(sess.last_active_time).toLocaleTimeString() 
+                        : '-';
+                      return (
+                        <tr key={sess.id} className="hover:bg-slate-900/40">
+                          <td className="p-3 font-semibold text-slate-200">{sess.user_email}</td>
+                          <td className="p-3 text-slate-400 font-mono">{loginTimeStr}</td>
+                          <td className="p-3 text-slate-400 font-mono">{lastActiveStr}</td>
+                          <td className="p-3 text-right font-bold text-amber-400 font-mono">
+                            {sess.duration_minutes} min{sess.duration_minutes !== 1 ? 's' : ''}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </motion.div>
         )}
 
