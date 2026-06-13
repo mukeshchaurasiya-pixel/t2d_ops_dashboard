@@ -186,6 +186,25 @@ export default function App() {
     loadCache();
   }, []);
 
+  const triggerAutoSync = async (activeToken: string, activeSheetId: string, activeSheetName: string, userEmail: string | null) => {
+    setSyncing(true);
+    try {
+      const { fetchSheetDataDirect } = await import('./lib/sheetsService');
+      const { upsertCasesToDb } = await import('./lib/supabaseDb');
+      
+      const sheetRows = await fetchSheetDataDirect(activeSheetId, activeSheetName, activeToken, userEmail);
+      if (sheetRows && sheetRows.length > 0) {
+        await upsertCasesToDb(sheetRows, userEmail || 'system_sync');
+        setRows(sheetRows);
+        console.log(`Auto-synchronized ${sheetRows.length} rows from Google Sheets.`);
+      }
+    } catch (err) {
+      console.warn("Background auto-sync failed:", err);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   // Auth subscriber to auto-load saved state on boot or login
   useEffect(() => {
     const unsubscribe = initAuth(
@@ -230,6 +249,9 @@ export default function App() {
           setUser(authedUser);
           setAccessToken(token);
           setRestoreLoading(false);
+          if (token) {
+            triggerAutoSync(token, activeSheetId, activeSheetName, authedUser.email);
+          }
           return;
         }
 
@@ -243,6 +265,7 @@ export default function App() {
               localStorage.setItem(cacheTimeKey, String(Date.now()));
               setUser(authedUser);
               setAccessToken(token);
+              triggerAutoSync(token, activeSheetId, activeSheetName, authedUser.email);
             } else {
               console.warn("Google Sheet access verification failed.");
               setLoginError("Restricted Access: Your Google account does not have view permission on the configured Google Sheet.");

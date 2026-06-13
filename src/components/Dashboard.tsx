@@ -256,8 +256,8 @@ export default function Dashboard({
   const [additionalCsvCols, setAdditionalCsvCols] = useState<string[]>([]);
 
   // Sorting states
-  const [sortField, setSortField] = useState<keyof CaseRow | null>(null);
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [sortField, setSortField] = useState<keyof CaseRow | null>('tokenDate');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   const handleSort = (field: keyof CaseRow) => {
     if (sortField === field) {
@@ -793,12 +793,24 @@ export default function Dashboard({
       let valA = a[sortField];
       let valB = b[sortField];
 
+      // Handle date fields chronologically
+      const fieldStr = String(sortField).toLowerCase();
+      const isDateField = fieldStr.includes('date') || fieldStr.includes('time') || fieldStr.includes('timestamp');
+      
+      if (isDateField) {
+        const dateA = valA ? parseDateString(String(valA)) : null;
+        const dateB = valB ? parseDateString(String(valB)) : null;
+        const timeA = dateA ? dateA.getTime() : 0;
+        const timeB = dateB ? dateB.getTime() : 0;
+        return sortDirection === 'asc' ? timeA - timeB : timeB - timeA;
+      }
+
       // Handle numeric fields
       if (typeof valA === 'number' && typeof valB === 'number') {
         return sortDirection === 'asc' ? valA - valB : valB - valA;
       }
 
-      // Handle string comparisons (including ISO dates)
+      // Handle string comparisons
       const strA = String(valA || '').toLowerCase();
       const strB = String(valB || '').toLowerCase();
 
