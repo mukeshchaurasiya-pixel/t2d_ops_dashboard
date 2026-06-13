@@ -4,131 +4,156 @@
 
 # CARS24 T2D Ops Dashboard
 
-This repository contains the CARS24 T2D Operations Dashboard, built with React, Vite, TypeScript, Tailwind CSS, and integrated directly with Google Sheets API v4 using Firebase Authentication.
+This repository contains the CARS24 T2D Operations Dashboard. It is a React + Vite + TypeScript single-page app that:
 
-View your app in AI Studio: [AI Studio App](https://ai.studio/apps/75c57192-5be7-4a3d-95a3-5d5a078ee81e)
+- authenticates operators with Supabase Google OAuth
+- reads and caches T2D case data in Supabase
+- uses Google Sheets as the live operational source for sheet-backed actions
+- supports a demo/offline dataset when live access is unavailable
 
----
+The app can be deployed on Vercel. An optional GitHub Actions workflow can sync a private Google Sheet into Supabase, but that workflow now skips cleanly when backend credentials are not configured.
 
 ## Table of Contents
-1. [Run Locally](#run-locally)
-2. [Deployment Guide (Vercel)](#deployment-guide-vercel)
-3. [Firebase Console OAuth Configuration](#firebase-console-oauth-configuration)
-4. [Access Control & Security Architecture](#access-control--security-architecture)
+1. [Tech Stack](#tech-stack)
+2. [Run Locally](#run-locally)
+3. [Deploy to Vercel](#deploy-to-vercel)
+4. [Supabase Setup](#supabase-setup)
+5. [Authentication and Access Model](#authentication-and-access-model)
+6. [Optional Background Sync](#optional-background-sync)
+7. [Operational Notes](#operational-notes)
 
----
+## Tech Stack
+
+- React 19
+- Vite 6
+- TypeScript
+- Tailwind CSS 4
+- Supabase Auth + Postgres
+- Google Sheets API v4
+- GitHub Actions for optional background sync
 
 ## Run Locally
 
 ### Prerequisites
-- **Node.js** (v18 or higher recommended)
-- **NPM** (v9 or higher)
+- Node.js 18+
+- npm 9+
+- a Supabase project
 
-### Setup Steps
-1. **Clone the Repository** (if not already done).
-2. **Install dependencies**:
+### Setup
+1. Install dependencies:
    ```bash
    npm install
    ```
-3. **Set Environment Variables**:
-   Create a `.env.local` file in the root directory (based on `.env.example`) and add your keys:
+
+2. Create `.env.local` from `.env.example` and fill in at least:
    ```env
-   GEMINI_API_KEY="your-gemini-api-key"
-   # Optional: Custom Firebase API Key to override default config
-   # VITE_FIREBASE_API_KEY="your-custom-firebase-api-key"
+   VITE_SUPABASE_URL="https://YOUR_PROJECT_ID.supabase.co"
+   VITE_SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_KEY"
    ```
-4. **Start the Development Server**:
+
+3. Start the app:
    ```bash
    npm run dev
    ```
-   Open `http://localhost:3000` in your browser to view the application.
 
----
+4. Open `http://localhost:3000`.
 
-## Deployment Guide (Vercel)
+### Verification
+```bash
+npm run lint
+npm run build
+```
 
-This project is configured for **zero local build effort** automatic deployment on Vercel.
+## Deploy to Vercel
 
-### Step 1: Connect Private GitHub Repository to Vercel
-1. Log in to your [Vercel Dashboard](https://vercel.com).
-2. Click the **Add New...** button in the top right corner and select **Project**.
-3. Under the **Import Git Repository** section:
-   - If your GitHub account is not connected, click **Add GitHub Account** and follow the prompts.
-   - If the repository is not visible in the list, click the namespace dropdown and choose **Configure GitHub App**. Grant Vercel access to either "All repositories" or specifically select the private `cars24-t2d-ops-dashboard` repository.
-4. Click the **Import** button next to the `cars24-t2d-ops-dashboard` repository.
+### Required Vercel Environment Variables
+Set these in the Vercel project:
 
-### Step 2: Configure the Vercel Project
-In the project configuration screen, review the following settings:
-- **Project Name**: Leave as default or customize.
-- **Framework Preset**: Vercel automatically detects the configuration and selects **Vite**. Keep this selected.
-- **Root Directory**: Leave as `./` (root).
-- **Build and Output Settings**:
-  - Keep the defaults. Vercel automatically extracts commands from `package.json`:
-    - **Build Command**: `npm run build` (which runs `vite build`)
-    - **Output Directory**: `dist`
-    - **Install Command**: `npm install`
-- **Environment Variables**:
-  - Add any custom environment variables such as `GEMINI_API_KEY` or `VITE_FIREBASE_API_KEY` (if you want to override the default Firebase project config).
-- **Routing Support**:
-  - The project contains a root-level `vercel.json` file. This instructs Vercel to redirect all routes back to `/index.html` (Single Page Application routing), preventing `404 Not Found` errors when users refresh virtual routes.
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
 
-### Step 3: Deploy
-1. Click **Deploy**.
-2. Vercel will clone the private repository, install dependencies, compile the TypeScript code, and host the production build.
-3. Every subsequent push to the main/default branch on GitHub will automatically trigger a new deployment.
+### Deployment Flow
+1. Import the GitHub repository into Vercel.
+2. Keep the detected framework preset as `Vite`.
+3. Keep the default build command `npm run build`.
+4. Keep the output directory as `dist`.
+5. Add the environment variables listed above.
+6. Deploy.
 
----
+The repository already contains [vercel.json](/abs/path/c:/Users/41157/Documents/cars24-t2d-ops-dashboard/vercel.json), which rewrites all routes to `index.html` for SPA routing.
 
-## Firebase Console OAuth Configuration
+## Supabase Setup
 
-To support Google Auth and live Google Sheets API calls, Firebase must be configured to permit authentication from your Vercel domains.
+Run the SQL in [supabase_schema.sql](/abs/path/c:/Users/41157/Documents/cars24-t2d-ops-dashboard/supabase_schema.sql) in the Supabase SQL Editor before using the app.
 
-### Step 1: Enable Google Auth Provider
-1. Go to the [Firebase Console](https://console.firebase.google.com/).
-2. Select your Firebase project (e.g., `auspicious-chalice-t224x`).
-3. In the left sidebar, navigate to **Build** -> **Authentication**.
-4. Go to the **Sign-in method** tab.
-5. Click **Add new provider**, select **Google**, toggle it to **Enabled**, set the project support email, and click **Save**.
+That script creates:
 
-### Step 2: Google Sheets OAuth Scopes
-- The Google Sheets API full read/write scope (`https://www.googleapis.com/auth/spreadsheets`) is requested programmatically inside the React client-side code (`src/lib/firebaseAuth.ts`) using:
-  ```typescript
-  provider.addScope('https://www.googleapis.com/auth/spreadsheets');
-  ```
-- **No scope registration is required in the Google/Firebase Console** since scope authorization is handled dynamically during the client-side popup consent flow.
+- `dashboard_cases`
+- `shared_config`
+- `audit_logs`
+- `user_sessions`
+- supporting indexes and RLS policies
 
-### Step 3: Configure Authorized Domains for Vercel
-To prevent unauthorized domains from invoking your Firebase authentication flow, you must whitelist your Vercel domains:
-1. In the **Authentication** -> **Sign-in method** tab of the Firebase Console, scroll down to the **Authorized domains** section.
-2. Click **Add domain**.
-3. Enter your deployed Vercel domain (e.g., `cars24-t2d-ops-dashboard.vercel.app`). Do not include protocol prefixes (`https://`) or trailing slashes.
-4. *Important Note*: Firebase Auth does not support wildcard domains (e.g., `*.vercel.app`) for OAuth callbacks. You must add each specific domain (production domains, branch domains, or preview domains) that will run the login flow. Local domains (`localhost`, `127.0.0.1`) are pre-configured by default.
+### Important Behavior
+- `dashboard_cases` is readable without forcing login so cached/demo flows continue to work.
+- audit log and session reads are restricted to the configured admin emails in the SQL helper function.
+- authenticated users can write shared config and session/cache updates through the app.
 
----
+## Authentication and Access Model
 
-## Access Control & Security Architecture
+### Operator Login
+- The frontend uses Supabase Google OAuth.
+- The Google Sheets scope requested is:
+  - `https://www.googleapis.com/auth/spreadsheets`
 
-The dashboard is designed as a secure client-side application with no intermediate database, meaning users fetch data directly from their Google Sheets.
+### Live Sheet Access
+- Users still need Google Sheet access in order to read/write live sheet-backed data from the browser.
+- A successful access verification is cached for 7 days per `user + sheet` in the browser to reduce forced re-logins.
 
-### 1. Spreadsheet Permissions Check
-- When an operator logs in, Google Auth returns a secure OAuth 2.0 Access Token to the browser.
-- The application fetches data via the official Google Sheets API v4 endpoints:
-  - Fetching rows: `https://sheets.googleapis.com/v4/spreadsheets/{spreadsheetId}/values/{tabName}`
-  - Writing manual updates: `https://sheets.googleapis.com/v4/spreadsheets/{spreadsheetId}/values:batchUpdate`
-- Google validates the bearer access token to ensure the logged-in Google Account has been granted **Viewer** or **Editor** permissions on the specific Google Sheet.
+### Access Denied Behavior
+- If a signed-in user does not have permission on the configured sheet, the UI shows a restricted-access state instead of rendering live data.
+- Users can still fall back to the demo dataset.
 
-### 2. Forbidden (403) Handling & Access Restriction Screen
-- If the logged-in user lacks permissions to the target spreadsheet, the Google Sheets API responds with an HTTP **403 Forbidden** status code.
-- In `src/lib/sheetsService.ts`, the application catches the 403 status and throws an error indicating the account lacks appropriate rights.
-- In `src/App.tsx`, the application monitors authentication and fetch errors. If a user successfully logs in but the sheet load fails (yielding `rows.length === 0` and a spreadsheet load error), the app overrides the default view and displays the **Access Restricted** screen:
-  - This screen blocks access to the empty dashboard grid.
-  - It displays the explicit error details (e.g., checking if the logged-in Google Account has permission).
-  - It offers options to either **Explore with Seed Offline Dataset** (Demo Mode) or **Sign Out / Switch Account**.
+### Demo Mode
+- Demo mode uses `SEED_CASE_ROWS` from [src/data/mockData.ts](/abs/path/c:/Users/41157/Documents/cars24-t2d-ops-dashboard/src/data/mockData.ts).
+- In demo mode, Google Sheets writes are bypassed.
 
-### 3. Demo Mode & Seed Offline Dataset
-- Users can bypass authentication or access restriction by clicking **Explore with Seed Offline Dataset**.
-- This enables **Demo Mode** (`demoMode = true`), which loads a static mock database from `src/data/mockData.ts` (`SEED_CASE_ROWS`).
-- While in Demo Mode:
-  - The dashboard header displays a yellow **Demo Mode** indicator.
-  - A persistent notification bar is displayed, warning that any edits made to comments, checklists, or data overrides will exist only within the current in-memory React session.
-  - Google Sheets API calls are bypassed (`accessToken` is set to `null` for the dashboard components), preventing any remote writes or unauthorized read queries.
+## Optional Background Sync
+
+The repository includes [.github/workflows/sync-sheets.yml](/abs/path/c:/Users/41157/Documents/cars24-t2d-ops-dashboard/.github/workflows/sync-sheets.yml) and [scripts/sync-sheets.js](/abs/path/c:/Users/41157/Documents/cars24-t2d-ops-dashboard/scripts/sync-sheets.js) for syncing a private Google Sheet into Supabase.
+
+### Current Behavior
+- If the required backend secrets are missing, the workflow skips cleanly.
+- This means the app can still deploy and run even when backend private-sheet sync is unavailable.
+
+### Required GitHub Secrets to Enable Background Sync
+- `VITE_SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `GOOGLE_SERVICE_ACCOUNT_EMAIL`
+- `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`
+
+### If Service Accounts Are Blocked
+If your org does not allow Google service accounts, leave the secrets unset. The workflow will skip and the app will continue using the browser-based Google Sheets path for authorized operators.
+
+## Operational Notes
+
+### Current Limitations
+- The app still has large client components, especially:
+  - [src/App.tsx](/abs/path/c:/Users/41157/Documents/cars24-t2d-ops-dashboard/src/App.tsx)
+  - [src/components/Dashboard.tsx](/abs/path/c:/Users/41157/Documents/cars24-t2d-ops-dashboard/src/components/Dashboard.tsx)
+- The production bundle is still large and `vite build` warns about chunk size.
+- The background sync path is optional and not active unless backend secrets are configured.
+
+### Current Scripts
+- `npm run dev`
+- `npm run lint`
+- `npm run build`
+- `npm run preview`
+- `npm run sync:sheets`
+
+### Rollback Reference
+Recent hardening changes were introduced in these commits:
+- `f9a96e3` `Harden sheet sync and cache paths`
+- `6344f98` `Add private sheet sync worker`
+- `68948d5` `Skip private sync when secrets are missing`
+
