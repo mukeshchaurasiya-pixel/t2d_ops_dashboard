@@ -459,8 +459,8 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans text-slate-100">
         {/* Decorative ambient background glows */}
-        <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] rounded-full bg-orange-600/10 blur-[130px] pointer-events-none" />
-        <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-amber-600/10 blur-[130px] pointer-events-none" />
+        <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] rounded-full bg-brand-orange/10 blur-[130px] pointer-events-none" />
+        <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-brand-blue/10 blur-[130px] pointer-events-none" />
 
         <motion.div 
           initial={{ opacity: 0, y: 15 }}
@@ -470,11 +470,11 @@ export default function App() {
         >
           {/* Branding header */}
           <div className="text-center mb-6">
-            <div className="inline-flex p-3 rounded-2xl bg-gradient-to-br from-orange-500 to-amber-600 shadow-lg shadow-orange-500/20 mb-3 flex items-center justify-center">
+            <div className="inline-flex p-3 rounded-2xl bg-gradient-to-br from-brand-orange to-brand-blue shadow-lg shadow-brand-orange/20 mb-3 flex items-center justify-center">
               <Lock className="w-7 h-7 text-white" />
             </div>
             <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl">
-              CARS24 T2D <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 via-amber-400 to-amber-500">Access Restricted</span>
+              CARS24 T2D <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-orange to-brand-blue">Access Restricted</span>
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-md mx-auto">
               Your account is authenticated, but we encountered an error connecting to your Google Spreadsheet database.
@@ -483,7 +483,7 @@ export default function App() {
 
           {/* Primary Login Card */}
           <div className="bg-slate-900 border border-slate-800/80 rounded-2xl shadow-2xl p-6 sm:p-8 relative overflow-hidden backdrop-blur-md">
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-orange-500 to-amber-500" />
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-brand-orange to-brand-blue" />
             
             <div className="space-y-6">
               {/* Error Message */}
@@ -500,7 +500,7 @@ export default function App() {
                     setRows(SEED_CASE_ROWS);
                     setLoginError(null);
                   }}
-                  className="w-full p-3.5 px-4 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-slate-950 font-bold transition-all flex items-center justify-center gap-2.5 shadow-lg shadow-orange-500/10 cursor-pointer text-xs uppercase tracking-wider active:scale-[0.98]"
+                  className="w-full p-3.5 px-4 rounded-xl bg-gradient-to-r from-brand-orange to-brand-blue hover:from-brand-orange/90 hover:to-brand-blue/90 text-white font-bold transition-all flex items-center justify-center gap-2.5 shadow-lg shadow-brand-orange/10 cursor-pointer text-xs uppercase tracking-wider active:scale-[0.98]"
                 >
                   Explore with Seed Offline Dataset
                 </button>
@@ -531,11 +531,11 @@ export default function App() {
       
       {/* Prime Ops Portal Header */}
       <header className="bg-slate-900 text-white shadow-md relative overflow-hidden shrink-0">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-orange-500 via-amber-500 to-indigo-600" />
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-brand-orange to-brand-blue" />
         
         <div className="max-w-7xl mx-auto px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 text-white shadow-md flex items-center justify-center">
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-brand-orange to-brand-blue text-white shadow-md flex items-center justify-center">
               <Building className="w-5 h-5" />
             </div>
             <div>
@@ -552,7 +552,7 @@ export default function App() {
                   href={`https://docs.google.com/spreadsheets/d/${sheetId}/edit`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-amber-400 hover:text-amber-300 font-medium underline flex items-center gap-1.5 transition-colors"
+                  className="text-brand-orange hover:text-brand-orange/80 font-medium underline flex items-center gap-1.5 transition-colors"
                   title="Open live synchronized spreadsheet directly"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
@@ -566,7 +566,7 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => setViewMode(prev => prev === 'admin' ? 'dashboard' : 'admin')}
-                        className="ml-1 p-1.5 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-bold transition-all cursor-pointer flex items-center gap-1.5 text-[10px] uppercase tracking-wider shadow-sm active:scale-[0.98]"
+                        className="ml-1 p-1.5 px-3 rounded-xl bg-gradient-to-r from-brand-orange to-brand-blue hover:from-brand-orange/90 hover:to-brand-blue/90 text-white font-bold transition-all cursor-pointer flex items-center gap-1.5 text-[10px] uppercase tracking-wider shadow-sm active:scale-[0.98]"
                         title="Open Dedicated Admin Console Page"
                       >
                         <Settings className="w-3.5 h-3.5" />
@@ -579,7 +579,7 @@ export default function App() {
                         className="ml-1 p-1 px-2 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all cursor-pointer flex items-center gap-1 text-[9px] uppercase tracking-wider font-extrabold"
                         title="Configure Google Spreadsheet Settings"
                       >
-                        <Settings className="w-3 h-3 text-orange-500" />
+                        <Settings className="w-3 h-3 text-brand-orange" />
                         Configure ID
                       </button>
                     )}
@@ -600,7 +600,7 @@ export default function App() {
               <div className="flex items-center gap-3">
                 {/* User badge */}
                 <div className="p-1 px-3 rounded-xl bg-slate-800 border border-slate-700/60 flex items-center gap-2.5 shadow-sm text-xs max-w-[240px] truncate">
-                  <div className="w-5 h-5 rounded-full bg-amber-500 text-slate-900 flex items-center justify-center font-bold text-[10px] shrink-0 font-mono select-none">
+                  <div className="w-5 h-5 rounded-full bg-brand-orange text-white flex items-center justify-center font-bold text-[10px] shrink-0 font-mono select-none">
                     {user.photoURL ? (
                       <img src={user.photoURL} alt="" className="w-full h-full rounded-full" referrerPolicy="no-referrer" />
                     ) : (
@@ -625,7 +625,7 @@ export default function App() {
               </div>
             ) : (
               <div className="flex items-center gap-3">
-                <div className="p-1 px-2 text-[10px] bg-amber-950/50 text-amber-400 rounded-lg font-bold border border-amber-905/30 flex items-center gap-1">
+                <div className="p-1 px-2 text-[10px] bg-brand-orange/10 text-brand-orange rounded-lg font-bold border border-brand-orange/20 flex items-center gap-1">
                   <AlertCircle className="w-3 h-3" /> Offline Demo Session
                 </div>
                 
@@ -676,7 +676,7 @@ export default function App() {
                 onClick={() => setAdminTab('settings')}
                 className={`p-3 px-5 text-xs font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer flex items-center gap-2 ${
                   adminTab === 'settings'
-                    ? 'border-orange-500 text-slate-900 font-extrabold'
+                    ? 'border-brand-orange text-slate-900 font-extrabold'
                     : 'border-transparent text-slate-400 hover:text-slate-650'
                 }`}
               >
@@ -687,7 +687,7 @@ export default function App() {
                 onClick={() => setAdminTab('sessions')}
                 className={`p-3 px-5 text-xs font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer flex items-center gap-2 ${
                   adminTab === 'sessions'
-                    ? 'border-orange-500 text-slate-900 font-extrabold'
+                    ? 'border-brand-orange text-slate-900 font-extrabold'
                     : 'border-transparent text-slate-400 hover:text-slate-650'
                 }`}
               >
@@ -698,7 +698,7 @@ export default function App() {
                 onClick={() => setAdminTab('audits')}
                 className={`p-3 px-5 text-xs font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer flex items-center gap-2 ${
                   adminTab === 'audits'
-                    ? 'border-orange-500 text-slate-900 font-extrabold'
+                    ? 'border-brand-orange text-slate-900 font-extrabold'
                     : 'border-transparent text-slate-400 hover:text-slate-655'
                 }`}
               >
@@ -726,7 +726,7 @@ export default function App() {
                           value={tempSheetId}
                           onChange={(e) => setTempSheetId(e.target.value)}
                           placeholder="Paste Spreadsheet ID or full Google Sheets URL..."
-                          className="w-full p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 text-xs font-mono focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                          className="w-full p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 text-xs font-mono focus:border-brand-orange focus:outline-none focus:ring-1 focus:ring-brand-orange"
                         />
                         {tempSheetId && getCleanSpreadsheetId(tempSheetId) !== tempSheetId && (
                           <p className="text-[9px] text-amber-500 font-mono mt-1">
@@ -743,7 +743,7 @@ export default function App() {
                           value={tempSheetName}
                           onChange={(e) => setTempSheetName(e.target.value)}
                           placeholder="Defaults to Sheet1"
-                          className="w-full p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 text-xs font-mono focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                          className="w-full p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 text-xs font-mono focus:border-brand-orange focus:outline-none focus:ring-1 focus:ring-brand-orange"
                         />
                       </div>
                     </div>
@@ -751,7 +751,7 @@ export default function App() {
                     <div className="flex items-center gap-3 pt-3">
                       <button
                         type="submit"
-                        className="p-3 px-6 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 text-slate-950 font-bold hover:from-orange-600 hover:to-amber-600 transition-all text-xs flex items-center gap-2 cursor-pointer shadow-md shadow-orange-500/10 active:scale-98 font-semibold uppercase tracking-wider"
+                        className="p-3 px-6 rounded-xl bg-gradient-to-r from-brand-orange to-brand-blue text-white font-bold hover:from-brand-orange/90 hover:to-brand-blue/90 transition-all text-xs flex items-center gap-2 cursor-pointer shadow-md shadow-brand-orange/10 active:scale-98 font-semibold uppercase tracking-wider"
                       >
                         <Save className="w-4 h-4" /> Save Rules
                       </button>
@@ -941,7 +941,7 @@ export default function App() {
                         value={tempSheetId}
                         onChange={(e) => setTempSheetId(e.target.value)}
                         placeholder="Paste Spreadsheet ID or full Google Sheets URL..."
-                        className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 text-xs font-mono focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                        className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 text-xs font-mono focus:border-brand-orange focus:outline-none focus:ring-1 focus:ring-brand-orange"
                       />
                       {tempSheetId && getCleanSpreadsheetId(tempSheetId) !== tempSheetId && (
                         <p className="text-[9px] text-amber-500 font-mono mt-1">
@@ -958,7 +958,7 @@ export default function App() {
                         value={tempSheetName}
                         onChange={(e) => setTempSheetName(e.target.value)}
                         placeholder="Defaults to Sheet1"
-                        className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 text-xs font-mono focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                        className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-100 text-xs font-mono focus:border-brand-orange focus:outline-none focus:ring-1 focus:ring-brand-orange"
                       />
                     </div>
                   </div>
@@ -966,7 +966,7 @@ export default function App() {
                   <div className="flex items-center gap-2 pt-1.5">
                     <button
                       type="submit"
-                      className="p-2 px-4 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 text-slate-950 font-bold hover:from-orange-600 hover:to-amber-600 transition-all text-xs flex items-center gap-1.5 cursor-pointer"
+                      className="p-2 px-4 rounded-xl bg-gradient-to-r from-brand-orange to-brand-blue text-white font-bold hover:from-brand-orange/90 hover:to-brand-blue/90 transition-all text-xs flex items-center gap-1.5 cursor-pointer"
                     >
                       <Save className="w-4 h-4" /> Save and Query Sheet
                     </button>
