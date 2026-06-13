@@ -111,13 +111,12 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = initAuth(
       async (authedUser, token) => {
-        setUser(authedUser);
-        setAccessToken(token);
-
         let activeSheetId = sheetId;
         let activeSheetName = sheetName;
 
         setRestoreLoading(true);
+        setLoginError(null);
+
         try {
           // Fetch the globally synced spreadsheet configurations from Firestore first
           const { getSharedConfig, saveSharedConfig } = await import('./lib/firebaseAuth');
@@ -137,9 +136,55 @@ export default function App() {
           }
         } catch (dbErr) {
           console.warn("Failed to retrieve global Firestore workspace config:", dbErr);
-        } finally {
-          setRestoreLoading(false);
         }
+
+        // --- SHEET ACCESS SECURITY CHECK ---
+        const cacheKey = `cars24_sheet_access_verified_${activeSheetId}`;
+        const cacheTimeKey = `cars24_sheet_access_time_${activeSheetId}`;
+        
+        const cachedVerified = localStorage.getItem(cacheKey) === 'true';
+        const cachedTime = Number(localStorage.getItem(cacheTimeKey) || 0);
+        const isCacheValid = Date.now() - cachedTime < 7 * 24 * 60 * 60 * 1000; // 7 days cache validity
+
+        if (cachedVerified && isCacheValid) {
+          // Access is already verified recently, load immediately from DB cache without forcing Google re-login!
+          setUser(authedUser);
+          setAccessToken(token);
+          setRestoreLoading(false);
+          return;
+        }
+
+        if (token) {
+          // Verify access using active Google token
+          try {
+            const { verifySheetAccess } = await import('./lib/sheetsService');
+            const hasAccess = await verifySheetAccess(activeSheetId, token);
+            if (hasAccess) {
+              localStorage.setItem(cacheKey, 'true');
+              localStorage.setItem(cacheTimeKey, String(Date.now()));
+              setUser(authedUser);
+              setAccessToken(token);
+            } else {
+              console.warn("Google Sheet access verification failed.");
+              setLoginError("Restricted Access: Your Google account does not have view permission on the configured Google Sheet.");
+              setUser(null);
+              setAccessToken(null);
+              localStorage.removeItem(cacheKey);
+              localStorage.removeItem(cacheTimeKey);
+            }
+          } catch (err: any) {
+            console.error("Access verification error:", err);
+            setLoginError(`Verification failed: ${err.message || err}`);
+          }
+        } else {
+          // No active token and cache is expired/missing
+          console.warn("No active Google token to verify sheet access.");
+          setLoginError("Google authentication expired. Please sign in again to verify sheet access permissions.");
+          setUser(null);
+          setAccessToken(null);
+        }
+
+        setRestoreLoading(false);
       },
       () => {
         setUser(null);
@@ -299,6 +344,8 @@ export default function App() {
       setAccessToken(null);
       setDemoMode(false);
       setLoginError(null);
+      localStorage.removeItem(`cars24_sheet_access_verified_${sheetId}`);
+      localStorage.removeItem(`cars24_sheet_access_time_${sheetId}`);
       // Reload DB cache rows so they are clean
       const { getCasesFromDb } = await import('./lib/supabaseDb');
       const dbRows = await getCasesFromDb();

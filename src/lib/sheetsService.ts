@@ -538,3 +538,25 @@ export async function fetchSingleRowLatest(
   return updatedFields;
 }
 
+/**
+ * Verifies if the Google Access Token has read permission on the Google Sheet.
+ */
+export async function verifySheetAccess(sheetId: string, accessToken: string): Promise<boolean> {
+  try {
+    const cleanId = getCleanSpreadsheetId(sheetId);
+    const verifyUrl = `https://sheets.googleapis.com/v4/spreadsheets/${cleanId}?fields=spreadsheetId`;
+    
+    const res = await fetch(verifyUrl, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json'
+      }
+    });
+
+    return res.ok;
+  } catch (err) {
+    console.error('Error verifying sheet access:', err);
+    return false;
+  }
+}
+

@@ -190,15 +190,6 @@ export default function LoginPage({
                         </>
                       )}
                     </button>
-
-                    <button
-                      type="button"
-                      onClick={onDemoMode}
-                      className="w-full p-3.5 rounded-xl bg-slate-950 border border-slate-850 hover:border-slate-800 text-slate-300 font-semibold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer hover:text-slate-100"
-                    >
-                      View Live Dashboard (Read-Only)
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
                   </div>
                 </form>
               </motion.div>
@@ -255,15 +246,7 @@ export default function LoginPage({
                     )}
                   </button>
 
-                  {/* Secondary: Demo mode */}
-                  <button
-                    type="button"
-                    onClick={onDemoMode}
-                    className="w-full p-3.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-300 font-semibold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer hover:text-slate-100"
-                  >
-                    View Live Dashboard (Read-Only)
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
+
                 </div>
 
                 <p className="text-[10px] text-slate-600 max-w-xs mx-auto leading-relaxed">
