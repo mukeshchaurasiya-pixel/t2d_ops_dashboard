@@ -1232,6 +1232,10 @@ export default function Dashboard({
 
   const handleSaveActionables = () => {
     if (selectedRowIndex === null) return;
+    if (!user) {
+      alert("Please connect your Google Account to edit actionables.");
+      return;
+    }
 
     setSavingRow(true);
     try {

@@ -47,17 +47,20 @@ export async function getCasesFromDb(): Promise<CaseRow[]> {
 export async function upsertCasesToDb(rows: CaseRow[]): Promise<void> {
   if (rows.length === 0) return;
 
-  // Deduplicate by bookingId to prevent "ON CONFLICT DO UPDATE command cannot affect row a second time" postgres error
+  // Deduplicate by normalized lowercase bookingId to prevent "ON CONFLICT DO UPDATE" target errors
   const uniqueRowsMap = new Map<string, CaseRow>();
   rows.forEach(row => {
     if (row.bookingId) {
-      uniqueRowsMap.set(row.bookingId, row);
+      const cleanId = String(row.bookingId).trim().toLowerCase();
+      if (cleanId) {
+        uniqueRowsMap.set(cleanId, row);
+      }
     }
   });
   const uniqueRows = Array.from(uniqueRowsMap.values());
 
   const payload = uniqueRows.map(row => ({
-    booking_id: row.bookingId,
+    booking_id: String(row.bookingId).trim(),
     row_data: row,
     updated_at: new Date().toISOString()
   }));

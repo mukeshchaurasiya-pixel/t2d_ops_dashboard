@@ -196,7 +196,7 @@ export default function LoginPage({
                       onClick={onDemoMode}
                       className="w-full p-3.5 rounded-xl bg-slate-950 border border-slate-850 hover:border-slate-800 text-slate-300 font-semibold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer hover:text-slate-100"
                     >
-                      Explore with Seed Offline Dataset
+                      View Live Dashboard (Read-Only)
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -261,7 +261,7 @@ export default function LoginPage({
                     onClick={onDemoMode}
                     className="w-full p-3.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-300 font-semibold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer hover:text-slate-100"
                   >
-                    Try Demo Mode (no login)
+                    View Live Dashboard (Read-Only)
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
                 </div>

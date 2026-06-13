@@ -298,8 +298,13 @@ export default function App() {
       setUser(null);
       setAccessToken(null);
       setDemoMode(false);
-      setRows(SEED_CASE_ROWS);
       setLoginError(null);
+      // Reload DB cache rows so they are clean
+      const { getCasesFromDb } = await import('./lib/supabaseDb');
+      const dbRows = await getCasesFromDb();
+      if (dbRows && dbRows.length > 0) {
+        setRows(dbRows);
+      }
     } catch (err) {
       console.error("Log out failed:", err);
     } finally {
@@ -574,14 +579,14 @@ export default function App() {
             <div className="flex items-start sm:items-center gap-2.5">
               <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
               <div>
-                <span className="font-bold">Viewing Seed Offline Dataset</span> • Changes made to comments, checklists, and manual values remain active within your local session, but won't sink to any Google Sheets database.
+                <span className="font-bold">Viewing Live Cached Dataset (Read-Only)</span> • Connect your Google Account to edit actionables or trigger a sync.
               </div>
             </div>
             <button
               onClick={handleSignOut}
               className="p-1.5 px-3 self-start sm:self-auto bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] rounded-lg cursor-pointer transition-colors shrink-0"
             >
-              {user ? "Sign Out / Switch Account" : "Sign In to Save"}
+              Connect Google Account
             </button>
           </div>
         )}
