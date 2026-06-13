@@ -11,6 +11,12 @@ jobs:
   sync:
     name: Sync Sheet to Supabase
     runs-on: ubuntu-latest
+    env:
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+      GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY }}
+      HAS_PRIVATE_SYNC_SECRETS: ${{ secrets.VITE_SUPABASE_URL != '' && secrets.SUPABASE_SERVICE_ROLE_KEY != '' && secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL != '' && secrets.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY != '' }}
 
     steps:
       - name: Checkout repository
@@ -22,13 +28,16 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Skip when private sync secrets are missing
+        if: env.HAS_PRIVATE_SYNC_SECRETS != 'true'
+        run: |
+          echo "Private sheet sync skipped."
+          echo "Configure VITE_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GOOGLE_SERVICE_ACCOUNT_EMAIL, and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY to enable this job."
+
       - name: Install dependencies
+        if: env.HAS_PRIVATE_SYNC_SECRETS == 'true'
         run: npm ci
 
       - name: Run sync script
+        if: env.HAS_PRIVATE_SYNC_SECRETS == 'true'
         run: node scripts/sync-sheets.js
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
-          GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY }}

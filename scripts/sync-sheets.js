@@ -23,13 +23,13 @@ const googleServiceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
 const googleServiceAccountPrivateKey = normalizePrivateKey(process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
 
 if (!supabaseUrl || !supabaseServiceRoleKey) {
-  console.error('Error: VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set for background sync.');
-  process.exit(1);
+  console.log('Skipping background sync: Supabase worker credentials are not configured.');
+  process.exit(0);
 }
 
 if (!googleServiceAccountEmail || !googleServiceAccountPrivateKey) {
-  console.error('Error: GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY must be set for private sheet sync.');
-  process.exit(1);
+  console.log('Skipping background sync: Google service account credentials are not configured.');
+  process.exit(0);
 }
 
 const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
