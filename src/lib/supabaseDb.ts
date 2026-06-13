@@ -30,7 +30,16 @@ export async function getCasesFromDb(): Promise<CaseRow[]> {
 export async function upsertCasesToDb(rows: CaseRow[]): Promise<void> {
   if (rows.length === 0) return;
 
-  const payload = rows.map(row => ({
+  // Deduplicate by bookingId to prevent "ON CONFLICT DO UPDATE command cannot affect row a second time" postgres error
+  const uniqueRowsMap = new Map<string, CaseRow>();
+  rows.forEach(row => {
+    if (row.bookingId) {
+      uniqueRowsMap.set(row.bookingId, row);
+    }
+  });
+  const uniqueRows = Array.from(uniqueRowsMap.values());
+
+  const payload = uniqueRows.map(row => ({
     booking_id: row.bookingId,
     row_data: row,
     updated_at: new Date().toISOString()
