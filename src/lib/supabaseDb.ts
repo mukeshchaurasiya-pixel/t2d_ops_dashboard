@@ -10,18 +10,35 @@ import { CaseRow } from '../types';
  * Fetches all cases cached in the Supabase PostgreSQL table.
  */
 export async function getCasesFromDb(): Promise<CaseRow[]> {
-  const { data, error } = await supabase
-    .from('dashboard_cases')
-    .select('row_data')
-    .order('updated_at', { ascending: false });
+  const allCases: CaseRow[] = [];
+  let start = 0;
+  const pageSize = 1000;
+  let hasMore = true;
 
-  if (error) {
-    console.error('Failed to fetch cases from Supabase DB:', error.message);
-    throw new Error(error.message);
+  while (hasMore) {
+    const { data, error } = await supabase
+      .from('dashboard_cases')
+      .select('row_data')
+      .order('updated_at', { ascending: false })
+      .range(start, start + pageSize - 1);
+
+    if (error) {
+      console.error('Failed to fetch cases from Supabase DB:', error.message);
+      throw new Error(error.message);
+    }
+
+    if (data && data.length > 0) {
+      allCases.push(...data.map((r: any) => r.row_data as CaseRow));
+      start += pageSize;
+      if (data.length < pageSize) {
+        hasMore = false;
+      }
+    } else {
+      hasMore = false;
+    }
   }
 
-  if (!data) return [];
-  return data.map((r: any) => r.row_data as CaseRow);
+  return allCases;
 }
 
 /**
