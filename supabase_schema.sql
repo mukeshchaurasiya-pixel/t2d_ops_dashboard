@@ -1,5 +1,23 @@
 -- SQL Schema Script for CARS24 Dashboard
 -- Run this script in the Supabase SQL Editor (https://supabase.com/dashboard/project/_/sql)
+--
+-- Notes:
+-- - dashboard_cases remains publicly readable so the current cached/demo flow
+--   continues to work without forcing login on every read.
+-- - write paths are intended for authenticated users or the Supabase service role.
+-- - admin-only audit/session reads are currently keyed to the same admin emails
+--   used in the SPA; move this to a dedicated roles table when convenient.
+
+CREATE OR REPLACE FUNCTION public.is_admin_email()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT lower(coalesce(auth.jwt() ->> 'email', '')) IN (
+    'mukesh.chaurasiya@cars24.com',
+    'chourasiyamukesh008@gmail.com'
+  );
+$$;
 
 -- 1. Create the dashboard_cases cache table
 CREATE TABLE IF NOT EXISTS public.dashboard_cases (
@@ -25,11 +43,12 @@ ON public.dashboard_cases
 FOR SELECT 
 USING (true);
 
--- Allow updates, inserts, and deletes (anyone can write to cache, or you can restrict to authenticated users)
-CREATE POLICY "Allow public write" 
+-- Only authenticated users should mutate the shared cache from the browser.
+CREATE POLICY "Allow authenticated write" 
 ON public.dashboard_cases 
 FOR ALL 
-USING (true) 
+TO authenticated
+USING (true)
 WITH CHECK (true);
 
 -- 6. Create shared spreadsheet configuration table
@@ -45,12 +64,14 @@ ALTER TABLE public.shared_config ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Allow public read shared config" ON public.shared_config;
 DROP POLICY IF EXISTS "Allow public write shared config" ON public.shared_config;
+DROP POLICY IF EXISTS "Allow authenticated read shared config" ON public.shared_config;
+DROP POLICY IF EXISTS "Allow authenticated write shared config" ON public.shared_config;
 
-CREATE POLICY "Allow public read shared config"
-ON public.shared_config FOR SELECT USING (true);
+CREATE POLICY "Allow authenticated read shared config"
+ON public.shared_config FOR SELECT TO authenticated USING (true);
 
-CREATE POLICY "Allow public write shared config"
-ON public.shared_config FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow authenticated write shared config"
+ON public.shared_config FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- 7. Create the audit_logs table for tracking history
 CREATE TABLE IF NOT EXISTS public.audit_logs (
@@ -71,12 +92,16 @@ ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Allow public read audit" ON public.audit_logs;
 DROP POLICY IF EXISTS "Allow public write audit" ON public.audit_logs;
+DROP POLICY IF EXISTS "Allow admin read audit" ON public.audit_logs;
+DROP POLICY IF EXISTS "Allow authenticated write audit" ON public.audit_logs;
 
-CREATE POLICY "Allow public read audit" 
-ON public.audit_logs FOR SELECT USING (true);
+CREATE POLICY "Allow admin read audit" 
+ON public.audit_logs FOR SELECT TO authenticated USING (public.is_admin_email());
 
-CREATE POLICY "Allow public write audit" 
-ON public.audit_logs FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow authenticated write audit" 
+ON public.audit_logs FOR INSERT TO authenticated WITH CHECK (
+  lower(coalesce(auth.jwt() ->> 'email', '')) <> ''
+);
 
 -- 8. Create the user_sessions table for tracking activity duration
 CREATE TABLE IF NOT EXISTS public.user_sessions (
@@ -94,9 +119,21 @@ ALTER TABLE public.user_sessions ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Allow public read sessions" ON public.user_sessions;
 DROP POLICY IF EXISTS "Allow public write sessions" ON public.user_sessions;
+DROP POLICY IF EXISTS "Allow admin read sessions" ON public.user_sessions;
+DROP POLICY IF EXISTS "Allow authenticated insert sessions" ON public.user_sessions;
+DROP POLICY IF EXISTS "Allow authenticated update own sessions" ON public.user_sessions;
 
-CREATE POLICY "Allow public read sessions" 
-ON public.user_sessions FOR SELECT USING (true);
+CREATE POLICY "Allow admin read sessions" 
+ON public.user_sessions FOR SELECT TO authenticated USING (public.is_admin_email());
 
-CREATE POLICY "Allow public write sessions" 
-ON public.user_sessions FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow authenticated insert sessions" 
+ON public.user_sessions FOR INSERT TO authenticated WITH CHECK (
+  lower(user_email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+);
+
+CREATE POLICY "Allow authenticated update own sessions" 
+ON public.user_sessions FOR UPDATE TO authenticated USING (
+  lower(user_email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+) WITH CHECK (
+  lower(user_email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+);

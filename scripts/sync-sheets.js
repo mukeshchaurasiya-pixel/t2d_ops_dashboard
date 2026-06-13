@@ -2,12 +2,13 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * background sync script: pulls Google Sheets data anonymously, 
- * parses it, and updates the Supabase DB cache.
+ * background sync script: pulls private Google Sheets data using a
+ * Google service account, parses it, and updates the Supabase DB cache.
  */
 
 import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
 import {
   applyReturnedLeadStage,
   coerceCaseRowValue,
@@ -17,49 +18,21 @@ import {
 } from '../src/data/caseRowSchema.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const googleServiceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+const googleServiceAccountPrivateKey = normalizePrivateKey(process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Error: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY env variables must be set.');
+if (!supabaseUrl || !supabaseServiceRoleKey) {
+  console.error('Error: VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set for background sync.');
   process.exit(1);
 }
 
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-// Robust client-side CSV parser
-function parseCsvRaw(text) {
-  const lines = [];
-  let row = [''];
-  let inQuotes = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    const nextChar = text[i + 1];
-
-    if (char === '"') {
-      if (inQuotes && nextChar === '"') {
-        row[row.length - 1] += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (char === ',' && !inQuotes) {
-      row.push('');
-    } else if ((char === '\r' || char === '\n') && !inQuotes) {
-      if (char === '\r' && nextChar === '\n') {
-        i++;
-      }
-      lines.push(row);
-      row = [''];
-    } else {
-      row[row.length - 1] += char;
-    }
-  }
-  if (row.length > 1 || row[0] !== '') {
-    lines.push(row);
-  }
-  return lines;
+if (!googleServiceAccountEmail || !googleServiceAccountPrivateKey) {
+  console.error('Error: GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY must be set for private sheet sync.');
+  process.exit(1);
 }
+
+const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
 function normalizeStr(val) {
   return val
@@ -67,6 +40,87 @@ function normalizeStr(val) {
     .replace(/[\s\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]+$/g, '')
     .replace(/[\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]/g, ' ')
     .replace(/  +/g, ' ');
+}
+
+function normalizePrivateKey(rawValue) {
+  if (!rawValue) return '';
+  return String(rawValue).replace(/\\n/g, '\n').trim();
+}
+
+function base64UrlEncode(value) {
+  return Buffer.from(value)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+async function getGoogleSheetsAccessToken() {
+  const now = Math.floor(Date.now() / 1000);
+  const jwtHeader = {
+    alg: 'RS256',
+    typ: 'JWT',
+  };
+  const jwtClaimSet = {
+    iss: googleServiceAccountEmail,
+    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600,
+    iat: now,
+  };
+
+  const unsignedToken = `${base64UrlEncode(JSON.stringify(jwtHeader))}.${base64UrlEncode(JSON.stringify(jwtClaimSet))}`;
+  const signer = crypto.createSign('RSA-SHA256');
+  signer.update(unsignedToken);
+  signer.end();
+  const signature = signer
+    .sign(googleServiceAccountPrivateKey, 'base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+  const signedJwt = `${unsignedToken}.${signature}`;
+
+  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: signedJwt
+    })
+  });
+
+  if (!tokenResponse.ok) {
+    const errorText = await tokenResponse.text();
+    throw new Error(`Google OAuth token exchange failed (${tokenResponse.status}): ${errorText}`);
+  }
+
+  const tokenData = await tokenResponse.json();
+  if (!tokenData.access_token) {
+    throw new Error('Google OAuth token exchange succeeded but no access_token was returned.');
+  }
+
+  return tokenData.access_token;
+}
+
+async function fetchPrivateSheetValues(sheetId, sheetName, accessToken) {
+  const apiUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(sheetName)}`;
+  const response = await fetch(apiUrl, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Accept': 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Google Sheets API fetch failed (${response.status}): ${errorText}`);
+  }
+
+  const data = await response.json();
+  const values = Array.isArray(data.values) ? data.values : [];
+  return values.map(row => row.map(cell => normalizeStr(String(cell ?? ''))));
 }
 
 async function runSync() {
@@ -93,20 +147,14 @@ async function runSync() {
   const sheetName = config.sheet_name || 'Sheet1';
   console.log(`Configured Google Sheet ID: ${sheetId}, Tab: ${sheetName}`);
 
-  // 2. Query public CSV GViz url
-  const targetUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
-  console.log(`Querying Sheets endpoint...`);
-  
-  const response = await fetch(targetUrl);
-  if (!response.ok) {
-    console.error(`Sheets API fetch failed. Status: ${response.status}`);
-    process.exit(1);
-  }
+  // 2. Query private sheet via authenticated Google Sheets API
+  console.log('Requesting Google Sheets access token...');
+  const googleAccessToken = await getGoogleSheetsAccessToken();
+  console.log('Querying private Sheets API endpoint...');
 
-  const csvText = await response.text();
-  const parsed = parseCsvRaw(csvText);
+  const parsed = await fetchPrivateSheetValues(sheetId, sheetName, googleAccessToken);
   if (parsed.length < 2) {
-    console.error('GViz returned empty sheet or missing headers.');
+    console.error('Google Sheets API returned empty sheet or missing headers.');
     process.exit(1);
   }
 
