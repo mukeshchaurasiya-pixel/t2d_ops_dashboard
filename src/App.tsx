@@ -18,6 +18,47 @@ import { getCleanSpreadsheetId } from './lib/sheetsService';
 export default function App() {
   const [rows, setRows] = useState<CaseRow[]>(SEED_CASE_ROWS);
 
+  // Sync state tracking
+  const [lastSynced, setLastSynced] = useState<Date | null>(() => {
+    const val = localStorage.getItem('cars24_lastSynced');
+    return val ? new Date(val) : null;
+  });
+  const [syncStatusText, setSyncStatusText] = useState<string>('Never synced');
+
+  const updateLastSynced = (date: Date) => {
+    setLastSynced(date);
+    localStorage.setItem('cars24_lastSynced', date.toISOString());
+  };
+
+  // Relative time helper
+  const getRelativeTimeString = (date: Date | null) => {
+    if (!date) return 'Never synced';
+    const diffMs = Date.now() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffSecs = Math.floor(diffMs / 1000);
+
+    if (diffSecs < 60) {
+      return 'Just now';
+    }
+    if (diffMins < 60) {
+      return `Last synced: ${diffMins}m ago`;
+    }
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) {
+      return `Last synced: ${diffHours}h ago`;
+    }
+    return `Last synced: ${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  };
+
+  useEffect(() => {
+    const updateText = () => {
+      setSyncStatusText(getRelativeTimeString(lastSynced));
+    };
+    updateText();
+    const interval = setInterval(updateText, 10000);
+    return () => clearInterval(interval);
+  }, [lastSynced]);
+
   // Spreadsheet Settings State - Persistent locally in browser storage
   const [sheetId, setSheetId] = useState<string>(() => localStorage.getItem('cars24_sheetId') || '1ARJ8AzOwNxqdTZA7bd7zPAacabIoBImXqReqzSTrIy4');
   const [sheetName, setSheetName] = useState<string>(() => localStorage.getItem('cars24_sheetName') || 'Sheet1');
@@ -140,6 +181,7 @@ export default function App() {
           const { fetchSheetDataDirect } = await import('./lib/sheetsService');
           const sheetRows = await fetchSheetDataDirect(cleanId, tempSheetName, accessToken, user.email);
           setRows(sheetRows);
+          updateLastSynced(new Date());
           setLoginError(null);
           alert("Configuration saved and globally synchronized!");
         } else {
@@ -176,6 +218,9 @@ export default function App() {
         const dbRows = await getCasesFromDb();
         if (dbRows && dbRows.length > 0) {
           setRows(dbRows);
+          if (!localStorage.getItem('cars24_lastSynced')) {
+            updateLastSynced(new Date());
+          }
         }
       } catch (err) {
         console.warn("Could not load initial cached cases from Supabase DB:", err);
@@ -196,6 +241,7 @@ export default function App() {
       if (sheetRows && sheetRows.length > 0) {
         await upsertCasesToDb(sheetRows, userEmail || 'system_sync');
         setRows(sheetRows);
+        updateLastSynced(new Date());
         console.log(`Auto-synchronized ${sheetRows.length} rows from Google Sheets.`);
       }
     } catch (err) {
@@ -269,8 +315,9 @@ export default function App() {
             } else {
               console.warn("Google Sheet access verification failed.");
               setLoginError("Restricted Access: Your Google account does not have view permission on the configured Google Sheet.");
-              setUser(null);
+              setUser(authedUser);
               setAccessToken(null);
+              setRows([]);
               localStorage.removeItem(cacheKey);
               localStorage.removeItem(cacheTimeKey);
             }
@@ -385,6 +432,7 @@ export default function App() {
             if (sheetRows && sheetRows.length > 0) {
               await upsertCasesToDb(sheetRows, res.user.email || 'system_sync');
               setRows(sheetRows);
+              updateLastSynced(new Date());
             }
           } catch (sheetErr: any) {
             console.warn("Could not sync spreadsheet on sign in:", sheetErr);
@@ -426,6 +474,7 @@ export default function App() {
       if (sheetRows && sheetRows.length > 0) {
         await upsertCasesToDb(sheetRows, user?.email || 'system_sync');
         setRows(sheetRows);
+        updateLastSynced(new Date());
         alert(`Successfully synchronized ${sheetRows.length} rows from Google Sheets!`);
       } else {
         alert("Spreadsheet sync returned empty content.");
@@ -613,17 +662,55 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3 self-start md:self-auto">
-            {restoreLoading && (
-              <div className="text-xs text-slate-400 animate-pulse flex items-center gap-1.5 font-mono">
-                <RefreshCcw className="w-3.5 h-3.5 animate-spin text-amber-500" /> Re-syncing...
+            {/* Sync & Connection Status Widget */}
+            <div className="flex items-center gap-3 bg-slate-800/60 border border-slate-700/50 p-1.5 pl-3 pr-2.5 rounded-2xl shadow-inner select-none text-xs">
+              {/* Badge indicator */}
+              <div className="flex items-center gap-2">
+                {syncing ? (
+                  <div className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-450 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)]"></span>
+                  </div>
+                ) : (demoMode || !user) ? (
+                  <div className="relative flex h-2.5 w-2.5">
+                    <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-amber-450 opacity-50"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]"></span>
+                  </div>
+                ) : (
+                  <div className="relative flex h-2.5 w-2.5">
+                    <span className="animate-[pulse_2s_infinite] absolute inline-flex h-full w-full rounded-full bg-emerald-450 opacity-60"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
+                  </div>
+                )}
+                
+                <div className="flex flex-col">
+                  <span className="text-[10px] font-bold text-slate-200 leading-tight">
+                    {syncing ? "Syncing..." : (demoMode || !user) ? "Offline" : "Synced"}
+                  </span>
+                  <span className="text-[9px] text-slate-400 font-medium leading-none mt-0.5 whitespace-nowrap">
+                    {syncStatusText}
+                  </span>
+                </div>
               </div>
-            )}
+
+              {/* Silent Sync Now Action */}
+              {user && !demoMode && (
+                <button
+                  onClick={() => handleSyncFromSheets()}
+                  disabled={syncing}
+                  title="Force refresh from Google Sheets"
+                  className="p-1 rounded-lg bg-slate-900 border border-slate-700/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-all cursor-pointer flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <RefreshCw className={`w-3 h-3 ${syncing ? 'animate-spin text-blue-400' : ''}`} />
+                </button>
+              )}
+            </div>
 
             {user ? (
               <div className="flex items-center gap-3">
                 {/* User badge */}
-                <div className="p-1 px-3 rounded-xl bg-slate-800 border border-slate-700/60 flex items-center gap-2.5 shadow-sm text-xs max-w-[240px] truncate">
-                  <div className="w-5 h-5 rounded-full bg-brand-orange text-white flex items-center justify-center font-bold text-[10px] shrink-0 font-mono select-none">
+                <div className="p-1 px-3 h-[38px] rounded-2xl bg-slate-800/80 border border-slate-700/60 flex items-center gap-2.5 shadow-sm text-xs max-w-[200px] truncate">
+                  <div className="w-5.5 h-5.5 rounded-full bg-brand-orange text-white flex items-center justify-center font-bold text-[10px] shrink-0 font-mono select-none">
                     {user.photoURL ? (
                       <img src={user.photoURL} alt="" className="w-full h-full rounded-full" referrerPolicy="no-referrer" />
                     ) : (
@@ -631,9 +718,9 @@ export default function App() {
                     )}
                   </div>
                   <div className="min-w-0">
-                    <p className="text-[10px] text-slate-300 truncate font-semibold leading-tight">{user.displayName || 'Operator'}</p>
-                    <p className="text-[9px] text-emerald-400 truncate tracking-wide font-mono leading-none">
-                      {demoMode ? "Offline Demo Session" : "Synced with Sheets API"}
+                    <p className="text-[10px] text-slate-200 truncate font-bold leading-tight">{user.displayName || 'Operator'}</p>
+                    <p className="text-[9px] text-slate-400 truncate tracking-wide font-mono leading-none mt-0.5">
+                      {user.email}
                     </p>
                   </div>
                 </div>
@@ -641,22 +728,18 @@ export default function App() {
                 <button
                   onClick={handleSignOut}
                   title="Disconnect and Change Sheet ID"
-                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700/50 text-slate-300 hover:text-white transition-all cursor-pointer flex items-center justify-center"
+                  className="p-2 h-[38px] w-[38px] rounded-2xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700/50 text-slate-350 hover:text-white transition-all cursor-pointer flex items-center justify-center"
                 >
                   <LogOut className="w-4 h-4" />
                 </button>
               </div>
             ) : (
               <div className="flex items-center gap-3">
-                <div className="p-1 px-2 text-[10px] bg-brand-orange/10 text-brand-orange rounded-lg font-bold border border-brand-orange/20 flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" /> Offline Demo Session
-                </div>
-                
                 <button
                   onClick={handleSignOut}
-                  className="p-1.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 hover:text-white flex items-center gap-1.5 cursor-pointer border border-slate-700"
+                  className="p-2 px-4 h-[38px] rounded-2xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 hover:text-white flex items-center gap-1.5 cursor-pointer border border-slate-700 transition-all active:scale-[0.98]"
                 >
-                  <Lock className="w-3.5 h-3.5" /> Sign In & Sync
+                  <Lock className="w-3.5 h-3.5 text-brand-orange" /> Sign In & Sync
                 </button>
               </div>
             )}

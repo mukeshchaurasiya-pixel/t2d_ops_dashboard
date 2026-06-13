@@ -145,12 +145,23 @@ const mockImports: Record<string, any> = {
   },
   './lib/sheetsService': {
     getCleanSpreadsheetId: (id: string) => id,
+    verifySheetAccess: async (id: string, token: string) => {
+      return token !== 'error-token';
+    },
     fetchSheetDataDirect: async (id: string, name: string, token: string, email: string) => {
       if (token === 'error-token') {
         throw new Error('Google Sheets API returned Forbidden (403). Make sure your logged-in Google Account has permission.');
       }
       return [{ bookingId: 'LIVE-1', taskBucket: '' }];
     }
+  },
+  './lib/supabaseDb': {
+    getCasesFromDb: async () => [{ bookingId: 'LIVE-1', taskBucket: '' }],
+    upsertCasesToDb: async () => {},
+    getUserSessions: async () => [],
+    getAllAuditLogs: async () => [],
+    startUserSession: async (email: string) => 'mock-session-id',
+    heartbeatUserSession: async (id: string) => {}
   }
 };
 
@@ -193,6 +204,7 @@ const evalInMockEnv = (code: string) => {
   const localStorageMock = {
     getItem: (key: string) => null,
     setItem: (key: string, val: string) => {},
+    removeItem: (key: string) => {},
   };
 
   fn(customRequire, exports, module, mockImport, process, global, localStorageMock);
