@@ -4,41 +4,228 @@
  */
 
 import { supabase } from './supabaseClient';
-import { CaseRow, AuditLog, UserSession } from '../types';
+import {
+  AuditLog,
+  CasePageResult,
+  CaseQuery,
+  CaseRow,
+  DashboardFilterOptions,
+  DashboardMatrixResult,
+  DashboardSummaryQuery,
+  DashboardSummaryResult,
+  UserSession,
+} from '../types';
+import {
+  EMPTY_CASE_PAGE,
+  EMPTY_DASHBOARD_MATRIX,
+  EMPTY_DASHBOARD_SUMMARY,
+  EMPTY_FILTER_OPTIONS,
+} from './dashboardQuery';
+import { parseDateString } from './dateUtils';
+
+type DashboardCaseRecord = {
+  booking_id: string;
+  row_data: CaseRow;
+  updated_at: string;
+  token_date: string | null;
+  expected_delivery_date: string | null;
+  actual_delivery_date: string | null;
+  cancel_req_date: string | null;
+  last_payment_date: string | null;
+  latest_remark_date: string | null;
+  expected_od_completion_date: string | null;
+  edd_reviewer_date: string | null;
+  gmail_pendency_date: string | null;
+  city: string | null;
+  hub_name: string | null;
+  allocated_rm: string | null;
+  assigned_dc: string | null;
+  lead_stage: string | null;
+  deal_status: string | null;
+  task_bucket: string | null;
+  payment_type: string | null;
+  token_type: string | null;
+  token_type_with_nrt: string | null;
+  sheet_final_status: string | null;
+  form_final_status: string | null;
+  gmail_pendency_status: string | null;
+  ready_to_deliver: string | null;
+  cancel_reason: string | null;
+  lead_ds_channel: string | null;
+  total_listing_days: number | null;
+  payment_percentage: number | null;
+  customer_key: string | null;
+};
+
+const ACTIVE_TOKEN_FETCH_LIMIT = 1000;
+const AUDIT_LOG_CHUNK_SIZE = 500;
+
+function cleanString(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  const cleaned = String(value).trim();
+  return cleaned === '' ? null : cleaned;
+}
+
+function toDateOnly(value: unknown): string | null {
+  const cleaned = cleanString(value);
+  if (!cleaned) return null;
+  const parsed = parseDateString(cleaned);
+  if (!parsed) return null;
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function toTimestamp(value: unknown): string | null {
+  const cleaned = cleanString(value);
+  if (!cleaned) return null;
+  const parsed = parseDateString(cleaned);
+  return parsed ? parsed.toISOString() : null;
+}
+
+function toNumeric(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function buildCaseRecord(row: CaseRow): DashboardCaseRecord {
+  return {
+    booking_id: String(row.bookingId).trim(),
+    row_data: row,
+    updated_at: new Date().toISOString(),
+    token_date: toDateOnly(row.tokenDate),
+    expected_delivery_date: toDateOnly(row.expectedDeliveryDate),
+    actual_delivery_date: toDateOnly(row.actualDeliveryDate),
+    cancel_req_date: toDateOnly(row.cancelReqDate),
+    last_payment_date: toDateOnly(row.lastPaymentDate),
+    latest_remark_date: toTimestamp(row.latestRemarkDate),
+    expected_od_completion_date: toDateOnly(row.expectedOdCompletionDate),
+    edd_reviewer_date: toDateOnly(row.eddReviewerDate),
+    gmail_pendency_date: toDateOnly(row.gmailPendencyDate),
+    city: cleanString(row.city),
+    hub_name: cleanString(row.hubName),
+    allocated_rm: cleanString(row.allocatedRm),
+    assigned_dc: cleanString(row.assignedDc),
+    lead_stage: cleanString(row.leadStage),
+    deal_status: cleanString(row.dealStatus),
+    task_bucket: cleanString(row.taskBucket),
+    payment_type: cleanString(row.paymentType),
+    token_type: cleanString(row.tokenType),
+    token_type_with_nrt: cleanString(row.tokenTypeWithNrt),
+    sheet_final_status: cleanString(row.sheetFinalStatus),
+    form_final_status: cleanString(row.formFinalStatus),
+    gmail_pendency_status: cleanString(row.gmailPendencyStatus),
+    ready_to_deliver: cleanString(row.readyToDeliver),
+    cancel_reason: cleanString(row.cancelReason),
+    lead_ds_channel: cleanString(row.leadDsChannel),
+    total_listing_days: toNumeric(row.totalListingDays),
+    payment_percentage: toNumeric(row.paymentPercentage),
+    customer_key: cleanString(row.userId || row.uid || row.leadId),
+  };
+}
+
+function parseRpcResult<T>(data: unknown, fallback: T): T {
+  if (data === null || data === undefined) return fallback;
+  if (Array.isArray(data) && data.length === 1) {
+    return (data[0] as T) ?? fallback;
+  }
+  return data as T;
+}
 
 /**
- * Fetches all cases cached in the Supabase PostgreSQL table.
+ * Fetches one server-paginated page of cases from Supabase.
  */
-export async function getCasesFromDb(): Promise<CaseRow[]> {
-  const allCases: CaseRow[] = [];
-  let start = 0;
-  const pageSize = 1000;
-  let hasMore = true;
+export async function getCasesPageFromDb(query: CaseQuery): Promise<CasePageResult> {
+  const { data, error } = await supabase.rpc('get_dashboard_case_page', {
+    input_filters: query.filters,
+    input_sort_field: String(query.sortField || 'tokenDate'),
+    input_sort_direction: query.sortDirection,
+    input_page: query.page,
+    input_page_size: query.pageSize,
+  });
 
-  while (hasMore) {
-    const { data, error } = await supabase
-      .from('dashboard_cases')
-      .select('row_data')
-      .order('updated_at', { ascending: false })
-      .range(start, start + pageSize - 1);
-
-    if (error) {
-      console.error('Failed to fetch cases from Supabase DB:', error.message);
-      throw new Error(error.message);
-    }
-
-    if (data && data.length > 0) {
-      allCases.push(...data.map((r: any) => r.row_data as CaseRow));
-      start += pageSize;
-      if (data.length < pageSize) {
-        hasMore = false;
-      }
-    } else {
-      hasMore = false;
-    }
+  if (error) {
+    console.error('Failed to fetch paginated cases from Supabase DB:', error.message);
+    throw new Error(error.message);
   }
 
-  return allCases;
+  return parseRpcResult<CasePageResult>(data, {
+    ...EMPTY_CASE_PAGE,
+    page: query.page,
+    pageSize: query.pageSize,
+  });
+}
+
+/**
+ * Backward-compatible wrapper used by older callers that only need the first page.
+ */
+export async function getCasesFromDb(): Promise<CaseRow[]> {
+  const page = await getCasesPageFromDb({
+    page: 1,
+    pageSize: 15,
+    sortField: 'tokenDate',
+    sortDirection: 'desc',
+    filters: {},
+  });
+  return page.rows;
+}
+
+/**
+ * Loads the sub-1k ACTIVE_TOKEN working set into the browser for low-latency ops actions.
+ */
+export async function getActiveTokenCasesFromDb(limit: number = ACTIVE_TOKEN_FETCH_LIMIT): Promise<CaseRow[]> {
+  const { data, error } = await supabase
+    .from('dashboard_cases')
+    .select('row_data')
+    .eq('lead_stage', 'ACTIVE_TOKEN')
+    .order('token_date', { ascending: false, nullsFirst: false })
+    .limit(limit);
+
+  if (error) {
+    console.error('Failed to fetch ACTIVE_TOKEN working set from Supabase DB:', error.message);
+    throw new Error(error.message);
+  }
+
+  return (data || []).map(record => record.row_data as CaseRow);
+}
+
+export async function getDashboardSummaryFromDb(query: DashboardSummaryQuery): Promise<DashboardSummaryResult> {
+  const { data, error } = await supabase.rpc('get_dashboard_summary', {
+    input_filters: query.filters,
+  });
+
+  if (error) {
+    console.error('Failed to fetch dashboard summary from Supabase DB:', error.message);
+    throw new Error(error.message);
+  }
+
+  return parseRpcResult<DashboardSummaryResult>(data, EMPTY_DASHBOARD_SUMMARY);
+}
+
+export async function getDashboardMatrixFromDb(query: DashboardSummaryQuery): Promise<DashboardMatrixResult> {
+  const { data, error } = await supabase.rpc('get_dashboard_matrix_summary', {
+    input_filters: query.filters,
+  });
+
+  if (error) {
+    console.error('Failed to fetch dashboard matrix summary from Supabase DB:', error.message);
+    throw new Error(error.message);
+  }
+
+  return parseRpcResult<DashboardMatrixResult>(data, EMPTY_DASHBOARD_MATRIX);
+}
+
+export async function getDashboardFilterOptionsFromDb(): Promise<DashboardFilterOptions> {
+  const { data, error } = await supabase.rpc('get_dashboard_filter_options');
+
+  if (error) {
+    console.error('Failed to fetch dashboard filter options from Supabase DB:', error.message);
+    throw new Error(error.message);
+  }
+
+  return parseRpcResult<DashboardFilterOptions>(data, EMPTY_FILTER_OPTIONS);
 }
 
 async function getExistingCasesByBookingIds(bookingIds: string[]): Promise<Map<string, CaseRow>> {
@@ -154,11 +341,7 @@ export async function upsertCasesToDb(
   }
 
   // 2. Perform bulk upsert in chunks to avoid URL size or payload limitations if the dataset is huge
-  const payload = uniqueRows.map(row => ({
-    booking_id: String(row.bookingId).trim(),
-    row_data: row,
-    updated_at: new Date().toISOString()
-  }));
+  const payload = uniqueRows.map(row => buildCaseRecord(row));
 
   const chunkSize = 200;
   for (let i = 0; i < payload.length; i += chunkSize) {
@@ -222,11 +405,7 @@ export async function updateSingleCaseInDb(
   // 2. Perform the update
   const { error } = await supabase
     .from('dashboard_cases')
-    .upsert({
-      booking_id: bookingId,
-      row_data: updatedRow,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'booking_id' });
+    .upsert(buildCaseRecord(updatedRow), { onConflict: 'booking_id' });
 
   if (error) {
     console.error(`Failed to update case ${bookingId} in Supabase DB:`, error.message);
@@ -254,13 +433,16 @@ export async function writeAuditLogs(
 ): Promise<void> {
   if (logs.length === 0) return;
 
-  const { error } = await supabase
-    .from('audit_logs')
-    .insert(logs);
+  for (let i = 0; i < logs.length; i += AUDIT_LOG_CHUNK_SIZE) {
+    const chunk = logs.slice(i, i + AUDIT_LOG_CHUNK_SIZE);
+    const { error } = await supabase
+      .from('audit_logs')
+      .insert(chunk);
 
-  if (error) {
-    console.error('Failed to write audit logs to Supabase DB:', error.message);
-    throw new Error(error.message);
+    if (error) {
+      console.error('Failed to write audit logs to Supabase DB:', error.message);
+      throw new Error(error.message);
+    }
   }
 }
 

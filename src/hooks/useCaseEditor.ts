@@ -4,11 +4,12 @@ import { AuditLog, CaseEditorDraft, CaseRow } from '../types';
 
 type UseCaseEditorArgs = {
   accessToken: string | null;
-  filteredRows: CaseRow[];
+  rows: CaseRow[];
   setRows: Dispatch<SetStateAction<CaseRow[]>>;
   sheetId: string;
   sheetName: string;
   user: AppUser | null;
+  onAfterSave?: () => void | Promise<void>;
 };
 
 function buildInitialDraft(row: CaseRow): CaseEditorDraft {
@@ -26,13 +27,14 @@ function buildInitialDraft(row: CaseRow): CaseEditorDraft {
 
 export function useCaseEditor({
   accessToken,
-  filteredRows,
+  rows,
   setRows,
   sheetId,
   sheetName,
   user,
+  onAfterSave,
 }: UseCaseEditorArgs) {
-  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
+  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   const [tempRowData, setTempRowData] = useState<CaseEditorDraft>({});
   const [savingRow, setSavingRow] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -40,7 +42,9 @@ export function useCaseEditor({
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [loadingAuditLogs, setLoadingAuditLogs] = useState<boolean>(false);
 
-  const selectedRow = selectedRowIndex !== null ? filteredRows[selectedRowIndex] ?? null : null;
+  const selectedRow = selectedBookingId
+    ? rows.find(row => row.bookingId === selectedBookingId) ?? null
+    : null;
 
   useEffect(() => {
     if (!selectedRow?.bookingId) {
@@ -65,14 +69,14 @@ export function useCaseEditor({
   }, [selectedRow?.bookingId]);
 
   const closeEditor = useCallback(() => {
-    setSelectedRowIndex(null);
+    setSelectedBookingId(null);
   }, []);
 
-  const handleEditRowClick = useCallback(async (index: number) => {
-    const originalRow = filteredRows[index];
+  const handleEditRowClick = useCallback(async (bookingId: string) => {
+    const originalRow = rows.find(row => row.bookingId === bookingId);
     if (!originalRow) return;
 
-    setSelectedRowIndex(index);
+    setSelectedBookingId(originalRow.bookingId);
     setTempRowData(buildInitialDraft(originalRow));
 
     if (!accessToken) {
@@ -109,7 +113,7 @@ export function useCaseEditor({
     } finally {
       setFetchingLatestRow(false);
     }
-  }, [accessToken, filteredRows, setRows, sheetId, sheetName]);
+  }, [accessToken, rows, setRows, sheetId, sheetName]);
 
   const handleSaveActionables = useCallback(async () => {
     if (!selectedRow) return;
@@ -158,7 +162,10 @@ export function useCaseEditor({
 
       setRows(prevRows => prevRows.map(row => row.bookingId === selectedRow.bookingId ? updatedRowBase : row));
       setSaveSuccess(true);
-      setSelectedRowIndex(null);
+      setSelectedBookingId(null);
+      if (onAfterSave) {
+        await onAfterSave();
+      }
       setTimeout(() => setSaveSuccess(false), 2500);
     } catch (err: any) {
       console.error('Failed to save to database or Google Sheet:', err);
@@ -173,14 +180,14 @@ export function useCaseEditor({
       delete (fallbackRow as CaseEditorDraft).newRemarkAddition;
 
       setRows(prevRows => prevRows.map(row => row.bookingId === selectedRow.bookingId ? fallbackRow : row));
-      setSelectedRowIndex(null);
+      setSelectedBookingId(null);
     } finally {
       setSavingRow(false);
     }
-  }, [accessToken, selectedRow, setRows, sheetId, sheetName, tempRowData, user]);
+  }, [accessToken, onAfterSave, selectedRow, setRows, sheetId, sheetName, tempRowData, user]);
 
   return {
-    selectedRowIndex,
+    selectedBookingId,
     selectedRow,
     tempRowData,
     setTempRowData,

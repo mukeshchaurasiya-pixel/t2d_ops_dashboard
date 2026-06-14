@@ -17,8 +17,15 @@ export function useCaseData(
   const [syncing, setSyncing] = useState<boolean>(false);
 
   const loadCachedRows = useCallback(async () => {
-    const { getCasesFromDb } = await import('../lib/supabaseDb');
-    const dbRows = await getCasesFromDb();
+    const { getCasesPageFromDb } = await import('../lib/supabaseDb');
+    const dbPage = await getCasesPageFromDb({
+      page: 1,
+      pageSize: 15,
+      sortField: 'tokenDate',
+      sortDirection: 'desc',
+      filters: {},
+    });
+    const dbRows = dbPage.rows;
 
     if (dbRows.length > 0) {
       setRows(dbRows);
@@ -48,7 +55,6 @@ export function useCaseData(
 
       if (sheetRows.length > 0) {
         await upsertCasesToDb(sheetRows, userEmail || 'system_sync');
-        setRows(sheetRows);
         updateLastSynced(new Date());
       } else {
         if (replaceRowsOnEmpty) {

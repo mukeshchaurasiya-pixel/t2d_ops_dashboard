@@ -3,13 +3,6 @@ import { CaseRow } from '../types';
 import { AppUser, initAuth } from '../lib/firebaseAuth';
 import { getSheetAccessCacheKeys } from '../lib/sheetAccessCache';
 
-type SyncCasesFromSheets = (args: {
-  accessToken: string;
-  sheetId: string;
-  sheetName: string;
-  userEmail?: string | null;
-}) => Promise<CaseRow[]>;
-
 type UseAuthBootstrapArgs = {
   sheetId: string;
   sheetName: string;
@@ -17,7 +10,6 @@ type UseAuthBootstrapArgs = {
   setSheetName: Dispatch<SetStateAction<string>>;
   setRows: Dispatch<SetStateAction<CaseRow[]>>;
   loadCachedRows: () => Promise<CaseRow[]>;
-  syncCasesFromSheets: SyncCasesFromSheets;
 };
 
 async function resolveSharedSheetConfig(
@@ -60,28 +52,12 @@ export function useAuthBootstrap({
   setSheetName,
   setRows,
   loadCachedRows,
-  syncCasesFromSheets,
 }: UseAuthBootstrapArgs) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [restoreLoading, setRestoreLoading] = useState<boolean>(false);
   const [demoMode, setDemoMode] = useState<boolean>(false);
   const [loginError, setLoginError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const loadInitialCache = async () => {
-      setRestoreLoading(true);
-      try {
-        await loadCachedRows();
-      } catch (err) {
-        console.warn('Could not load initial cached cases from Supabase DB:', err);
-      } finally {
-        setRestoreLoading(false);
-      }
-    };
-
-    void loadInitialCache();
-  }, [loadCachedRows]);
 
   useEffect(() => {
     const unsubscribe = initAuth(
@@ -105,16 +81,12 @@ export function useAuthBootstrap({
         if (cachedVerified && isCacheValid) {
           setUser(authedUser);
           setAccessToken(token);
-          setRestoreLoading(false);
-
-          if (token) {
-            void syncCasesFromSheets({
-              accessToken: token,
-              sheetId: activeSheetId,
-              sheetName: activeSheetName,
-              userEmail: authedUser.email,
-            }).catch(err => console.warn('Background auto-sync failed:', err));
+          try {
+            await loadCachedRows();
+          } catch (err) {
+            console.warn('Could not load cached cases after auth restore:', err);
           }
+          setRestoreLoading(false);
 
           return;
         }
@@ -131,12 +103,11 @@ export function useAuthBootstrap({
               localStorage.removeItem(cacheKeys.legacyTimeKey);
               setUser(authedUser);
               setAccessToken(token);
-              void syncCasesFromSheets({
-                accessToken: token,
-                sheetId: activeSheetId,
-                sheetName: activeSheetName,
-                userEmail: authedUser.email,
-              }).catch(err => console.warn('Background auto-sync failed:', err));
+              try {
+                await loadCachedRows();
+              } catch (cacheErr) {
+                console.warn('Could not load cached cases after verification:', cacheErr);
+              }
             } else {
               setLoginError('Restricted Access: Your Google account does not have view permission on the configured Google Sheet.');
               setUser(authedUser);
@@ -152,9 +123,13 @@ export function useAuthBootstrap({
             setLoginError(`Verification failed: ${err.message || err}`);
           }
         } else {
-          setLoginError('Google authentication expired. Please sign in again to verify sheet access permissions.');
-          setUser(null);
+          setUser(authedUser);
           setAccessToken(null);
+          try {
+            await loadCachedRows();
+          } catch (cacheErr) {
+            console.warn('Could not load cached cases for a session without provider token:', cacheErr);
+          }
         }
 
         setRestoreLoading(false);
@@ -166,7 +141,7 @@ export function useAuthBootstrap({
     );
 
     return () => unsubscribe();
-  }, [sheetId, sheetName, setSheetId, setSheetName, setRows, syncCasesFromSheets]);
+  }, [loadCachedRows, setRows, sheetId, sheetName, setSheetId, setSheetName]);
 
   return {
     user,

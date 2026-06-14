@@ -236,6 +236,20 @@ export interface DashboardKpis {
   avgPaymentPercentage: number;
 }
 
+export interface MatrixColumn {
+  key: string;
+  label: string;
+  subLabel: string;
+}
+
+export interface MatrixRow {
+  category: string;
+  name: string;
+  isPercent: boolean;
+  indent: boolean;
+  values: Record<string, string | number>;
+}
+
 export interface DashboardCharts {
   leadStage: Record<string, number>;
   dealStatus: Record<string, number>;
@@ -255,6 +269,93 @@ export interface DashboardCharts {
   eddDistribution: Record<string, number>;
   leadDsChannel?: Record<string, number>;
   listingDaysDistribution: Record<string, number>;
+}
+
+export interface NormalizedDateFilter {
+  field: string;
+  startDate?: string;
+  endDate?: string;
+  filterBlankDates?: boolean;
+}
+
+export interface DashboardFilterQuery {
+  city?: string[];
+  hubName?: string[];
+  tokenType?: string[];
+  tokenTypeWithNrt?: string[];
+  rmName?: string[];
+  dcName?: string[];
+  paymentType?: string[];
+  leadStage?: string[];
+  dealStatus?: string[];
+  funnelStage?: string[];
+  sheetFinalStatus?: string[];
+  formFinalStatus?: string[];
+  gmailPendencyStatus?: string[];
+  taskBucket?: string[];
+  derivedStatus?: string[];
+  cancelReason?: string[];
+  leadDsChannel?: string[];
+  readyToDeliver?: string[];
+  eddStatus?: string | null;
+  listingDaysBucket?: string | null;
+  searchQuery?: string | null;
+  dateField?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  filterBlankDates?: boolean;
+  dateFilters?: NormalizedDateFilter[];
+  minPaymentPercentage?: number | null;
+}
+
+export interface CaseQuery {
+  page: number;
+  pageSize: number;
+  sortField: keyof CaseRow | string;
+  sortDirection: 'asc' | 'desc';
+  filters: DashboardFilterQuery;
+}
+
+export interface CasePageResult {
+  rows: CaseRow[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface DashboardSummaryQuery {
+  filters: DashboardFilterQuery;
+}
+
+export interface DashboardSummaryResult {
+  kpis: DashboardKpis;
+  charts: DashboardCharts;
+  filteredCancelledC2dCount: number;
+}
+
+export interface DashboardMatrixResult {
+  columns: MatrixColumn[];
+  rows: MatrixRow[];
+}
+
+export interface DashboardFilterOptions {
+  cities: string[];
+  hubs: string[];
+  hubsByCity: Record<string, string[]>;
+  tokenTypes: string[];
+  tokenTypesWithNrt: string[];
+  rms: string[];
+  dcs: string[];
+  paymentTypes: string[];
+  leadStages: string[];
+  dealStatuses: string[];
+  funnelStages: string[];
+  sheetFinalStatuses: string[];
+  formFinalStatuses: string[];
+  gmailPendencyStatuses: string[];
+  tasks: string[];
+  cancelReasons: string[];
+  leadDsChannels: string[];
 }
 
 export interface AuditLog {

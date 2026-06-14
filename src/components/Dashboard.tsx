@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Filter, Search, AlertCircle, FileSpreadsheet, Eye, ExternalLink, Calendar, 
@@ -11,23 +11,18 @@ import {
   MapPin, User, Car, X, ShieldCheck, ArrowRight, RefreshCw,
   Clock, Sparkles, ShieldAlert, PhoneCall, Database
 } from 'lucide-react';
-import { CaseRow, FilterState, DashboardKpis, DashboardCharts as DashboardChartsData, DateFilter } from '../types';
+import { CaseRow, DateFilter, FilterState, MatrixRow } from '../types';
 import { CaseDetailsSidebar } from './CaseDetailsSidebar';
 import MultiSelectDropdown from './MultiSelectDropdown';
 import DashboardKpiCards from './DashboardKpiCards';
 import DashboardCharts from './DashboardCharts';
-import { getDerivedFlags, buildKpis, buildCharts, splitTasks } from '../data/mockData';
+import { getDerivedFlags, splitTasks } from '../data/mockData';
 import { AppUser } from '../lib/firebaseAuth';
-import { parseDateString } from '../lib/dateUtils';
-import { calculateOperationsMatrix, MatrixRow } from '../lib/matrixCalculator';
 import { useCaseEditor } from '../hooks/useCaseEditor';
+import { useDashboardDataSource } from '../hooks/useDashboardDataSource';
 import {
-  buildDynamicFilterOptions,
-  buildEddLabels,
   createDerivedLabels,
   DEFAULT_FILTERS,
-  getCityFilteredHubs,
-  isRowMatchingFilter,
 } from '../lib/dashboardFilters';
 
 const DATE_OPTIONS = [
@@ -91,15 +86,31 @@ const DATE_OPTIONS = [
   }
 ];
 
+const CORE_DERIVED_OPTIONS = [
+  'Alert Cases',
+  'EDD Missing',
+  'EDD Breached',
+  'PMax Stuck',
+  'Customer Connect Pending',
+  'High Payment Pending Delivery',
+  'Cancelled After Payment',
+  'OD Pending',
+  'Blank Payment Type',
+  'Payment Pending',
+  'Any Active Task',
+];
+
 interface DashboardProps {
   rows: CaseRow[];
   setRows: React.Dispatch<React.SetStateAction<CaseRow[]>>;
+  demoMode?: boolean;
   sheetId: string;
   sheetName: string;
   accessToken: string | null;
   user: AppUser | null;
   onSyncFromSheets?: (forcedToken?: string | null) => Promise<void>;
   isSyncing?: boolean;
+  refreshKey?: number;
 }
 
 
@@ -122,63 +133,17 @@ const AVAILABLE_ADDITIONAL_COLS: { key: keyof CaseRow; label: string }[] = [
 export default function Dashboard({ 
   rows, 
   setRows, 
+  demoMode = false,
   sheetId,
   sheetName,
   accessToken,
   user,
   onSyncFromSheets,
-  isSyncing
+  isSyncing,
+  refreshKey = 0,
 }: DashboardProps) {
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
-
-  // Cancelled-to-Delivered (C2D) conversions detection
-  const c2dStats = useMemo(() => {
-    const userBookings: Record<string, CaseRow[]> = {};
-    rows.forEach(row => {
-      const id = row.userId || row.uid || row.leadId;
-      if (id) {
-        if (!userBookings[id]) userBookings[id] = [];
-        userBookings[id].push(row);
-      }
-    });
-
-    const c2dUserIds = new Set<string>();
-    const c2dBookingIds = new Set<string>();
-
-    Object.entries(userBookings).forEach(([userId, uRows]) => {
-      const hasCancelled = uRows.some(r => r.leadStage === 'CANCELLED' || r.leadStage === 'RETURNED' || r.dealStatus === 'CANCEL' || r.cancelReason);
-      const hasDelivered = uRows.some(r => r.leadStage === 'DELIVERED');
-      if (hasCancelled && hasDelivered) {
-        c2dUserIds.add(userId);
-        uRows.forEach(r => {
-          if (r.leadStage === 'CANCELLED' || r.leadStage === 'RETURNED' || r.dealStatus === 'CANCEL' || r.cancelReason) {
-            c2dBookingIds.add(r.bookingId);
-          }
-        });
-      }
-    });
-
-    return {
-      c2dUsersCount: c2dUserIds.size,
-      c2dBookingIds,
-      c2dBookingsCount: c2dBookingIds.size
-    };
-  }, [rows]);
-
-  // Dynamically extract all unique task values from current set of rows
-  const allUniqueTasks = useMemo(() => {
-    const tasksSet = new Set<string>();
-    rows.forEach(row => {
-      if (row.taskBucket) {
-        splitTasks(row.taskBucket).forEach(t => {
-          if (t && t.trim()) {
-            tasksSet.add(t.trim());
-          }
-        });
-      }
-    });
-    return Array.from(tasksSet).sort();
-  }, [rows]);
+  const serverMode = Boolean(user) && !demoMode;
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -193,6 +158,29 @@ export default function Dashboard({
   // Sorting states
   const [sortField, setSortField] = useState<keyof CaseRow | null>('tokenDate');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
+  const {
+    pageRows,
+    setPageRows,
+    activeTokenRows,
+    summary,
+    matrix,
+    filterOptions,
+    totalCount,
+    loadingPage,
+    activeTokenFastPath,
+    reload,
+  } = useDashboardDataSource({
+    activeTab,
+    demoMode,
+    demoRows: rows,
+    filters,
+    page: currentPage,
+    pageSize,
+    sortField: sortField || 'tokenDate',
+    sortDirection,
+    refreshKey,
+  });
 
   const handleSort = (field: keyof CaseRow) => {
     if (sortField === field) {
@@ -215,7 +203,7 @@ export default function Dashboard({
       
     const headerRow = [...standardHeader, ...additionalHeaders].join(",");
     
-    const dataRows = filteredRows.map(row => {
+    const dataRows = currentRows.map(row => {
       const standardVals = [
         row.bookingId,
         row.loanId,
@@ -376,50 +364,13 @@ export default function Dashboard({
     setCurrentPage(1);
   }, [filters]);
 
-  const eddLabels = useMemo(() => buildEddLabels(), []);
-
-  const isRowMatching = useCallback((row: CaseRow, ignoreKey?: string) => {
-    return isRowMatchingFilter(row, filters, eddLabels, ignoreKey);
-  }, [filters, eddLabels]);
-
-  // Filtered rows memoized (sorted if sortField is selected)
-  const filteredRows = useMemo(() => {
-    const matched = rows.filter(row => isRowMatching(row));
-    if (!sortField) return matched;
-
-    return [...matched].sort((a, b) => {
-      let valA = a[sortField];
-      let valB = b[sortField];
-
-      // Handle date fields chronologically
-      const fieldStr = String(sortField).toLowerCase();
-      const isDateField = fieldStr.includes('date') || fieldStr.includes('time') || fieldStr.includes('timestamp');
-      
-      if (isDateField) {
-        const dateA = valA ? parseDateString(String(valA)) : null;
-        const dateB = valB ? parseDateString(String(valB)) : null;
-        const timeA = dateA ? dateA.getTime() : 0;
-        const timeB = dateB ? dateB.getTime() : 0;
-        return sortDirection === 'asc' ? timeA - timeB : timeB - timeA;
-      }
-
-      // Handle numeric fields
-      if (typeof valA === 'number' && typeof valB === 'number') {
-        return sortDirection === 'asc' ? valA - valB : valB - valA;
-      }
-
-      // Handle string comparisons
-      const strA = String(valA || '').toLowerCase();
-      const strB = String(valB || '').toLowerCase();
-
-      if (strA < strB) return sortDirection === 'asc' ? -1 : 1;
-      if (strA > strB) return sortDirection === 'asc' ? 1 : -1;
-      return 0;
-    });
-  }, [rows, isRowMatching, sortField, sortDirection]);
+  const currentRows = pageRows;
+  const displayTotalCount = totalCount;
+  const totalPages = Math.max(1, Math.ceil(displayTotalCount / pageSize));
+  const activePage = Math.min(currentPage, totalPages);
 
   const {
-    selectedRowIndex,
+    selectedBookingId,
     selectedRow,
     tempRowData,
     setTempRowData,
@@ -433,14 +384,49 @@ export default function Dashboard({
     handleSaveActionables,
   } = useCaseEditor({
     accessToken,
-    filteredRows,
-    setRows,
+    rows: currentRows,
+    setRows: serverMode ? setPageRows : setRows,
     sheetId,
     sheetName,
     user,
+    onAfterSave: serverMode ? reload : undefined,
   });
-  const dynamicFilterOptions = useMemo(() => buildDynamicFilterOptions(rows), [rows]);
-  const cityFilteredHubs = useMemo(() => getCityFilteredHubs(rows, filters.city), [rows, filters.city]);
+
+  const dynamicFilterOptions = useMemo(() => ({
+    cities: filterOptions.cities,
+    tokenTypes: filterOptions.tokenTypes,
+    tokenTypesWithNrt: filterOptions.tokenTypesWithNrt,
+    rms: filterOptions.rms,
+    dcs: filterOptions.dcs,
+    paymentTypes: filterOptions.paymentTypes,
+    leadStages: filterOptions.leadStages,
+    funnelStages: filterOptions.funnelStages,
+    sheetFinalStatuses: filterOptions.sheetFinalStatuses,
+    formFinalStatuses: filterOptions.formFinalStatuses,
+    gmailPendencyStatuses: filterOptions.gmailPendencyStatuses,
+    tasks: filterOptions.tasks,
+    derivedOptions: [...CORE_DERIVED_OPTIONS, ...filterOptions.tasks.filter(task => !CORE_DERIVED_OPTIONS.includes(task))],
+    cancelReasons: filterOptions.cancelReasons,
+    leadDsChannels: filterOptions.leadDsChannels,
+  }), [filterOptions]);
+
+  const cityFilteredHubs = useMemo(() => {
+    if (filters.city === 'All') {
+      return filterOptions.hubs;
+    }
+
+    const selectedCities = filters.city
+      .split('|||')
+      .map(value => value.trim())
+      .filter(Boolean);
+
+    const hubs = new Set<string>();
+    selectedCities.forEach(city => {
+      (filterOptions.hubsByCity[city] || []).forEach(hub => hubs.add(hub));
+    });
+
+    return Array.from(hubs).sort();
+  }, [filterOptions.hubs, filterOptions.hubsByCity, filters.city]);
 
   // When city filter changes, clear hub selection (hub from old city is irrelevant)
   const prevCityRef = React.useRef(filters.city);
@@ -451,24 +437,37 @@ export default function Dashboard({
     }
   }, [filters.city]);
 
-  // KPIs
-  const kpis: DashboardKpis = useMemo(() => buildKpis(filteredRows), [filteredRows]);
-  
-  // Charts
-  const charts: DashboardChartsData = useMemo(() => buildCharts(filteredRows), [filteredRows]);
+  const c2dStats = useMemo(() => {
+    const sourceRows = demoMode ? rows : activeTokenFastPath ? activeTokenRows : currentRows;
+    const grouped: Record<string, CaseRow[]> = {};
+    sourceRows.forEach(row => {
+      const id = row.userId || row.uid || row.leadId;
+      if (!id) return;
+      if (!grouped[id]) grouped[id] = [];
+      grouped[id].push(row);
+    });
 
-  // Filtered C2D bookings count in the current filtered set
-  const filteredCancelledC2dCount = useMemo(() => {
-    return filteredRows.filter(r => {
-      const flags = getDerivedFlags(r);
-      return flags.isCancelled && c2dStats.c2dBookingIds.has(r.bookingId);
-    }).length;
-  }, [filteredRows, c2dStats.c2dBookingIds]);
+    const c2dBookingIds = new Set<string>();
+    Object.values(grouped).forEach(customerRows => {
+      const hasCancelled = customerRows.some(row => getDerivedFlags(row).isCancelled);
+      const hasDelivered = customerRows.some(row => row.leadStage === 'DELIVERED');
+      if (hasCancelled && hasDelivered) {
+        customerRows.forEach(row => {
+          if (getDerivedFlags(row).isCancelled) {
+            c2dBookingIds.add(row.bookingId);
+          }
+        });
+      }
+    });
 
-  // Executive Operations Matrix Ledger
-  const matrix = useMemo(() => calculateOperationsMatrix(filteredRows), [filteredRows]);
+    return { c2dBookingIds };
+  }, [activeTokenFastPath, activeTokenRows, currentRows, demoMode, rows]);
 
-  const derivedLabels = useMemo(() => createDerivedLabels(allUniqueTasks), [allUniqueTasks]);
+  const kpis = summary.kpis;
+  const charts = summary.charts;
+  const filteredCancelledC2dCount = summary.filteredCancelledC2dCount;
+
+  const derivedLabels = useMemo(() => createDerivedLabels(filterOptions.tasks), [filterOptions.tasks]);
 
   const resetFilters = () => {
     setFilters(DEFAULT_FILTERS);
@@ -527,17 +526,6 @@ export default function Dashboard({
     }
     return 'INR ' + val.toLocaleString('en-IN');
   };
-
-
-  // Pagination calculations
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
-  const activePage = Math.min(currentPage, totalPages);
-  
-  const currentRows = useMemo(() => {
-    const start = (activePage - 1) * pageSize;
-    return filteredRows.slice(start, start + pageSize);
-  }, [filteredRows, activePage, pageSize]);
-
   // Helper styling functions
   const getFilterSelectClass = (isActive: boolean) => 
     `w-full text-xs p-2 border rounded-xl cursor-pointer transition-all duration-200 focus:outline-none focus:ring-1 focus:ring-amber-500/20 ${
@@ -631,7 +619,7 @@ export default function Dashboard({
               Filtered Booking Cases List
             </h3>
             <p className="text-[11px] text-slate-400">
-              Showing {filteredRows.length} matches out of total {rows.length} operations.
+              Showing {displayTotalCount} matches in the current data source.
             </p>
           </div>
           
@@ -674,15 +662,20 @@ export default function Dashboard({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-600">
-              {filteredRows.length === 0 ? (
+              {loadingPage ? (
+                <tr>
+                  <td colSpan={12} className="p-10 text-center text-slate-400 font-medium">
+                    Loading matching cases from the cache...
+                  </td>
+                </tr>
+              ) : displayTotalCount === 0 ? (
                 <tr>
                   <td colSpan={12} className="p-10 text-center text-slate-400 font-medium">
                     No matching CARS24 rows fit the specified operational handshake filters.
                   </td>
                 </tr>
               ) : (
-                currentRows.map((row, subIndex) => {
-                  const index = (activePage - 1) * pageSize + subIndex;
+                currentRows.map(row => {
                   const flags = getDerivedFlags(row);
                   return (
                     <tr key={row.bookingId} className="hover:bg-slate-50/50 transition-all">
@@ -774,7 +767,7 @@ export default function Dashboard({
                       <td className="p-3.5 text-right pr-5 whitespace-nowrap">
                         <div className="flex items-center justify-end gap-2">
                           <button
-                            onClick={() => handleEditRowClick(index)}
+                            onClick={() => handleEditRowClick(row.bookingId)}
                             className="p-1.5 px-3 rounded-lg text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 transition-all flex items-center gap-1 active:scale-95"
                           >
                             <Eye className="w-3.5 h-3.5" /> View & Sync
@@ -790,7 +783,7 @@ export default function Dashboard({
         </div>
 
         {/* Pagination Toolbar */}
-        {filteredRows.length > 0 && (
+        {displayTotalCount > 0 && (
           <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 bg-slate-50/35">
             <div className="flex items-center gap-2">
               <span>Show</span>
@@ -812,9 +805,9 @@ export default function Dashboard({
             </div>
             
             <div className="font-medium text-slate-600">
-              Showing <span className="font-bold text-slate-800">{Math.min(filteredRows.length, (activePage - 1) * pageSize + 1)}</span> to{' '}
-              <span className="font-bold text-slate-800">{Math.min(filteredRows.length, activePage * pageSize)}</span> of{' '}
-              <span className="font-bold text-slate-800">{filteredRows.length}</span> records
+              Showing <span className="font-bold text-slate-800">{Math.min(displayTotalCount, (activePage - 1) * pageSize + 1)}</span> to{' '}
+              <span className="font-bold text-slate-800">{Math.min(displayTotalCount, activePage * pageSize)}</span> of{' '}
+              <span className="font-bold text-slate-800">{displayTotalCount}</span> records
             </div>
 
             <div className="flex items-center gap-1.5 font-sans">
@@ -1584,7 +1577,7 @@ export default function Dashboard({
 
       {/* 5. Detail Control Sidebar Slider Drawer */}
       <CaseDetailsSidebar
-        isOpen={selectedRowIndex !== null}
+        isOpen={selectedBookingId !== null}
         onClose={closeEditor}
         selectedRow={selectedRow}
         fetchingLatestRow={fetchingLatestRow}

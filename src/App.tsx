@@ -23,6 +23,7 @@ import { useSyncState } from './hooks/useSyncState';
 
 export default function App() {
   const [rows, setRows] = useState<CaseRow[]>(SEED_CASE_ROWS);
+  const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
   const { syncStatusText, updateLastSynced } = useSyncState();
   const {
     sheetId,
@@ -56,7 +57,6 @@ export default function App() {
     setSheetName,
     setRows,
     loadCachedRows,
-    syncCasesFromSheets,
   });
 
   // Routing and View States
@@ -75,6 +75,10 @@ export default function App() {
     demoMode,
     viewMode,
   });
+
+  const bumpDashboardRefresh = () => {
+    setDashboardRefreshKey(prev => prev + 1);
+  };
 
   // Handler to persist settings and re-query spreadsheet automatically
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -101,6 +105,7 @@ export default function App() {
             updateTimestampOnEmpty: true,
           });
           setLoginError(null);
+          bumpDashboardRefresh();
           alert("Configuration saved and globally synchronized!");
         } else {
           alert("Configuration saved and globally synced! Please log in to visualize spreadsheet rows.");
@@ -122,48 +127,8 @@ export default function App() {
     setRestoreLoading(true);
     setLoginError(null);
     try {
-      const { googleSignIn, getSharedConfig, saveSharedConfig } = await import('./lib/firebaseAuth');
-      const res = await googleSignIn();
-      if (res) {
-        setUser(res.user);
-        setAccessToken(res.accessToken);
-        
-        let activeSheetId = sheetId;
-        let activeSheetName = sheetName;
-
-        // Fetch shared configuration from Firestore first
-        try {
-          const sharedConfig = await getSharedConfig();
-          if (sharedConfig?.sheetId) {
-            activeSheetId = sharedConfig.sheetId;
-            activeSheetName = sharedConfig.sheetName;
-            setSheetId(sharedConfig.sheetId);
-            setSheetName(sharedConfig.sheetName);
-          } else {
-            try {
-              await saveSharedConfig(activeSheetId, activeSheetName, res.user.email || '');
-            } catch (err) {
-              console.warn("Could not auto-save settings to Firestore on login:", err);
-            }
-          }
-        } catch (dbErr) {
-          console.warn("Error looking up shared Firestore config on login:", dbErr);
-        }
-        
-        if (activeSheetId) {
-          try {
-            await syncCasesFromSheets({
-              accessToken: res.accessToken,
-              sheetId: activeSheetId,
-              sheetName: activeSheetName,
-              userEmail: res.user.email,
-            });
-          } catch (sheetErr: any) {
-            console.warn("Could not sync spreadsheet on sign in:", sheetErr);
-            setLoginError(`Signed in, but Google Sheets API sync failed. Using cached database snapshot instead.`);
-          }
-        }
-      }
+      const { googleSignIn } = await import('./lib/firebaseAuth');
+      await googleSignIn();
     } catch (err: any) {
       console.error("Sign-in from page failed:", err);
       setLoginError(err.message || "Failed to authenticate or authorization popup was closed.");
@@ -195,6 +160,7 @@ export default function App() {
         userEmail: user?.email,
       });
       if (sheetRows.length > 0) {
+        bumpDashboardRefresh();
         alert(`Successfully synchronized ${sheetRows.length} rows from Google Sheets!`);
       } else {
         alert("Spreadsheet sync returned empty content.");
@@ -218,11 +184,7 @@ export default function App() {
       localStorage.removeItem(cacheKeys.timeKey);
       localStorage.removeItem(cacheKeys.legacyVerifiedKey);
       localStorage.removeItem(cacheKeys.legacyTimeKey);
-      // Reload DB cache rows so they are clean
-      const dbRows = await loadCachedRows();
-      if (dbRows && dbRows.length > 0) {
-        setRows(dbRows);
-      }
+      setRows(SEED_CASE_ROWS);
     } catch (err) {
       console.error("Log out failed:", err);
     } finally {
@@ -835,12 +797,14 @@ export default function App() {
               <Dashboard 
                 rows={rows} 
                 setRows={setRows} 
+                demoMode={demoMode}
                 sheetId={sheetId}
                 sheetName={sheetName}
                 accessToken={demoMode ? null : accessToken}
                 user={user}
                 onSyncFromSheets={handleSyncFromSheets}
                 isSyncing={syncing}
+                refreshKey={dashboardRefreshKey}
               />
             </div>
           </>
