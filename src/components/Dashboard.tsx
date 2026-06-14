@@ -1480,7 +1480,7 @@ export default function Dashboard({
             <div>
               <h5 className="text-xs font-bold text-indigo-950">Performance Insights</h5>
               <p className="text-[11px] text-indigo-800 mt-0.5 leading-relaxed">
-                Click on any City, Hub, or RM bar above to immediately filter the entire dashboard view. The Ready to Deliver chart shows Blank / Yes / No counts for the current selection. If a filter is currently active, a pulsing indicator will appear next to the label and the bar will turn orange.
+                Click on any City, Hub, On Demand Status, or Ready to Deliver bar above to immediately filter the entire dashboard view. The Total Expected Amount card shows value-band distribution for the current selection. If a filter is currently active, a pulsing indicator will appear next to the label and the bar will turn orange.
               </p>
             </div>
           </div>

@@ -49,7 +49,7 @@ export default function DashboardCharts({
           return (
             <div 
               key={label} 
-              className={`text-xs p-1.5 px-2 rounded-xl transition-all ${
+              className={`text-xs p-2 rounded-xl transition-all ${
                 filterKey ? 'cursor-pointer hover:bg-slate-50 active:scale-[0.99]' : ''
               } ${isCurrentFilter ? 'bg-orange-50/50 border border-brand-orange/40 shadow-xs' : 'border border-transparent'}`}
               onClick={() => {
@@ -63,14 +63,16 @@ export default function DashboardCharts({
                 }
               }}
             >
-              <div className="flex justify-between text-[11px] font-semibold text-slate-600 mb-1">
-                <span className="truncate max-w-[140px] flex items-center gap-1.5">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 items-start text-[11px] font-semibold text-slate-600 mb-1">
+                <span className="min-w-0 break-words leading-4 flex items-center gap-1.5">
                   {label}
                   {isCurrentFilter && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-brand-orange inline-block animate-pulse" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-brand-orange inline-block animate-pulse shrink-0" />
                   )}
                 </span>
-                <span className={isCurrentFilter ? 'text-brand-orange font-bold' : ''}>{val} cases</span>
+                <span className={`text-right leading-4 whitespace-nowrap ${isCurrentFilter ? 'text-brand-orange font-bold' : ''}`}>
+                  {val} cases
+                </span>
               </div>
               <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                 <motion.div 
@@ -127,7 +129,7 @@ export default function DashboardCharts({
 
   if (activeTab === 'performance') {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
         {/* City Split */}
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
           <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
