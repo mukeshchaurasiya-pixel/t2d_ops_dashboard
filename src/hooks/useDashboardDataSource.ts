@@ -105,6 +105,7 @@ function buildLocalFilterOptions(rows: CaseRow[]): DashboardFilterOptions {
     sheetFinalStatuses: dynamic.sheetFinalStatuses,
     formFinalStatuses: dynamic.formFinalStatuses,
     gmailPendencyStatuses: dynamic.gmailPendencyStatuses,
+    onDemandStatuses: dynamic.onDemandStatuses,
     tasks: dynamic.tasks,
     cancelReasons: dynamic.cancelReasons,
     leadDsChannels: dynamic.leadDsChannels,

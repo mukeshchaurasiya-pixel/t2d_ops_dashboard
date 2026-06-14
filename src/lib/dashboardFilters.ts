@@ -16,6 +16,7 @@ export const DEFAULT_FILTERS: FilterState = {
   sheetFinalStatus: 'All',
   formFinalStatus: 'All',
   gmailPendencyStatus: 'All',
+  onDemandStatus: 'All',
   taskBucket: 'All',
   derivedStatus: 'All',
   dateField: 'All',
@@ -260,6 +261,7 @@ export function isRowMatchingFilter(
   if (ignoreKey !== 'sheetFinalStatus' && !matchMulti(filters.sheetFinalStatus, row.sheetFinalStatus)) return false;
   if (ignoreKey !== 'formFinalStatus' && !matchMulti(filters.formFinalStatus, row.formFinalStatus)) return false;
   if (ignoreKey !== 'gmailPendencyStatus' && !matchMulti(filters.gmailPendencyStatus, row.gmailPendencyStatus)) return false;
+  if (ignoreKey !== 'onDemandStatus' && !matchMulti(filters.onDemandStatus, row.onDemandStatus)) return false;
 
   if (ignoreKey !== 'listingDaysBucket' && filters.listingDaysBucket && filters.listingDaysBucket !== 'All') {
     const days = Number(row.totalListingDays || 0);
@@ -373,6 +375,7 @@ export function buildDynamicFilterOptions(rows: CaseRow[]) {
   const sheetFinalSet = new Set<string>();
   const formFinalSet = new Set<string>();
   const gmailPendencySet = new Set<string>();
+  const onDemandStatusSet = new Set<string>();
   const tasksSet = new Set<string>();
   const derivedSet = new Set<string>();
   const cancelReasonsSet = new Set<string>();
@@ -389,6 +392,7 @@ export function buildDynamicFilterOptions(rows: CaseRow[]) {
     if (row.sheetFinalStatus) sheetFinalSet.add(row.sheetFinalStatus);
     if (row.formFinalStatus) formFinalSet.add(row.formFinalStatus);
     if (row.gmailPendencyStatus) gmailPendencySet.add(row.gmailPendencyStatus);
+    if (row.onDemandStatus) onDemandStatusSet.add(row.onDemandStatus);
     if (row.cancelReason) cancelReasonsSet.add(row.cancelReason);
     if (row.leadDsChannel) leadDsChannelsSet.add(row.leadDsChannel);
     if (row.taskBucket) {
@@ -453,6 +457,7 @@ export function buildDynamicFilterOptions(rows: CaseRow[]) {
     sheetFinalStatuses: Array.from(sheetFinalSet).sort(),
     formFinalStatuses: Array.from(formFinalSet).sort(),
     gmailPendencyStatuses: Array.from(gmailPendencySet).sort(),
+    onDemandStatuses: Array.from(onDemandStatusSet).sort(),
     tasks: Array.from(tasksSet).sort(),
     derivedOptions: sortedDerived,
     cancelReasons: Array.from(cancelReasonsSet).sort(),

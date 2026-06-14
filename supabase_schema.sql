@@ -658,6 +658,7 @@ BEGIN
   IF NOT public.dashboard_matches_text_filter(input_filters -> 'sheetFinalStatus', c.sheet_final_status) THEN RETURN false; END IF;
   IF NOT public.dashboard_matches_text_filter(input_filters -> 'formFinalStatus', c.form_final_status) THEN RETURN false; END IF;
   IF NOT public.dashboard_matches_text_filter(input_filters -> 'gmailPendencyStatus', c.gmail_pendency_status) THEN RETURN false; END IF;
+  IF NOT public.dashboard_matches_text_filter(input_filters -> 'onDemandStatus', c.row_data ->> 'onDemandStatus') THEN RETURN false; END IF;
 
   IF nullif(coalesce(input_filters ->> 'listingDaysBucket', ''), '') IS NOT NULL THEN
     IF public.dashboard_listing_days_bucket(c.total_listing_days) IS DISTINCT FROM input_filters ->> 'listingDaysBucket' THEN
@@ -917,6 +918,7 @@ SELECT jsonb_build_object(
   'sheetFinalStatuses', coalesce((SELECT jsonb_agg(value ORDER BY value) FROM (SELECT DISTINCT sheet_final_status AS value FROM base WHERE sheet_final_status IS NOT NULL) sheet_statuses), '[]'::jsonb),
   'formFinalStatuses', coalesce((SELECT jsonb_agg(value ORDER BY value) FROM (SELECT DISTINCT form_final_status AS value FROM base WHERE form_final_status IS NOT NULL) form_statuses), '[]'::jsonb),
   'gmailPendencyStatuses', coalesce((SELECT jsonb_agg(value ORDER BY value) FROM (SELECT DISTINCT gmail_pendency_status AS value FROM base WHERE gmail_pendency_status IS NOT NULL) gmail_statuses), '[]'::jsonb),
+  'onDemandStatuses', coalesce((SELECT jsonb_agg(value ORDER BY value) FROM (SELECT DISTINCT nullif(btrim(row_data ->> 'onDemandStatus'), '') AS value FROM base WHERE nullif(btrim(row_data ->> 'onDemandStatus'), '') IS NOT NULL) on_demand_statuses), '[]'::jsonb),
   'tasks', coalesce((SELECT jsonb_agg(task ORDER BY task) FROM task_values), '[]'::jsonb),
   'cancelReasons', coalesce((SELECT jsonb_agg(value ORDER BY value) FROM (SELECT DISTINCT cancel_reason AS value FROM base WHERE cancel_reason IS NOT NULL) cancel_reasons), '[]'::jsonb),
   'leadDsChannels', coalesce((SELECT jsonb_agg(value ORDER BY value) FROM (SELECT DISTINCT lead_ds_channel AS value FROM base WHERE lead_ds_channel IS NOT NULL) lead_channels), '[]'::jsonb)

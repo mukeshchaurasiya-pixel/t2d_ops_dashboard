@@ -206,6 +206,7 @@ export interface FilterState {
   sheetFinalStatus: string;
   formFinalStatus: string;
   gmailPendencyStatus: string;
+  onDemandStatus: string;
   taskBucket: string;
   derivedStatus: string;
   dateField: string;
@@ -292,6 +293,7 @@ export interface DashboardFilterQuery {
   sheetFinalStatus?: string[];
   formFinalStatus?: string[];
   gmailPendencyStatus?: string[];
+  onDemandStatus?: string[];
   taskBucket?: string[];
   derivedStatus?: string[];
   cancelReason?: string[];
@@ -353,6 +355,7 @@ export interface DashboardFilterOptions {
   sheetFinalStatuses: string[];
   formFinalStatuses: string[];
   gmailPendencyStatuses: string[];
+  onDemandStatuses: string[];
   tasks: string[];
   cancelReasons: string[];
   leadDsChannels: string[];

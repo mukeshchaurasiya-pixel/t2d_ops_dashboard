@@ -402,6 +402,7 @@ export default function Dashboard({
     sheetFinalStatuses: filterOptions.sheetFinalStatuses,
     formFinalStatuses: filterOptions.formFinalStatuses,
     gmailPendencyStatuses: filterOptions.gmailPendencyStatuses,
+    onDemandStatuses: filterOptions.onDemandStatuses,
     tasks: filterOptions.tasks,
     derivedOptions: [...CORE_DERIVED_OPTIONS, ...filterOptions.tasks.filter(task => !CORE_DERIVED_OPTIONS.includes(task))],
     cancelReasons: filterOptions.cancelReasons,
@@ -548,6 +549,7 @@ export default function Dashboard({
   const isSheetStatusActive = filters.sheetFinalStatus !== 'All';
   const isFormStatusActive = filters.formFinalStatus !== 'All';
   const isGmailActive = filters.gmailPendencyStatus !== 'All';
+  const isOnDemandStatusActive = filters.onDemandStatus !== 'All';
   const isTaskActive = filters.taskBucket !== 'All';
   const isDerivedActive = filters.derivedStatus !== 'All';
   const isCancelReasonActive = filters.cancelReason !== 'All';
@@ -573,6 +575,7 @@ export default function Dashboard({
     if (isSheetStatusActive) count++;
     if (isFormStatusActive) count++;
     if (isGmailActive) count++;
+    if (isOnDemandStatusActive) count++;
     if (isTaskActive) count++;
     if (isDerivedActive) count++;
     if (isCancelReasonActive) count++;
@@ -584,7 +587,7 @@ export default function Dashboard({
   }, [
     isCityActive, isHubActive, isTokenTypeActive, isRmActive, isDcActive,
     isPaymentActive, isLeadStageActive, isFunnelStageActive, isSheetStatusActive,
-    isFormStatusActive, isGmailActive, isTaskActive, isDerivedActive,
+    isFormStatusActive, isGmailActive, isOnDemandStatusActive, isTaskActive, isDerivedActive,
     isCancelReasonActive, isLeadDsChannelActive, isDateFieldActive, filters.startDate,
     filters.endDate, filters.filterBlankDates, hasActiveDynamicFilters, activeDynamicDateFilters,
     isPaymentPercentageActive, filters.minPaymentPercentage
@@ -1024,6 +1027,19 @@ export default function Dashboard({
             isActive={isGmailActive}
             isOpen={openDropdown === 'gmailPendencyStatus'}
             onToggle={() => setOpenDropdown(p => p === 'gmailPendencyStatus' ? null : 'gmailPendencyStatus')}
+          />
+
+          {/* On Demand Status */}
+          <MultiSelectDropdown
+            label="On Demand Status"
+            options={dynamicFilterOptions.onDemandStatuses}
+            selectedString={filters.onDemandStatus}
+            onChange={val => setFilters(p => ({ ...p, onDemandStatus: val }))}
+            placeholder="All OD Statuses"
+            showBlank={true}
+            isActive={isOnDemandStatusActive}
+            isOpen={openDropdown === 'onDemandStatus'}
+            onToggle={() => setOpenDropdown(p => p === 'onDemandStatus' ? null : 'onDemandStatus')}
           />
 
           {/* Task Bucket */}

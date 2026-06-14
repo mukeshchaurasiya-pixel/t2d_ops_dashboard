@@ -9,11 +9,13 @@ test('normalizeFilterState converts multi-select filters into arrays', () => {
     city: 'Delhi|||Mumbai',
     leadStage: 'ACTIVE_TOKEN',
     paymentType: 'Blank|||PMAX',
+    onDemandStatus: 'ASSIGNED|||DELIVERING',
   });
 
   assert.deepEqual(normalized.city, ['Delhi', 'Mumbai']);
   assert.deepEqual(normalized.leadStage, ['ACTIVE_TOKEN']);
   assert.deepEqual(normalized.paymentType, ['Blank', 'PMAX']);
+  assert.deepEqual(normalized.onDemandStatus, ['ASSIGNED', 'DELIVERING']);
 });
 
 test('normalizeFilterState keeps date filters, search, and numeric thresholds', () => {
