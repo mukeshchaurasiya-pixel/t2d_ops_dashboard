@@ -1,5 +1,6 @@
 import { Dispatch, SetStateAction, useCallback, useState } from 'react';
 import { CaseRow } from '../types';
+import type { DashboardCacheImportStats } from '../lib/supabaseDb';
 
 type SyncCasesArgs = {
   accessToken: string;
@@ -8,6 +9,11 @@ type SyncCasesArgs = {
   userEmail?: string | null;
   replaceRowsOnEmpty?: boolean;
   updateTimestampOnEmpty?: boolean;
+};
+
+type SyncCasesResult = {
+  sheetRows: CaseRow[];
+  importStats: DashboardCacheImportStats | null;
 };
 
 export function useCaseData(
@@ -44,7 +50,7 @@ export function useCaseData(
     userEmail,
     replaceRowsOnEmpty = false,
     updateTimestampOnEmpty = false,
-  }: SyncCasesArgs) => {
+  }: SyncCasesArgs): Promise<SyncCasesResult> => {
     setSyncing(true);
 
     try {
@@ -54,8 +60,12 @@ export function useCaseData(
       const sheetRows = await fetchSheetDataDirect(sheetId, sheetName, accessToken, userEmail);
 
       if (sheetRows.length > 0) {
-        await upsertCasesToDb(sheetRows, userEmail || 'system_sync');
+        const importStats = await upsertCasesToDb(sheetRows, userEmail || 'system_sync');
         updateLastSynced(new Date());
+        return {
+          sheetRows,
+          importStats,
+        };
       } else {
         if (replaceRowsOnEmpty) {
           setRows(sheetRows);
@@ -63,9 +73,11 @@ export function useCaseData(
         if (updateTimestampOnEmpty) {
           updateLastSynced(new Date());
         }
+        return {
+          sheetRows,
+          importStats: null,
+        };
       }
-
-      return sheetRows;
     } finally {
       setSyncing(false);
     }

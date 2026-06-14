@@ -80,7 +80,7 @@ export default function App() {
     setDashboardRefreshKey(prev => prev + 1);
   };
 
-  // Handler to persist settings and re-query spreadsheet automatically
+  // Persist shared settings only. Manual sync stays a separate explicit action.
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanId = getCleanSpreadsheetId(tempSheetId);
@@ -88,33 +88,17 @@ export default function App() {
     setSheetName(tempSheetName);
     setShowConfigPanel(false);
     
-    // Instantly trigger re-sync and write to Firestore if authenticated
     if (user) {
       setRestoreLoading(true);
       try {
         const { saveSharedConfig } = await import('./lib/firebaseAuth');
         await saveSharedConfig(cleanId, tempSheetName, user.email || '');
-
-        if (accessToken) {
-          await syncCasesFromSheets({
-            accessToken,
-            sheetId: cleanId,
-            sheetName: tempSheetName,
-            userEmail: user.email,
-            replaceRowsOnEmpty: true,
-            updateTimestampOnEmpty: true,
-          });
-          setLoginError(null);
-          bumpDashboardRefresh();
-          alert("Configuration saved and globally synchronized!");
-        } else {
-          alert("Configuration saved and globally synced! Please log in to visualize spreadsheet rows.");
-        }
+        setLoginError(null);
+        alert("Configuration saved. Use 'Sync Sheet' only when you want to refresh the Supabase cache from Google Sheets.");
       } catch (err: any) {
-        console.error("Failed to save and sync spreadsheet config:", err);
-        alert(`Configuration updated locally, but we could not read from Google Sheets:\n${err.message || err}\n\nPlease check your Sheet ID or permissions.`);
+        console.error("Failed to save spreadsheet config:", err);
+        alert(`Configuration updated locally, but shared config save failed:\n${err.message || err}`);
         setLoginError(err.message || err);
-        setRows([]); // Data will be only loaded who has access to sheet
       } finally {
         setRestoreLoading(false);
       }
@@ -153,7 +137,7 @@ export default function App() {
     }
 
     try {
-      const sheetRows = await syncCasesFromSheets({
+      const { sheetRows, importStats } = await syncCasesFromSheets({
         accessToken: activeToken,
         sheetId,
         sheetName,
@@ -161,7 +145,12 @@ export default function App() {
       });
       if (sheetRows.length > 0) {
         bumpDashboardRefresh();
-        alert(`Successfully synchronized ${sheetRows.length} rows from Google Sheets!`);
+        const statsNote = importStats
+          ? `\nImported to cache: ${importStats.uniqueBookingIds}` +
+            `\nDuplicate booking IDs skipped: ${importStats.duplicateBookingIdRows}` +
+            `\nBlank booking IDs skipped: ${importStats.blankBookingIdRows}`
+          : '';
+        alert(`Successfully synchronized ${sheetRows.length} sheet rows from Google Sheets.${statsNote}`);
       } else {
         alert("Spreadsheet sync returned empty content.");
       }
@@ -802,7 +791,6 @@ export default function App() {
                 sheetName={sheetName}
                 accessToken={demoMode ? null : accessToken}
                 user={user}
-                onSyncFromSheets={handleSyncFromSheets}
                 isSyncing={syncing}
                 refreshKey={dashboardRefreshKey}
               />

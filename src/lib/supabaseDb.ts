@@ -57,6 +57,13 @@ type DashboardCaseRecord = {
   customer_key: string | null;
 };
 
+export type DashboardCacheImportStats = {
+  sourceRows: number;
+  uniqueBookingIds: number;
+  blankBookingIdRows: number;
+  duplicateBookingIdRows: number;
+};
+
 const ACTIVE_TOKEN_FETCH_LIMIT = 1000;
 const AUDIT_LOG_CHUNK_SIZE = 500;
 
@@ -316,18 +323,33 @@ function detectChanges(
 export async function upsertCasesToDb(
   rows: CaseRow[],
   changedByEmail?: string
-): Promise<void> {
-  if (rows.length === 0) return;
+): Promise<DashboardCacheImportStats> {
+  if (rows.length === 0) {
+    return {
+      sourceRows: 0,
+      uniqueBookingIds: 0,
+      blankBookingIdRows: 0,
+      duplicateBookingIdRows: 0,
+    };
+  }
 
   // Deduplicate by normalized lowercase bookingId to prevent "ON CONFLICT DO UPDATE" target errors
   const uniqueRowsMap = new Map<string, CaseRow>();
+  let blankBookingIdRows = 0;
+  let duplicateBookingIdRows = 0;
+
   rows.forEach(row => {
-    if (row.bookingId) {
-      const cleanId = String(row.bookingId).trim().toLowerCase();
-      if (cleanId) {
-        uniqueRowsMap.set(cleanId, row);
-      }
+    const cleanId = String(row.bookingId || '').trim().toLowerCase();
+    if (!cleanId) {
+      blankBookingIdRows += 1;
+      return;
     }
+
+    if (uniqueRowsMap.has(cleanId)) {
+      duplicateBookingIdRows += 1;
+    }
+
+    uniqueRowsMap.set(cleanId, row);
   });
   const uniqueRows = Array.from(uniqueRowsMap.values());
 
@@ -377,6 +399,13 @@ export async function upsertCasesToDb(
       console.warn('Failed to write batch audit logs:', logErr);
     }
   }
+
+  return {
+    sourceRows: rows.length,
+    uniqueBookingIds: uniqueRows.length,
+    blankBookingIdRows,
+    duplicateBookingIdRows,
+  };
 }
 
 /**

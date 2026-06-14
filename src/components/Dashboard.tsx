@@ -108,7 +108,6 @@ interface DashboardProps {
   sheetName: string;
   accessToken: string | null;
   user: AppUser | null;
-  onSyncFromSheets?: (forcedToken?: string | null) => Promise<void>;
   isSyncing?: boolean;
   refreshKey?: number;
 }
@@ -138,7 +137,6 @@ export default function Dashboard({
   sheetName,
   accessToken,
   user,
-  onSyncFromSheets,
   isSyncing,
   refreshKey = 0,
 }: DashboardProps) {
@@ -879,16 +877,14 @@ export default function Dashboard({
             </span>
           </div>
 
-          {onSyncFromSheets && (
-            <button
-              onClick={() => onSyncFromSheets(accessToken)}
-              disabled={isSyncing}
-              className="p-2 px-3.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white font-extrabold shadow-sm transition-all text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 select-none shrink-0"
-              title="Pull latest data snapshot from Google Sheets and save to Supabase cache database"
+          {isSyncing && (
+            <div
+              className="p-2 px-3.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-extrabold shadow-sm text-xs flex items-center gap-1.5 select-none shrink-0"
+              title="Google Sheets refresh is currently running"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-              {isSyncing ? 'Syncing...' : 'Sync with Google Sheets'}
-            </button>
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              Syncing...
+            </div>
           )}
         </div>
 
