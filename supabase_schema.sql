@@ -446,6 +446,102 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.dashboard_confidence_score_value_at(
+  target_booking_id TEXT,
+  boundary_ts TIMESTAMP WITH TIME ZONE,
+  current_score NUMERIC
+)
+RETURNS NUMERIC
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  prior_value TEXT;
+  next_old_value TEXT;
+BEGIN
+  SELECT al.new_value
+  INTO prior_value
+  FROM public.audit_logs al
+  WHERE al.booking_id = target_booking_id
+    AND al.column_name = 'confidenceScore'
+    AND al.changed_at <= boundary_ts
+  ORDER BY al.changed_at DESC, al.id DESC
+  LIMIT 1;
+
+  IF FOUND THEN
+    RETURN public.dashboard_numeric(prior_value);
+  END IF;
+
+  SELECT al.old_value
+  INTO next_old_value
+  FROM public.audit_logs al
+  WHERE al.booking_id = target_booking_id
+    AND al.column_name = 'confidenceScore'
+    AND al.changed_at > boundary_ts
+  ORDER BY al.changed_at ASC, al.id ASC
+  LIMIT 1;
+
+  IF FOUND THEN
+    RETURN public.dashboard_numeric(next_old_value);
+  END IF;
+
+  RETURN current_score;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.dashboard_confidence_trend(
+  c public.dashboard_cases,
+  stable_delta NUMERIC DEFAULT 0.02,
+  ref_date DATE DEFAULT CURRENT_DATE
+)
+RETURNS TEXT
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  current_score NUMERIC := public.dashboard_numeric(c.row_data ->> 'confidenceScore');
+  previous_day_score NUMERIC;
+  two_days_ago_score NUMERIC;
+  baseline_score NUMERIC;
+BEGIN
+  IF current_score IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  previous_day_score := public.dashboard_confidence_score_value_at(
+    c.booking_id,
+    ref_date::timestamp - interval '1 millisecond',
+    current_score
+  );
+
+  two_days_ago_score := public.dashboard_confidence_score_value_at(
+    c.booking_id,
+    (ref_date - 1)::timestamp - interval '1 millisecond',
+    current_score
+  );
+
+  IF previous_day_score IS NULL OR two_days_ago_score IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  baseline_score := (previous_day_score + two_days_ago_score) / 2.0;
+
+  IF abs(current_score - baseline_score) <= stable_delta THEN
+    RETURN 'Stable';
+  ELSIF current_score < baseline_score - stable_delta THEN
+    RETURN 'Decline';
+  ELSIF current_score > baseline_score + stable_delta THEN
+    RETURN 'Improving';
+  END IF;
+
+  RETURN 'Stable';
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.dashboard_case_has_milestone(c public.dashboard_cases, milestone TEXT)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
@@ -658,6 +754,7 @@ BEGIN
   IF NOT public.dashboard_matches_text_filter(input_filters -> 'sheetFinalStatus', c.sheet_final_status) THEN RETURN false; END IF;
   IF NOT public.dashboard_matches_text_filter(input_filters -> 'formFinalStatus', c.form_final_status) THEN RETURN false; END IF;
   IF NOT public.dashboard_matches_text_filter(input_filters -> 'gmailPendencyStatus', c.gmail_pendency_status) THEN RETURN false; END IF;
+  IF NOT public.dashboard_matches_text_filter(input_filters -> 'confidenceTrend', public.dashboard_confidence_trend(c)) THEN RETURN false; END IF;
   IF NOT public.dashboard_matches_text_filter(input_filters -> 'onDemandStatus', c.row_data ->> 'onDemandStatus') THEN RETURN false; END IF;
 
   IF nullif(coalesce(input_filters ->> 'listingDaysBucket', ''), '') IS NOT NULL THEN
@@ -1581,6 +1678,9 @@ CREATE TABLE IF NOT EXISTS public.audit_logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_logs_booking_id ON public.audit_logs (booking_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_booking_confidence_changed_at
+  ON public.audit_logs (booking_id, changed_at DESC)
+  WHERE column_name = 'confidenceScore';
 
 ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 

@@ -159,6 +159,7 @@ export interface CaseRow {
   gmailPendencySource?: string;
   gmailPendencyDate?: string;
   confidenceScore?: string;
+  confidenceTrendStatus?: 'Decline' | 'Stable' | 'Improving';
   mlEstimatedDeliveryDate?: string;
   totalListingDays?: number;
 }
@@ -206,6 +207,7 @@ export interface FilterState {
   sheetFinalStatus: string;
   formFinalStatus: string;
   gmailPendencyStatus: string;
+  confidenceTrend: string;
   onDemandStatus: string;
   taskBucket: string;
   derivedStatus: string;
@@ -295,6 +297,7 @@ export interface DashboardFilterQuery {
   sheetFinalStatus?: string[];
   formFinalStatus?: string[];
   gmailPendencyStatus?: string[];
+  confidenceTrend?: string[];
   onDemandStatus?: string[];
   taskBucket?: string[];
   derivedStatus?: string[];

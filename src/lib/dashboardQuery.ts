@@ -134,6 +134,7 @@ export function normalizeFilterState(filters: FilterState): DashboardFilterQuery
     sheetFinalStatus: parseMultiSelect(filters.sheetFinalStatus),
     formFinalStatus: parseMultiSelect(filters.formFinalStatus),
     gmailPendencyStatus: parseMultiSelect(filters.gmailPendencyStatus),
+    confidenceTrend: parseMultiSelect(filters.confidenceTrend),
     onDemandStatus: parseMultiSelect(filters.onDemandStatus),
     taskBucket: parseMultiSelect(filters.taskBucket),
     derivedStatus: parseMultiSelect(filters.derivedStatus),
@@ -169,7 +170,12 @@ export function createCaseQuery(
 }
 
 export function isActiveTokenFastPath(filters: DashboardFilterQuery): boolean {
-  return Boolean(filters.leadStage && filters.leadStage.length === 1 && filters.leadStage[0] === 'ACTIVE_TOKEN');
+  return Boolean(
+    filters.leadStage &&
+    filters.leadStage.length === 1 &&
+    filters.leadStage[0] === 'ACTIVE_TOKEN' &&
+    (!filters.confidenceTrend || filters.confidenceTrend.length === 0)
+  );
 }
 
 export function buildLocalDashboardSummary(rows: CaseRow[], filteredCancelledC2dCount: number): DashboardSummaryResult {

@@ -16,6 +16,7 @@ export const DEFAULT_FILTERS: FilterState = {
   sheetFinalStatus: 'All',
   formFinalStatus: 'All',
   gmailPendencyStatus: 'All',
+  confidenceTrend: 'All',
   onDemandStatus: 'All',
   taskBucket: 'All',
   derivedStatus: 'All',
@@ -261,6 +262,7 @@ export function isRowMatchingFilter(
   if (ignoreKey !== 'sheetFinalStatus' && !matchMulti(filters.sheetFinalStatus, row.sheetFinalStatus)) return false;
   if (ignoreKey !== 'formFinalStatus' && !matchMulti(filters.formFinalStatus, row.formFinalStatus)) return false;
   if (ignoreKey !== 'gmailPendencyStatus' && !matchMulti(filters.gmailPendencyStatus, row.gmailPendencyStatus)) return false;
+  if (ignoreKey !== 'confidenceTrend' && !matchMulti(filters.confidenceTrend, row.confidenceTrendStatus)) return false;
   if (ignoreKey !== 'onDemandStatus' && !matchMulti(filters.onDemandStatus, row.onDemandStatus)) return false;
 
   if (ignoreKey !== 'listingDaysBucket' && filters.listingDaysBucket && filters.listingDaysBucket !== 'All') {

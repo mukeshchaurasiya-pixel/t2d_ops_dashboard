@@ -100,6 +100,8 @@ const CORE_DERIVED_OPTIONS = [
   'Any Active Task',
 ];
 
+const CONFIDENCE_TREND_OPTIONS = ['Decline', 'Stable', 'Improving'];
+
 interface DashboardProps {
   rows: CaseRow[];
   setRows: React.Dispatch<React.SetStateAction<CaseRow[]>>;
@@ -549,6 +551,7 @@ export default function Dashboard({
   const isSheetStatusActive = filters.sheetFinalStatus !== 'All';
   const isFormStatusActive = filters.formFinalStatus !== 'All';
   const isGmailActive = filters.gmailPendencyStatus !== 'All';
+  const isConfidenceTrendActive = filters.confidenceTrend !== 'All';
   const isOnDemandStatusActive = filters.onDemandStatus !== 'All';
   const isTaskActive = filters.taskBucket !== 'All';
   const isDerivedActive = filters.derivedStatus !== 'All';
@@ -575,6 +578,7 @@ export default function Dashboard({
     if (isSheetStatusActive) count++;
     if (isFormStatusActive) count++;
     if (isGmailActive) count++;
+    if (isConfidenceTrendActive) count++;
     if (isOnDemandStatusActive) count++;
     if (isTaskActive) count++;
     if (isDerivedActive) count++;
@@ -587,7 +591,7 @@ export default function Dashboard({
   }, [
     isCityActive, isHubActive, isTokenTypeActive, isRmActive, isDcActive,
     isPaymentActive, isLeadStageActive, isFunnelStageActive, isSheetStatusActive,
-    isFormStatusActive, isGmailActive, isOnDemandStatusActive, isTaskActive, isDerivedActive,
+    isFormStatusActive, isGmailActive, isConfidenceTrendActive, isOnDemandStatusActive, isTaskActive, isDerivedActive,
     isCancelReasonActive, isLeadDsChannelActive, isDateFieldActive, filters.startDate,
     filters.endDate, filters.filterBlankDates, hasActiveDynamicFilters, activeDynamicDateFilters,
     isPaymentPercentageActive, filters.minPaymentPercentage
@@ -1027,6 +1031,17 @@ export default function Dashboard({
             isActive={isGmailActive}
             isOpen={openDropdown === 'gmailPendencyStatus'}
             onToggle={() => setOpenDropdown(p => p === 'gmailPendencyStatus' ? null : 'gmailPendencyStatus')}
+          />
+
+          <MultiSelectDropdown
+            label="Confidence Trend"
+            options={CONFIDENCE_TREND_OPTIONS}
+            selectedString={filters.confidenceTrend}
+            onChange={val => setFilters(p => ({ ...p, confidenceTrend: val }))}
+            placeholder="All Trends"
+            isActive={isConfidenceTrendActive}
+            isOpen={openDropdown === 'confidenceTrend'}
+            onToggle={() => setOpenDropdown(p => p === 'confidenceTrend' ? null : 'confidenceTrend')}
           />
 
           {/* On Demand Status */}

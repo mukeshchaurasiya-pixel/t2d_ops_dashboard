@@ -9,12 +9,14 @@ test('normalizeFilterState converts multi-select filters into arrays', () => {
     city: 'Delhi|||Mumbai',
     leadStage: 'ACTIVE_TOKEN',
     paymentType: 'Blank|||PMAX',
+    confidenceTrend: 'Decline|||Stable',
     onDemandStatus: 'ASSIGNED|||DELIVERING',
   });
 
   assert.deepEqual(normalized.city, ['Delhi', 'Mumbai']);
   assert.deepEqual(normalized.leadStage, ['ACTIVE_TOKEN']);
   assert.deepEqual(normalized.paymentType, ['Blank', 'PMAX']);
+  assert.deepEqual(normalized.confidenceTrend, ['Decline', 'Stable']);
   assert.deepEqual(normalized.onDemandStatus, ['ASSIGNED', 'DELIVERING']);
 });
 
@@ -76,6 +78,7 @@ test('normalizeFilterState keeps date filters, search, and numeric thresholds', 
 
 test('isActiveTokenFastPath only enables the exact ACTIVE_TOKEN-only filter', () => {
   assert.equal(isActiveTokenFastPath({ leadStage: ['ACTIVE_TOKEN'] }), true);
+  assert.equal(isActiveTokenFastPath({ leadStage: ['ACTIVE_TOKEN'], confidenceTrend: ['Decline'] }), false);
   assert.equal(isActiveTokenFastPath({ leadStage: ['ACTIVE_TOKEN', 'DELIVERED'] }), false);
   assert.equal(isActiveTokenFastPath({ city: ['Delhi'] }), false);
 });
