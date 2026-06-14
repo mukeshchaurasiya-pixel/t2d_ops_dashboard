@@ -22,13 +22,13 @@ export default function DashboardCharts({
   
   const renderSvgBarChart = (
     title: string, 
-    dataObj: Record<string, number>, 
+    dataObj: Record<string, number> | undefined | null, 
     colorClass: string = "bg-brand-orange",
     filterKey?: keyof FilterState,
     colorOverrides?: Record<string, string>
   ) => {
     const includeBlank = !!colorOverrides;
-    const entries = Object.entries(dataObj).filter(([k]) => (includeBlank || (k !== 'Blank')) && k !== 'All' && k !== '');
+    const entries = Object.entries(dataObj || {}).filter(([k]) => (includeBlank || (k !== 'Blank')) && k !== 'All' && k !== '');
     if (!entries.length) {
       return (
         <div className="flex h-36 items-center justify-center text-xs text-slate-400 font-medium">
