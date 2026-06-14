@@ -1084,6 +1084,42 @@ SELECT jsonb_build_object(
         ORDER BY sort_order
       ) grouped
     ), '{}'::jsonb),
+    'onDemandStatusDistribution', coalesce((
+      SELECT jsonb_object_agg(bucket, cnt)
+      FROM (
+        SELECT coalesce(nullif(btrim(row_data ->> 'onDemandStatus'), ''), 'Blank') AS bucket, count(*)::INTEGER AS cnt
+        FROM filtered
+        GROUP BY 1
+      ) grouped
+    ), '{}'::jsonb),
+    'totalExpectedAmountDistribution', coalesce((
+      SELECT jsonb_object_agg(bucket, cnt)
+      FROM (
+        SELECT bucket, cnt, sort_order
+        FROM (
+          SELECT '<3 Lac' AS bucket, count(*)::INTEGER AS cnt, 1 AS sort_order
+          FROM filtered
+          WHERE coalesce(public.dashboard_numeric(row_data ->> 'totalExpectedAmount'), 0) > 0
+            AND coalesce(public.dashboard_numeric(row_data ->> 'totalExpectedAmount'), 0) < 300000
+          UNION ALL
+          SELECT '3-6 Lac', count(*)::INTEGER, 2
+          FROM filtered
+          WHERE coalesce(public.dashboard_numeric(row_data ->> 'totalExpectedAmount'), 0) >= 300000
+            AND coalesce(public.dashboard_numeric(row_data ->> 'totalExpectedAmount'), 0) < 600000
+          UNION ALL
+          SELECT '6-9 Lac', count(*)::INTEGER, 3
+          FROM filtered
+          WHERE coalesce(public.dashboard_numeric(row_data ->> 'totalExpectedAmount'), 0) >= 600000
+            AND coalesce(public.dashboard_numeric(row_data ->> 'totalExpectedAmount'), 0) < 900000
+          UNION ALL
+          SELECT '9+ Lac', count(*)::INTEGER, 4
+          FROM filtered
+          WHERE coalesce(public.dashboard_numeric(row_data ->> 'totalExpectedAmount'), 0) >= 900000
+        ) ordered_values
+        WHERE cnt > 0
+        ORDER BY sort_order
+      ) grouped
+    ), '{}'::jsonb),
     'tokenType', coalesce((
       SELECT jsonb_object_agg(bucket, cnt)
       FROM (

@@ -259,6 +259,8 @@ export interface DashboardCharts {
   rm: Record<string, number>;
   dc: Record<string, number>;
   readyToDeliver: Record<string, number>;
+  onDemandStatusDistribution: Record<string, number>;
+  totalExpectedAmountDistribution: Record<string, number>;
   tokenType: Record<string, number>;
   tokenTypeWithNrt: Record<string, number>;
   paymentType: Record<string, number>;

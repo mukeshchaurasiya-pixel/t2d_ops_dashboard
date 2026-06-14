@@ -36,6 +36,8 @@ const EMPTY_CHARTS: DashboardCharts = {
   rm: {},
   dc: {},
   readyToDeliver: {},
+  onDemandStatusDistribution: {},
+  totalExpectedAmountDistribution: {},
   tokenType: {},
   tokenTypeWithNrt: {},
   paymentType: {},

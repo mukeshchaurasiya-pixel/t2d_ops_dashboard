@@ -127,7 +127,7 @@ export default function DashboardCharts({
 
   if (activeTab === 'performance') {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
         {/* City Split */}
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
           <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
@@ -144,12 +144,14 @@ export default function DashboardCharts({
           {renderSvgBarChart('Hub', charts.hub, "bg-violet-500", "hubName")}
         </div>
 
-        {/* RM Split */}
+        {/* On Demand Status Split */}
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
           <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-            Relationship Managers (RM)
+            On Demand Status
           </h4>
-          {renderSvgBarChart('RM', charts.rm, "bg-emerald-500", "rmName")}
+          {renderSvgBarChart('On Demand Status', charts.onDemandStatusDistribution, "bg-emerald-500", "onDemandStatus", {
+            'Blank': 'bg-slate-400',
+          })}
         </div>
 
         {/* Ready to Deliver Split */}
@@ -162,6 +164,14 @@ export default function DashboardCharts({
             'Yes': 'bg-emerald-500',
             'No': 'bg-rose-500',
           })}
+        </div>
+
+        {/* Total Expected Amount Split */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+            Total Expected Amount
+          </h4>
+          {renderSvgBarChart('Total Expected Amount', charts.totalExpectedAmountDistribution, "bg-amber-500")}
         </div>
       </div>
     );

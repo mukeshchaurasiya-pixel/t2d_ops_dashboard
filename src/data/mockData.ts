@@ -263,6 +263,32 @@ function buildListingDaysDistribution(rows: CaseRow[]): Record<string, number> {
   return result;
 }
 
+function buildTotalExpectedAmountDistribution(rows: CaseRow[]): Record<string, number> {
+  const result: Record<string, number> = {
+    '<3 Lac': 0,
+    '3-6 Lac': 0,
+    '6-9 Lac': 0,
+    '9+ Lac': 0,
+  };
+
+  rows.forEach(row => {
+    const amount = Number(row.totalExpectedAmount || 0);
+    if (!(amount > 0)) return;
+
+    if (amount < 300000) {
+      result['<3 Lac']++;
+    } else if (amount < 600000) {
+      result['3-6 Lac']++;
+    } else if (amount < 900000) {
+      result['6-9 Lac']++;
+    } else {
+      result['9+ Lac']++;
+    }
+  });
+
+  return result;
+}
+
 export function buildCharts(rows: CaseRow[]): DashboardCharts {
   // Build readyToDeliver with a fixed order: Blank → Yes → No
   const rtdRaw = groupCount(rows, 'readyToDeliver');
@@ -283,6 +309,8 @@ export function buildCharts(rows: CaseRow[]): DashboardCharts {
     rm: topN(groupCount(rows, 'allocatedRm'), 15),
     dc: topN(groupCount(rows, 'assignedDc'), 15),
     readyToDeliver,
+    onDemandStatusDistribution: groupCount(rows, 'onDemandStatus'),
+    totalExpectedAmountDistribution: buildTotalExpectedAmountDistribution(rows),
     tokenType: groupCount(rows, 'tokenType'),
     tokenTypeWithNrt: groupCount(rows, 'tokenTypeWithNrt'),
     paymentType: groupCount(rows, 'paymentType'),
