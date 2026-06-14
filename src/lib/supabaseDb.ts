@@ -279,6 +279,7 @@ function detectChanges(
 ): Omit<AuditLog, 'id' | 'changed_at'>[] {
   const auditedColumns: (keyof CaseRow)[] = [
     'readyToDeliver',
+    'cancelReqDate',
     'expectedOdCompletionDate',
     'eddReviewerDate',
     'reviewerRemarks',

@@ -649,6 +649,7 @@ export default function App() {
                           {globalAuditLogs.map((log) => {
                             const columnLabels = {
                               readyToDeliver: "Ready to Deliver?",
+                              cancelReqDate: "Cancel Request Date",
                               expectedOdCompletionDate: "Expected OD Date",
                               eddReviewerDate: "Reviewer EDD",
                               reviewerRemarks: "Reviewer Remarks",

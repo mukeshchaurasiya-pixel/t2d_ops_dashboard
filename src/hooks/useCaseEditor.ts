@@ -15,8 +15,12 @@ type UseCaseEditorArgs = {
 function buildInitialDraft(row: CaseRow): CaseEditorDraft {
   return {
     readyToDeliver: row.readyToDeliver || '',
+    onDemandStatus: row.onDemandStatus || '',
+    deliveryStatus: row.deliveryStatus || '',
     expectedOdCompletionDate: row.expectedOdCompletionDate || '',
     eddReviewerDate: row.eddReviewerDate || '',
+    expectedDeliveryDate: row.expectedDeliveryDate || '',
+    cancelReqDate: row.cancelReqDate || '',
     reviewerRemarks: row.reviewerRemarks || '',
     latestRemark: row.latestRemark || '',
     latestRemarkBy: row.latestRemarkBy || '',
@@ -91,8 +95,12 @@ export function useCaseEditor({
       setTempRowData(prev => ({
         ...prev,
         readyToDeliver: latestFields.readyToDeliver !== undefined ? (latestFields.readyToDeliver || '') : prev.readyToDeliver,
+        onDemandStatus: latestFields.onDemandStatus !== undefined ? (latestFields.onDemandStatus || '') : prev.onDemandStatus,
+        deliveryStatus: latestFields.deliveryStatus !== undefined ? (latestFields.deliveryStatus || '') : prev.deliveryStatus,
         expectedOdCompletionDate: latestFields.expectedOdCompletionDate !== undefined ? (latestFields.expectedOdCompletionDate || '') : prev.expectedOdCompletionDate,
         eddReviewerDate: latestFields.eddReviewerDate !== undefined ? (latestFields.eddReviewerDate || '') : prev.eddReviewerDate,
+        expectedDeliveryDate: latestFields.expectedDeliveryDate !== undefined ? (latestFields.expectedDeliveryDate || '') : prev.expectedDeliveryDate,
+        cancelReqDate: latestFields.cancelReqDate !== undefined ? (latestFields.cancelReqDate || '') : prev.cancelReqDate,
         reviewerRemarks: latestFields.reviewerRemarks !== undefined ? (latestFields.reviewerRemarks || '') : prev.reviewerRemarks,
         latestRemark: latestFields.latestRemark !== undefined ? (latestFields.latestRemark || '') : prev.latestRemark,
         latestRemarkBy: latestFields.latestRemarkBy !== undefined ? (latestFields.latestRemarkBy || '') : prev.latestRemarkBy,
@@ -153,8 +161,12 @@ export function useCaseEditor({
         const { writeActionablesToSheet } = await import('../lib/sheetsService');
         await writeActionablesToSheet(sheetId, sheetName, accessToken, selectedRow._rowNumber, {
           readyToDeliver: updatedRowBase.readyToDeliver,
+          onDemandStatus: updatedRowBase.onDemandStatus,
+          deliveryStatus: updatedRowBase.deliveryStatus,
           expectedOdCompletionDate: updatedRowBase.expectedOdCompletionDate,
           eddReviewerDate: updatedRowBase.eddReviewerDate,
+          expectedDeliveryDate: updatedRowBase.expectedDeliveryDate,
+          cancelReqDate: updatedRowBase.cancelReqDate,
           reviewerRemarks: updatedRowBase.reviewerRemarks,
           updatedAt: updatedRowBase.updatedAt,
         });

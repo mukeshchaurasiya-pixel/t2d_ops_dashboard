@@ -52,6 +52,67 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
 
   if (!isOpen || !selectedRow) return null;
 
+  const keyDates = [
+    { label: 'Token Date', value: selectedRow.tokenDate || selectedRow.tokenDateTime, tone: 'slate' },
+    { label: 'Latest Login', value: selectedRow.latestLoginTime || selectedRow.sheetLoginTimestamp, tone: 'slate' },
+    { label: 'Expected OD', value: selectedRow.expectedOdCompletionDate, tone: 'amber' },
+    { label: 'Expected Delivery', value: selectedRow.expectedDeliveryDate, tone: 'brand' },
+    { label: 'Cancel Request', value: selectedRow.cancelReqDate, tone: 'rose' },
+    { label: 'Actual Delivery', value: selectedRow.actualDeliveryDate, tone: 'emerald' },
+  ];
+
+  const actionContext = [
+    { label: 'Lead Stage', value: selectedRow.leadStage || '-', tone: 'bg-brand-blue/10 text-brand-blue border-brand-blue/20' },
+    { label: 'Deal Status', value: selectedRow.dealStatus || '-', tone: 'bg-slate-100 text-slate-700 border-slate-200' },
+    { label: 'Sheet Status', value: selectedRow.sheetFinalStatus || '-', tone: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+    { label: 'Form Status', value: selectedRow.formFinalStatus || '-', tone: 'bg-violet-50 text-violet-700 border-violet-100' },
+  ];
+
+  const paymentCards = [
+    { label: 'Payment %', value: selectedRow.paymentPercentage ? `${(Number(selectedRow.paymentPercentage) * 100).toFixed(2)}%` : '0%' },
+    { label: 'Collected', value: selectedRow.amountCollected ? Number(selectedRow.amountCollected).toLocaleString('en-IN') : '0' },
+    { label: 'Pending', value: selectedRow.amountPending ? Number(selectedRow.amountPending).toLocaleString('en-IN') : '0' },
+    { label: 'Expected', value: selectedRow.totalExpectedAmount ? Number(selectedRow.totalExpectedAmount).toLocaleString('en-IN') : '0' },
+  ];
+
+  const timelineEntries = [
+    { label: 'Lead Created', value: selectedRow.latestLeadCreationTimestamp },
+    { label: 'Token Paid', value: selectedRow.tokenDate || selectedRow.tokenDateTime },
+    { label: 'Login / Sheet Entry', value: selectedRow.latestLoginTime || selectedRow.sheetLoginTimestamp },
+    { label: 'Last Call', value: selectedRow.lastCallAt },
+    { label: 'Follow-up', value: selectedRow.followupAt },
+    { label: 'Cancel Request', value: selectedRow.cancelReqDate },
+    { label: 'Cancellation', value: selectedRow.cancellationDate },
+    { label: 'Actual Delivery', value: selectedRow.actualDeliveryDate },
+  ].filter(item => item.value);
+
+  const pmaxSignals = [
+    { label: 'Loan ID', value: selectedRow.loanId || '-' },
+    { label: 'Payment Type', value: selectedRow.paymentType || '-' },
+    { label: 'Sheet Login Partner', value: selectedRow.sheetLoginPartner || '-' },
+    { label: 'Sheet Final Status', value: selectedRow.sheetFinalStatus || '-' },
+    { label: 'Final ROI', value: selectedRow.finalRoi ? `${selectedRow.finalRoi}%` : '-' },
+    { label: 'DS ROI', value: selectedRow.dsRoi ? `${selectedRow.dsRoi}%` : '-' },
+    { label: 'Credit LTV', value: selectedRow.creditLtv || '-' },
+    { label: 'Agreed Sales Price', value: selectedRow.agreedSalesPrice ? Number(selectedRow.agreedSalesPrice).toLocaleString('en-IN') : '0' },
+  ];
+
+  const copilotFlags = [
+    { label: 'ML EDD', value: selectedRow.mlEstimatedDeliveryDate || 'N/A' },
+    { label: 'Confidence', value: selectedRow.confidenceScore ? `${(parseFloat(selectedRow.confidenceScore) * 100).toFixed(0)}%` : 'N/A' },
+    { label: 'Gmail Pendency', value: selectedRow.gmailPendencyStatus || 'None' },
+    { label: 'On Demand', value: selectedRow.onDemandStatus || 'Blank' },
+  ];
+
+  const rawGroups: Array<{ title: string; keys: (keyof CaseRow)[] }> = [
+    { title: 'Case & Ownership', keys: ['bookingId', 'uid', 'leadId', 'userId', 'loanId', 'appointmentId', 'city', 'hubCode', 'hubName', 'allocatedRm', 'assignedDc', 'sm', 'tm', 'rm'] },
+    { title: 'Vehicle & Customer', keys: ['carRegNo', 'make', 'model', 'variant', 'manufacturingYear', 'companyName', 'contactNumber'] },
+    { title: 'Stage & Delivery', keys: ['leadStage', 'leadStatus', 'dealStatus', 'funnelStage', 'tokenType', 'tokenTypeWithNrt', 'paymentType', 'readyToDeliver', 'onDemandStatus', 'deliveryStatus', 'deliverySegment', 'taskBucket', 'reasonPointer'] },
+    { title: 'Payments & Finance', keys: ['paymentPercentage', 'amountCollected', 'amountPending', 'totalExpectedAmount', 'agreedSalesPrice', 'sheetLoginPartner', 'sheetFinalStatus', 'finalRoi', 'dsRoi', 'creditLtv', 'foir'] },
+    { title: 'CRM & AI', keys: ['lastCallAt', 'followupAt', 'latestCallOutcome', 'lastDisposition', 'latestRemark', 'latestRemarkBy', 'latestRemarkDate', 'gmailSummary', 'gmailPendencyStatus', 'gmailPendencyReason', 'gmailNextAction', 'gmailPendencySource', 'gmailPendencyDate', 'mlEstimatedDeliveryDate', 'confidenceScore'] },
+    { title: 'Dates & Milestones', keys: ['tokenDate', 'tokenDateTime', 'bookingDate', 'expectedOdCompletionDate', 'expectedDeliveryDate', 'actualDeliveryDate', 'cancelReqDate', 'cancellationDate', 'sheetLoginTimestamp', 'submitToOpsTimestamp', 'sentToOpsTimestamp', 'sentToRcuTimestamp', 'financeDisbursedTimestamp', 'opsDisbursalTimestamp'] },
+  ];
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -200,6 +261,26 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                     </h4>
 
                     <div className="space-y-3.5">
+                      <div className="grid grid-cols-2 gap-2.5">
+                        {actionContext.map(item => (
+                          <div key={item.label} className="p-2.5 bg-white border border-slate-200 rounded-xl shadow-2xs">
+                            <span className="block text-[9px] uppercase tracking-wider text-slate-400 font-semibold font-mono">{item.label}</span>
+                            <span className={`inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border ${item.tone}`}>
+                              {item.value}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        {paymentCards.map(item => (
+                          <div key={item.label} className="p-2.5 bg-white border border-slate-200 rounded-xl">
+                            <span className="block text-[9px] uppercase tracking-wider text-slate-400 font-semibold font-mono">{item.label}</span>
+                            <span className="block mt-1 text-[11px] font-extrabold text-slate-800">{item.value}</span>
+                          </div>
+                        ))}
+                      </div>
+
                       <div>
                         <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                           Ready to Deliver?
@@ -215,6 +296,58 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                         </select>
                       </div>
 
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                            On Demand Status
+                          </label>
+                          <input
+                            type="text"
+                            value={tempRowData.onDemandStatus || ''}
+                            onChange={e => setTempRowData((p: any) => ({ ...p, onDemandStatus: e.target.value }))}
+                            placeholder="e.g. APPROVED / CHECKED_IN"
+                            className="w-full text-xs p-2 border border-slate-200 focus:border-brand-orange focus:ring-brand-orange rounded-lg bg-white font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                            Delivery Status
+                          </label>
+                          <input
+                            type="text"
+                            value={tempRowData.deliveryStatus || ''}
+                            onChange={e => setTempRowData((p: any) => ({ ...p, deliveryStatus: e.target.value }))}
+                            placeholder="Current delivery state"
+                            className="w-full text-xs p-2 border border-slate-200 focus:border-brand-orange focus:ring-brand-orange rounded-lg bg-white font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                            Expected Delivery Date
+                          </label>
+                          <input
+                            type="date"
+                            value={tempRowData.expectedDeliveryDate || ''}
+                            onChange={e => setTempRowData((p: any) => ({ ...p, expectedDeliveryDate: e.target.value }))}
+                            className="w-full text-xs p-2 border border-slate-200 focus:border-brand-orange focus:ring-brand-orange rounded-lg bg-white font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                            Cancel Request Date
+                          </label>
+                          <input
+                            type="date"
+                            value={tempRowData.cancelReqDate || ''}
+                            onChange={e => setTempRowData((p: any) => ({ ...p, cancelReqDate: e.target.value }))}
+                            className="w-full text-xs p-2 border border-slate-200 focus:border-brand-orange focus:ring-brand-orange rounded-lg bg-white font-mono"
+                          />
+                        </div>
+                      </div>
+
                       <div>
                         <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                           Expected OD Completion Date
@@ -225,6 +358,21 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                           onChange={e => setTempRowData((p: any) => ({ ...p, expectedOdCompletionDate: e.target.value }))}
                           className="w-full text-xs p-2 border border-slate-200 focus:border-brand-orange focus:ring-brand-orange rounded-lg bg-white font-mono"
                         />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        {keyDates.map(item => (
+                          <div key={item.label} className={`p-2.5 rounded-xl border ${
+                            item.tone === 'rose' ? 'bg-rose-50 border-rose-100' :
+                            item.tone === 'amber' ? 'bg-amber-50 border-amber-100' :
+                            item.tone === 'brand' ? 'bg-brand-blue/5 border-brand-blue/10' :
+                            item.tone === 'emerald' ? 'bg-emerald-50 border-emerald-100' :
+                            'bg-slate-50 border-slate-200'
+                          }`}>
+                            <span className="block text-[9px] uppercase tracking-wider text-slate-400 font-semibold font-mono">{item.label}</span>
+                            <span className="block mt-1 text-[11px] font-bold text-slate-800">{item.value || '-'}</span>
+                          </div>
+                        ))}
                       </div>
 
                       <div>
@@ -399,6 +547,34 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
 
               {sidebarTab === 'journey' && (
                 <div className="space-y-6">
+                  <div className="p-4 bg-brand-blue/5 border border-brand-blue/10 rounded-2xl space-y-4 shadow-2xs">
+                    <h4 className="text-xs font-bold text-brand-blue uppercase tracking-wider flex items-center gap-1.5 pb-2 border-b border-brand-blue/10">
+                      <Clock className="w-4 h-4 text-brand-blue" /> Customer & Ops Timeline
+                    </h4>
+
+                    <div className="space-y-3">
+                      {timelineEntries.length > 0 ? timelineEntries.map((entry, idx) => (
+                        <div key={`${entry.label}-${idx}`} className="flex justify-between items-start gap-3 py-1.5 border-b border-slate-200/40 last:border-b-0">
+                          <span className="text-[11px] font-semibold text-slate-600">{entry.label}</span>
+                          <span className="text-[11px] font-mono text-slate-800 text-right">{entry.value}</span>
+                        </div>
+                      )) : (
+                        <p className="text-xs text-slate-400 italic">No meaningful CRM or ops timeline markers are available for this case yet.</p>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <div className="bg-white border border-slate-200 rounded-xl p-3">
+                        <span className="block text-[9px] uppercase tracking-wider text-slate-400 font-semibold font-mono">Latest Call Outcome</span>
+                        <span className="block mt-1 font-bold text-slate-800">{selectedRow.latestCallOutcome || '-'}</span>
+                      </div>
+                      <div className="bg-white border border-slate-200 rounded-xl p-3">
+                        <span className="block text-[9px] uppercase tracking-wider text-slate-400 font-semibold font-mono">Last Disposition</span>
+                        <span className="block mt-1 font-bold text-slate-800">{selectedRow.lastDisposition || '-'}</span>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Underwriting Credit Risk Profile - Critical Warning Banner at top */}
                   {(() => {
                     const isHighRisk = selectedRow.redChannelFlag === 'Yes' || selectedRow.hardDerogFlag === 'Yes' || !!selectedRow.creditRejectionReason;
@@ -746,6 +922,15 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
 
               {sidebarTab === 'pmax' && (
                 <div className="space-y-6">
+                  <div className="grid grid-cols-2 gap-3">
+                    {paymentCards.map(item => (
+                      <div key={item.label} className="p-3 bg-brand-orange/5 border border-brand-orange/15 rounded-2xl shadow-2xs">
+                        <span className="block text-[9px] uppercase tracking-wider text-brand-orange/70 font-semibold font-mono">{item.label}</span>
+                        <span className="block mt-1 text-sm font-extrabold text-slate-900">{item.value}</span>
+                      </div>
+                    ))}
+                  </div>
+
                   {/* Header Card */}
                   <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl relative overflow-hidden shadow-md text-white">
                     <div className="absolute right-[-14px] bottom-[-14px] opacity-10">
@@ -764,6 +949,29 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                         <strong className="text-white">{selectedRow.sheetYardCity || '-'}</strong>
                       </div>
                     </div>
+                  </div>
+
+                  <div className="p-4 bg-white border border-slate-200 rounded-2xl space-y-4 shadow-2xs">
+                    <h5 className="text-[11px] font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-2">
+                      Commercial & Finance Snapshot
+                    </h5>
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      {pmaxSignals.map(item => (
+                        <div key={item.label} className="p-2.5 bg-slate-50 rounded-xl border border-slate-200/70">
+                          <span className="block text-[9px] uppercase tracking-wider text-slate-400 font-semibold font-mono">{item.label}</span>
+                          <span className="block mt-1 font-bold text-slate-800 break-words">{item.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-amber-50 border border-amber-200/60 rounded-2xl space-y-2">
+                    <h5 className="text-[11px] font-bold text-amber-800 uppercase tracking-wider border-b border-amber-200/50 pb-2">
+                      Blocker Signals
+                    </h5>
+                    <p className="text-xs text-amber-900 leading-relaxed">
+                      {selectedRow.reasonPointer || selectedRow.latestRemark || 'No explicit Pmax blocker summary has been captured yet.'}
+                    </p>
                   </div>
 
                   {/* Partner & Yard Operations Details */}
@@ -833,6 +1041,15 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
 
               {sidebarTab === 'copilot' && (
                 <div className="space-y-5">
+                  <div className="grid grid-cols-2 gap-3">
+                    {copilotFlags.map(item => (
+                      <div key={item.label} className="p-3 bg-white border border-slate-200 rounded-2xl shadow-2xs">
+                        <span className="block text-[9px] uppercase tracking-wider text-slate-400 font-semibold font-mono">{item.label}</span>
+                        <span className="block mt-1 text-sm font-extrabold text-slate-900 break-words">{item.value}</span>
+                      </div>
+                    ))}
+                  </div>
+
                   {/* Futuristic Predictor cards */}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="p-3.5 bg-slate-900 text-white rounded-2xl relative overflow-hidden border border-slate-800 shadow-lg">
@@ -854,6 +1071,26 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                         </p>
                       </div>
                       <span className="text-[9px] text-brand-orange/70 block mt-1">Accuracy parsing precision</span>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5 pb-2 border-b border-slate-200/30">
+                      <Sparkles className="w-4 h-4 text-brand-orange" /> Case Logic & Recommendations
+                    </h4>
+
+                    <div>
+                      <span className="block text-[10px] text-slate-400 uppercase font-semibold">Reason Pointer</span>
+                      <p className="text-xs text-slate-700 mt-1 font-medium leading-relaxed bg-white p-2.5 rounded-lg border border-slate-200/50 whitespace-pre-wrap">
+                        {selectedRow.reasonPointer || 'No structured reason pointer available.'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <span className="block text-[10px] text-slate-400 uppercase font-semibold">Recommended Next Move</span>
+                      <p className="text-brand-orange font-semibold mt-1 leading-relaxed bg-brand-orange/5 px-2.5 py-2 rounded-lg border border-brand-orange/10">
+                        {selectedRow.gmailNextAction || selectedRow.reviewerRemarks || 'Validate OD progress, refresh customer commitment, and align EDD with current payment and quality blockers.'}
+                      </p>
                     </div>
                   </div>
 
@@ -928,74 +1165,77 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                     />
                   </div>
 
-                  <div className="border border-slate-100 rounded-2xl overflow-hidden bg-white text-xs max-h-[60vh] overflow-y-auto shadow-inner">
-                    <table className="w-full border-collapse">
-                      <thead>
-                        <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 uppercase font-bold text-[9px] tracking-wider text-left">
-                          <th className="p-2.5 pl-4">Spreadsheet Column</th>
-                          <th className="p-2.5 pr-4">Active Database Value</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 font-sans text-slate-600">
-                        {Object.entries(selectedRow)
-                          .filter(([key, val]) => {
-                            if (key.startsWith('_')) return false; // Hide system row indices
-                            if (val === undefined || val === null) return false;
-                            
-                            const prettyKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
-                            const strVal = String(val);
-                            
-                            if (rawSearchQuery.trim()) {
-                              const lQuery = rawSearchQuery.toLowerCase();
-                              return prettyKey.toLowerCase().includes(lQuery) || strVal.toLowerCase().includes(lQuery);
-                            }
-                            return true;
-                          })
-                          .map(([key, val]) => {
-                            const prettyKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
-                            return (
-                              <tr key={key} className="hover:bg-slate-50/50 transition-colors">
-                                <td className="p-2.5 pl-4 font-semibold text-slate-700 align-top max-w-[150px] truncate" title={prettyKey}>
-                                  {prettyKey}
-                                </td>
-                                <td className="p-2.5 pr-4 text-slate-600 font-mono text-[11px] break-all whitespace-pre-wrap leading-relaxed">
-                                  {(key === 'userId' || key === 'uid' || key === 'leadId') ? (
-                                    <a 
-                                      href={`https://axle.c24.tech/b2c-lms/customer/${encodeURIComponent(String(val))}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-brand-blue hover:text-brand-blue/80 font-bold inline-flex items-center gap-1 leading-none"
-                                    >
-                                      {String(val)}
-                                      <ExternalLink className="w-3.5 h-3.5 text-brand-blue shrink-0" />
-                                    </a>
-                                  ) : (
-                                    String(val)
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })
-                        }
-                        {Object.entries(selectedRow).filter(([key, val]) => {
-                          if (key.startsWith('_')) return false;
-                          if (val === undefined || val === null) return false;
-                          const prettyKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+                  <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+                    {rawGroups.map(group => {
+                      const rows = group.keys
+                        .map(key => [key, selectedRow[key]] as const)
+                        .filter(([key, val]) => {
+                          if (String(key).startsWith('_')) return false;
+                          if (val === undefined || val === null || val === '') return false;
+                          const prettyKey = String(key).replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
                           const strVal = String(val);
                           if (rawSearchQuery.trim()) {
                             const lQuery = rawSearchQuery.toLowerCase();
                             return prettyKey.toLowerCase().includes(lQuery) || strVal.toLowerCase().includes(lQuery);
                           }
                           return true;
-                        }).length === 0 && (
-                          <tr>
-                            <td colSpan={2} className="p-8 text-center text-slate-400 italic">
-                              No matching columns found.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                        });
+
+                      if (rows.length === 0) return null;
+
+                      return (
+                        <div key={group.title} className="border border-slate-100 rounded-2xl overflow-hidden bg-white text-xs shadow-inner">
+                          <div className="bg-slate-50 border-b border-slate-100 px-4 py-2">
+                            <span className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">{group.title}</span>
+                          </div>
+                          <div className="divide-y divide-slate-100 font-sans text-slate-600">
+                            {rows.map(([key, val]) => {
+                              const prettyKey = String(key).replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+                              return (
+                                <div key={String(key)} className="grid grid-cols-[140px_minmax(0,1fr)] gap-3 p-3 hover:bg-slate-50/50 transition-colors">
+                                  <div className="font-semibold text-slate-700">{prettyKey}</div>
+                                  <div className="text-slate-600 font-mono text-[11px] break-all whitespace-pre-wrap leading-relaxed">
+                                    {(key === 'userId' || key === 'uid' || key === 'leadId') ? (
+                                      <a
+                                        href={`https://axle.c24.tech/b2c-lms/customer/${encodeURIComponent(String(val))}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-brand-blue hover:text-brand-blue/80 font-bold inline-flex items-center gap-1 leading-none"
+                                      >
+                                        {String(val)}
+                                        <ExternalLink className="w-3.5 h-3.5 text-brand-blue shrink-0" />
+                                      </a>
+                                    ) : (
+                                      String(val)
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {rawGroups.every(group =>
+                      group.keys
+                        .map(key => [key, selectedRow[key]] as const)
+                        .filter(([key, val]) => {
+                          if (String(key).startsWith('_')) return false;
+                          if (val === undefined || val === null || val === '') return false;
+                          const prettyKey = String(key).replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+                          const strVal = String(val);
+                          if (rawSearchQuery.trim()) {
+                            const lQuery = rawSearchQuery.toLowerCase();
+                            return prettyKey.toLowerCase().includes(lQuery) || strVal.toLowerCase().includes(lQuery);
+                          }
+                          return true;
+                        }).length === 0
+                    ) && (
+                      <div className="p-8 text-center text-slate-400 italic border border-slate-100 rounded-2xl bg-white">
+                        No matching columns found.
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1005,6 +1245,20 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                   <h4 className="flex items-center gap-1.5 text-xs font-bold text-slate-800 uppercase tracking-wider pb-1.5 border-b border-slate-100">
                     <Clock className="w-4 h-4 text-brand-orange" /> Case Revision History
                   </h4>
+
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                    <h5 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Key Event Timeline</h5>
+                    <div className="space-y-2">
+                      {timelineEntries.length > 0 ? timelineEntries.map((entry, idx) => (
+                        <div key={`${entry.label}-${idx}`} className="flex justify-between items-start gap-3 text-xs border-b border-slate-200/40 pb-2 last:border-b-0 last:pb-0">
+                          <span className="font-semibold text-slate-600">{entry.label}</span>
+                          <span className="font-mono text-slate-800 text-right">{entry.value}</span>
+                        </div>
+                      )) : (
+                        <p className="text-xs text-slate-400 italic">No key dated events are available for this case.</p>
+                      )}
+                    </div>
+                  </div>
                   
                   {loadingAuditLogs ? (
                     <div className="flex flex-col items-center justify-center p-8 text-slate-400 gap-2">
@@ -1020,6 +1274,7 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                       {auditLogs.map((log) => {
                         const columnLabels = {
                           readyToDeliver: "Ready to Deliver?",
+                          cancelReqDate: "Cancel Request Date",
                           expectedOdCompletionDate: "Expected OD Date",
                           eddReviewerDate: "Reviewer EDD",
                           reviewerRemarks: "Reviewer Remarks",

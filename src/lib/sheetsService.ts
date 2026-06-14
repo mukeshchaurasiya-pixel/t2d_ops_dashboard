@@ -150,8 +150,12 @@ export async function writeActionablesToSheet(
   rowNumber: number,
   updatedFields: {
     readyToDeliver?: string;
+    onDemandStatus?: string;
+    deliveryStatus?: string;
     expectedOdCompletionDate?: string;
     eddReviewerDate?: string;
+    expectedDeliveryDate?: string;
+    cancelReqDate?: string;
     reviewerRemarks?: string;
     updatedAt?: string;
   }
@@ -189,8 +193,12 @@ export async function writeActionablesToSheet(
   // Helper mapping dictionary
   const mappingTable: Record<string, string[]> = {
     readyToDeliver: ['ready to deliver?', 'ready_to_deliver', 'readytodeliver'],
+    onDemandStatus: ['on demand status', 'on_demand_status', 'ondemandstatus'],
+    deliveryStatus: ['delivery status', 'delivery_status', 'deliverystatus'],
     expectedOdCompletionDate: ['expected od completion date', 'expected_od_completion_date', 'expectedodcompletiondate'],
     eddReviewerDate: ['edd date (reviewer)', 'edd_reviewer_date', 'eddreviewerdate', 'edddatereviewer'],
+    expectedDeliveryDate: ['expected delivery date', 'expected_delivery_date', 'expecteddeliverydate'],
+    cancelReqDate: ['cancel req date', 'cancel_req_date', 'cancelreqdate'],
     reviewerRemarks: ['remarks - everyone (tl/rm/fs/hh)', 'remarks', 'reviewer_remarks', 'reviewerremarks', 'remarkseveryonetlrmfshh'],
     updatedAt: ['updated_at', 'updatedAt', 'updatedat']
   };
