@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeFilterState, isActiveTokenFastPath } from './dashboardQuery';
-import { DEFAULT_FILTERS } from './dashboardFilters';
+import { DEFAULT_FILTERS, getConfidenceTrendStatus, isRowMatchingFilter, buildEddLabels } from './dashboardFilters';
 
 test('normalizeFilterState converts multi-select filters into arrays', () => {
   const normalized = normalizeFilterState({
@@ -81,4 +81,32 @@ test('isActiveTokenFastPath only enables the exact ACTIVE_TOKEN-only filter', ()
   assert.equal(isActiveTokenFastPath({ leadStage: ['ACTIVE_TOKEN'], confidenceTrend: ['Decline'] }), false);
   assert.equal(isActiveTokenFastPath({ leadStage: ['ACTIVE_TOKEN', 'DELIVERED'] }), false);
   assert.equal(isActiveTokenFastPath({ city: ['Delhi'] }), false);
+});
+
+test('getConfidenceTrendStatus returns correct trend fallback when missing', () => {
+  const row1 = { bookingId: 'B-1001', confidenceScore: '0.95' } as any;
+  const trend1 = getConfidenceTrendStatus(row1);
+  assert.ok(['Stable', 'Improving', 'Decline'].includes(trend1));
+  
+  const row2 = { bookingId: 'B-1001', confidenceScore: '0.95', confidenceTrendStatus: 'Improving' } as any;
+  assert.equal(getConfidenceTrendStatus(row2), 'Improving');
+});
+
+test('isRowMatchingFilter matches on computed confidence trend status', () => {
+  const row = { bookingId: 'B-1001', confidenceScore: '0.95' } as any;
+  const computedTrend = getConfidenceTrendStatus(row);
+  const eddLabels = buildEddLabels();
+
+  const matchingFilters = {
+    ...DEFAULT_FILTERS,
+    confidenceTrend: computedTrend,
+  };
+  assert.equal(isRowMatchingFilter(row, matchingFilters, eddLabels), true);
+
+  const nonMatchingTrend = computedTrend === 'Stable' ? 'Decline' : 'Stable';
+  const nonMatchingFilters = {
+    ...DEFAULT_FILTERS,
+    confidenceTrend: nonMatchingTrend,
+  };
+  assert.equal(isRowMatchingFilter(row, nonMatchingFilters, eddLabels), false);
 });

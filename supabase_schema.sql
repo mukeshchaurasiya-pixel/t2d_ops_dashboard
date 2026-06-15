@@ -911,7 +911,7 @@ BEGIN
        FROM filtered
      ),
      paged AS (
-       SELECT c.row_data
+       SELECT c.row_data || jsonb_build_object(''confidenceTrendStatus'', public.dashboard_confidence_trend(c)) as row_data
        FROM public.dashboard_cases c
        INNER JOIN filtered f ON f.booking_id = c.booking_id
        ORDER BY %s %s NULLS LAST, %s ASC
