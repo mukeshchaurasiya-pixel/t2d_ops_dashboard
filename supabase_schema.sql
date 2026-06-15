@@ -754,7 +754,11 @@ BEGIN
   IF NOT public.dashboard_matches_text_filter(input_filters -> 'sheetFinalStatus', c.sheet_final_status) THEN RETURN false; END IF;
   IF NOT public.dashboard_matches_text_filter(input_filters -> 'formFinalStatus', c.form_final_status) THEN RETURN false; END IF;
   IF NOT public.dashboard_matches_text_filter(input_filters -> 'gmailPendencyStatus', c.gmail_pendency_status) THEN RETURN false; END IF;
-  IF NOT public.dashboard_matches_text_filter(input_filters -> 'confidenceTrend', public.dashboard_confidence_trend(c)) THEN RETURN false; END IF;
+  IF input_filters ? 'confidenceTrend' AND jsonb_typeof(input_filters -> 'confidenceTrend') = 'array' AND jsonb_array_length(input_filters -> 'confidenceTrend') > 0 THEN
+    IF NOT public.dashboard_matches_text_filter(input_filters -> 'confidenceTrend', public.dashboard_confidence_trend(c)) THEN
+      RETURN false;
+    END IF;
+  END IF;
   IF NOT public.dashboard_matches_text_filter(input_filters -> 'onDemandStatus', c.row_data ->> 'onDemandStatus') THEN RETURN false; END IF;
 
   IF nullif(coalesce(input_filters ->> 'listingDaysBucket', ''), '') IS NOT NULL THEN
