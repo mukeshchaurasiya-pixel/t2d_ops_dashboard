@@ -394,5 +394,34 @@ export function applyReturnedLeadStage(row) {
     row.leadStage = 'RETURNED';
   }
 
+  // Link expectedDeliveryDate with expectedDeliveryTime if expectedDeliveryTime has a valid date-time
+  if (row.expectedDeliveryTime && String(row.expectedDeliveryTime).trim() !== '') {
+    const timeStr = String(row.expectedDeliveryTime).trim();
+    // 1. Matches YYYY-MM-DD or YYYY/MM/DD
+    const yyyymmddRegex = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/;
+    const matchY = timeStr.match(yyyymmddRegex);
+    let datePart = '';
+    if (matchY) {
+      const year = matchY[1];
+      const month = matchY[2].padStart(2, '0');
+      const day = matchY[3].padStart(2, '0');
+      datePart = `${year}-${month}-${day}`;
+    } else {
+      // 2. Matches DD/MM/YYYY or DD-MM-YYYY
+      const ddmmyyyyRegex = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/;
+      const matchD = timeStr.match(ddmmyyyyRegex);
+      if (matchD) {
+        const day = matchD[1].padStart(2, '0');
+        const month = matchD[2].padStart(2, '0');
+        const year = matchD[3];
+        datePart = `${year}-${month}-${day}`;
+      }
+    }
+
+    if (datePart) {
+      row.expectedDeliveryDate = datePart;
+    }
+  }
+
   return row;
 }

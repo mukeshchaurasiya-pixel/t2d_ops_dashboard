@@ -291,7 +291,10 @@ AS $$
 BEGIN
   NEW.updated_at := coalesce(NEW.updated_at, timezone('utc', now()));
   NEW.token_date := public.parse_dashboard_timestamp(NEW.row_data ->> 'tokenDate')::DATE;
-  NEW.expected_delivery_date := public.parse_dashboard_timestamp(NEW.row_data ->> 'expectedDeliveryDate')::DATE;
+  NEW.expected_delivery_date := coalesce(
+    public.parse_dashboard_timestamp(NEW.row_data ->> 'expectedDeliveryTime')::DATE,
+    public.parse_dashboard_timestamp(NEW.row_data ->> 'expectedDeliveryDate')::DATE
+  );
   NEW.actual_delivery_date := public.parse_dashboard_timestamp(NEW.row_data ->> 'actualDeliveryDate')::DATE;
   NEW.cancel_req_date := public.parse_dashboard_timestamp(NEW.row_data ->> 'cancelReqDate')::DATE;
   NEW.last_payment_date := public.parse_dashboard_timestamp(NEW.row_data ->> 'lastPaymentDate')::DATE;

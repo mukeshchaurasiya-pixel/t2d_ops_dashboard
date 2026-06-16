@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeFilterState, isActiveTokenFastPath } from './dashboardQuery';
 import { DEFAULT_FILTERS, getConfidenceTrendStatus, isRowMatchingFilter, buildEddLabels } from './dashboardFilters';
+import { applyReturnedLeadStage } from '../data/caseRowSchema.js';
 
 test('normalizeFilterState converts multi-select filters into arrays', () => {
   const normalized = normalizeFilterState({
@@ -109,4 +110,21 @@ test('isRowMatchingFilter matches on computed confidence trend status', () => {
     confidenceTrend: nonMatchingTrend,
   };
   assert.equal(isRowMatchingFilter(row, nonMatchingFilters, eddLabels), false);
+});
+
+test('applyReturnedLeadStage links expectedDeliveryDate to date part of expectedDeliveryTime', () => {
+  // Case A: expectedDeliveryTime has full date-time YYYY-MM-DD
+  const row1 = { expectedDeliveryTime: '2026-06-18 00:00:00', expectedDeliveryDate: '2026-06-17' } as any;
+  const processed1 = applyReturnedLeadStage(row1);
+  assert.equal(processed1.expectedDeliveryDate, '2026-06-18');
+
+  // Case B: expectedDeliveryTime has format DD/MM/YYYY
+  const row2 = { expectedDeliveryTime: '18/06/2026 12:30:00', expectedDeliveryDate: '2026-06-17' } as any;
+  const processed2 = applyReturnedLeadStage(row2);
+  assert.equal(processed2.expectedDeliveryDate, '2026-06-18');
+
+  // Case C: expectedDeliveryTime has only time, should NOT overwrite expectedDeliveryDate
+  const row3 = { expectedDeliveryTime: '12:30:00', expectedDeliveryDate: '2026-06-17' } as any;
+  const processed3 = applyReturnedLeadStage(row3);
+  assert.equal(processed3.expectedDeliveryDate, '2026-06-17');
 });
