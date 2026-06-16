@@ -595,8 +595,28 @@ BEGIN
     WHEN 'updatedAt' THEN RETURN c.updated_at::timestamp;
     WHEN 'expectedOdCompletionDate' THEN RETURN c.expected_od_completion_date::timestamp;
     WHEN 'eddReviewerDate' THEN RETURN c.edd_reviewer_date::timestamp;
-    WHEN 'tokenDateTime' THEN RETURN public.parse_dashboard_timestamp(c.row_data ->> 'tokenDateTime');
-    WHEN 'expectedDeliveryTime' THEN RETURN public.parse_dashboard_timestamp(c.row_data ->> 'expectedDeliveryTime');
+    WHEN 'tokenDateTime' THEN
+      RETURN COALESCE(
+        public.parse_dashboard_timestamp(c.row_data ->> 'tokenDateTime'),
+        CASE
+          WHEN (c.row_data ->> 'tokenDateTime') IS NOT NULL AND nullif(btrim(c.row_data ->> 'tokenDateTime'), '') IS NOT NULL 
+               AND c.token_date IS NOT NULL THEN
+            public.parse_dashboard_timestamp(to_char(c.token_date, 'YYYY-MM-DD') || ' ' || (c.row_data ->> 'tokenDateTime'))
+          ELSE
+            c.token_date::timestamp
+        END
+      );
+    WHEN 'expectedDeliveryTime' THEN
+      RETURN COALESCE(
+        public.parse_dashboard_timestamp(c.row_data ->> 'expectedDeliveryTime'),
+        CASE
+          WHEN (c.row_data ->> 'expectedDeliveryTime') IS NOT NULL AND nullif(btrim(c.row_data ->> 'expectedDeliveryTime'), '') IS NOT NULL 
+               AND (c.row_data ->> 'expectedDeliveryDate') IS NOT NULL AND nullif(btrim(c.row_data ->> 'expectedDeliveryDate'), '') IS NOT NULL THEN
+            public.parse_dashboard_timestamp((c.row_data ->> 'expectedDeliveryDate') || ' ' || (c.row_data ->> 'expectedDeliveryTime'))
+          ELSE
+            public.parse_dashboard_timestamp(c.row_data ->> 'expectedDeliveryDate')
+        END
+      );
     WHEN 'cancelReqDate' THEN RETURN c.cancel_req_date::timestamp;
     WHEN 'latestLeadCreationTimestamp' THEN RETURN public.parse_dashboard_timestamp(c.row_data ->> 'latestLeadCreationTimestamp');
     WHEN 'latestLoginTime' THEN RETURN public.parse_dashboard_timestamp(c.row_data ->> 'latestLoginTime');

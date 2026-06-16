@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeFilterState, isActiveTokenFastPath } from './dashboardQuery';
-import { DEFAULT_FILTERS, getConfidenceTrendStatus, isRowMatchingFilter, buildEddLabels } from './dashboardFilters';
+import { DEFAULT_FILTERS, getConfidenceTrendStatus, isRowMatchingFilter, buildEddLabels, getExpectedDeliveryTimeTimestamp, getNormalizedFieldTimestamp } from './dashboardFilters';
 import { applyReturnedLeadStage } from '../data/caseRowSchema.js';
 
 test('normalizeFilterState converts multi-select filters into arrays', () => {
@@ -127,4 +127,57 @@ test('applyReturnedLeadStage links expectedDeliveryDate to date part of expected
   const row3 = { expectedDeliveryTime: '12:30:00', expectedDeliveryDate: '2026-06-17' } as any;
   const processed3 = applyReturnedLeadStage(row3);
   assert.equal(processed3.expectedDeliveryDate, '2026-06-17');
+});
+
+test('getExpectedDeliveryTimeTimestamp returns combined timestamp correctly', () => {
+  // Case 1: has only time, links to date
+  const row1 = { expectedDeliveryTime: '11:30:00', expectedDeliveryDate: '2026-06-18' } as any;
+  const ts1 = getExpectedDeliveryTimeTimestamp(row1);
+  assert.equal(ts1?.getFullYear(), 2026);
+  assert.equal(ts1?.getMonth(), 5); // June is 5
+  assert.equal(ts1?.getDate(), 18);
+  assert.equal(ts1?.getHours(), 11);
+  assert.equal(ts1?.getMinutes(), 30);
+
+  // Case 2: has full date time
+  const row2 = { expectedDeliveryTime: '2026-06-19 14:45:00', expectedDeliveryDate: '2026-06-18' } as any;
+  const ts2 = getExpectedDeliveryTimeTimestamp(row2);
+  assert.equal(ts2?.getDate(), 19);
+  assert.equal(ts2?.getHours(), 14);
+
+  // Case 3: missing time, falls back to date
+  const row3 = { expectedDeliveryTime: '', expectedDeliveryDate: '2026-06-18' } as any;
+  const ts3 = getExpectedDeliveryTimeTimestamp(row3);
+  assert.equal(ts3?.getDate(), 18);
+  assert.equal(ts3?.getHours(), 0);
+});
+
+test('isRowMatchingFilter filters expectedDeliveryTime in range correctly', () => {
+  const row = { expectedDeliveryTime: '11:30:00', expectedDeliveryDate: '2026-06-18' } as any;
+  const eddLabels = buildEddLabels();
+
+  const matchingFilters = {
+    ...DEFAULT_FILTERS,
+    dateField: 'expectedDeliveryTime',
+    startDate: '2026-06-18',
+    endDate: '2026-06-18',
+  };
+  assert.equal(isRowMatchingFilter(row, matchingFilters, eddLabels), true);
+
+  const nonMatchingFilters = {
+    ...DEFAULT_FILTERS,
+    dateField: 'expectedDeliveryTime',
+    startDate: '2026-06-19',
+    endDate: '2026-06-19',
+  };
+  assert.equal(isRowMatchingFilter(row, nonMatchingFilters, eddLabels), false);
+});
+
+test('getNormalizedFieldTimestamp links tokenDateTime to tokenDate correctly', () => {
+  const row = { tokenDateTime: '10:45:00', tokenDate: '2026-06-18' } as any;
+  const ts = getNormalizedFieldTimestamp(row, 'tokenDateTime');
+  assert.equal(ts?.getFullYear(), 2026);
+  assert.equal(ts?.getDate(), 18);
+  assert.equal(ts?.getHours(), 10);
+  assert.equal(ts?.getMinutes(), 45);
 });

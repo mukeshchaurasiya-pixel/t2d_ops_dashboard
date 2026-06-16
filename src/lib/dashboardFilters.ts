@@ -168,13 +168,53 @@ function matchMulti(filterValue: string, rowValue: unknown) {
   return selected.includes(rowString);
 }
 
-function matchesDateFilter(rawValue: unknown, dateFilter: Pick<DateFilter, 'startDate' | 'endDate' | 'filterBlankDates'>) {
-  if (dateFilter.filterBlankDates) {
-    return !(rawValue && parseDateString(String(rawValue)) !== null);
+export function getNormalizedFieldTimestamp(row: CaseRow, dateField: string): Date | null {
+  const value = row[dateField as keyof CaseRow];
+  const strVal = String(value || '').trim();
+
+  let correspondingDateField = '';
+  if (dateField.endsWith('DateTime')) {
+    correspondingDateField = dateField.replace('DateTime', 'Date');
+  } else if (dateField.endsWith('Time')) {
+    correspondingDateField = dateField.replace('Time', 'Date');
   }
 
-  if (!rawValue) return false;
-  const rowDate = parseDateString(String(rawValue));
+  if (!strVal) {
+    if (correspondingDateField) {
+      const dateVal = row[correspondingDateField as keyof CaseRow];
+      const dateStr = String(dateVal || '').trim();
+      return dateStr ? parseDateString(dateStr) : null;
+    }
+    return null;
+  }
+
+  const hasDate = strVal.match(/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/) || strVal.match(/^\d{1,2}[-/]\d{1,2}[-/]\d{4}/);
+  if (hasDate) {
+    return parseDateString(strVal);
+  }
+
+  if (correspondingDateField) {
+    const dateVal = row[correspondingDateField as keyof CaseRow];
+    const dateStr = String(dateVal || '').trim();
+    if (dateStr) {
+      return parseDateString(`${dateStr} ${strVal}`);
+    }
+  }
+
+  return parseDateString(strVal);
+}
+
+export function getExpectedDeliveryTimeTimestamp(row: CaseRow): Date | null {
+  return getNormalizedFieldTimestamp(row, 'expectedDeliveryTime');
+}
+
+function matchesDateFilter(rawValue: unknown, dateFilter: Pick<DateFilter, 'startDate' | 'endDate' | 'filterBlankDates'>) {
+  const rowDate = rawValue instanceof Date ? rawValue : (rawValue ? parseDateString(String(rawValue)) : null);
+
+  if (dateFilter.filterBlankDates) {
+    return !rowDate;
+  }
+
   if (!rowDate) return false;
 
   if (dateFilter.startDate) {
@@ -325,8 +365,8 @@ export function isRowMatchingFilter(
   }
 
   if (ignoreKey !== 'dateRange' && filters.dateField !== 'All') {
-    const dateKey = DATE_MAP[filters.dateField];
-    if (dateKey && !matchesDateFilter(row[dateKey], filters)) {
+    const rawValue = getNormalizedFieldTimestamp(row, filters.dateField);
+    if (!matchesDateFilter(rawValue, filters)) {
       return false;
     }
   }
@@ -334,9 +374,8 @@ export function isRowMatchingFilter(
   if (ignoreKey !== 'dateRange' && filters.dateFilters && filters.dateFilters.length > 0) {
     for (const dateFilter of filters.dateFilters) {
       if (dateFilter.dateField === 'All') continue;
-      const dateKey = DATE_MAP[dateFilter.dateField];
-      if (!dateKey) continue;
-      if (!matchesDateFilter(row[dateKey], dateFilter)) {
+      const rawValue = getNormalizedFieldTimestamp(row, dateFilter.dateField);
+      if (!matchesDateFilter(rawValue, dateFilter)) {
         return false;
       }
     }
