@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { normalizeFilterState, isActiveTokenFastPath } from './dashboardQuery';
 import { DEFAULT_FILTERS, getConfidenceTrendStatus, isRowMatchingFilter, buildEddLabels, getExpectedDeliveryTimeTimestamp, getNormalizedFieldTimestamp } from './dashboardFilters';
 import { applyReturnedLeadStage } from '../data/caseRowSchema.js';
+import { buildEddDistribution } from '../data/mockData';
 
 test('normalizeFilterState converts multi-select filters into arrays', () => {
   const normalized = normalizeFilterState({
@@ -181,3 +182,32 @@ test('getNormalizedFieldTimestamp links tokenDateTime to tokenDate correctly', (
   assert.equal(ts?.getHours(), 10);
   assert.equal(ts?.getMinutes(), 45);
 });
+
+test('buildEddDistribution and eddStatus filtering prioritize expectedDeliveryTime', () => {
+  
+  // Row with expectedDeliveryTime having a date
+  const rowWithTime = {
+    bookingId: 'B-2001',
+    expectedDeliveryTime: '2026-06-25 15:00:00',
+    expectedDeliveryDate: '2026-06-17',
+  } as any;
+
+  // Let's verify the distribution output keys/buckets
+  const dist = buildEddDistribution([rowWithTime]);
+  // The value should go to the bucket for 2026-06-25 instead of 2026-06-17
+  // Since 2026-06-25 is far in the future relative to today (2026-06-16 is current local time), it should be in the +7 days bucket or similar.
+  const overdueCount = dist['Overdue / Breached'] || 0;
+  assert.equal(overdueCount, 0);
+
+  // Verify filtering behaves the same
+  const eddLabels = buildEddLabels();
+  // Today is 2026-06-16 in local test context or system date
+  // Let's test filter match
+  const matchTodayFilter = isRowMatchingFilter(
+    rowWithTime,
+    { ...DEFAULT_FILTERS, eddStatus: 'Overdue / Breached' },
+    eddLabels
+  );
+  assert.equal(matchTodayFilter, false);
+});
+

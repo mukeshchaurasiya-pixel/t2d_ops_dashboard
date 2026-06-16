@@ -164,6 +164,25 @@ function formatDateWithSuffix(date: Date): string {
   return `${day}${getOrdinalSuffix(day)} ${month}`;
 }
 
+function getExpectedDeliveryTimeDate(r: CaseRow): Date | null {
+  const timeStr = String(r.expectedDeliveryTime || '').trim();
+  if (!timeStr) {
+    return r.expectedDeliveryDate ? parseDateString(r.expectedDeliveryDate) : null;
+  }
+
+  const hasDate = timeStr.match(/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/) || timeStr.match(/^\d{1,2}[-/]\d{1,2}[-/]\d{4}/);
+  if (hasDate) {
+    return parseDateString(timeStr);
+  }
+
+  if (r.expectedDeliveryDate) {
+    const dateStr = String(r.expectedDeliveryDate).trim();
+    return parseDateString(`${dateStr} ${timeStr}`);
+  }
+
+  return null;
+}
+
 export function buildEddDistribution(rows: CaseRow[]): Record<string, number> {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -203,12 +222,7 @@ export function buildEddDistribution(rows: CaseRow[]): Record<string, number> {
   result['Blank / Empty'] = 0;
 
   rows.forEach(r => {
-    if (!r.expectedDeliveryDate) {
-      result['Blank / Empty']++;
-      return;
-    }
-
-    const edd = parseDateString(r.expectedDeliveryDate);
+    const edd = getExpectedDeliveryTimeDate(r);
     if (!edd) {
       result['Blank / Empty']++;
       return;

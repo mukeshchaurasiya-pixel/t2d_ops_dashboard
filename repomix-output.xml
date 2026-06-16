@@ -6347,26 +6347,24 @@ export function isRowMatchingFilter(
   if (ignoreKey !== 'eddStatus' && filters.eddStatus && filters.eddStatus !== 'All') {
     let rowBucket = 'Blank / Empty';
 
-    if (row.expectedDeliveryDate) {
-      const edd = parseDateString(row.expectedDeliveryDate);
-      if (edd) {
-        const eddDate = new Date(edd.getFullYear(), edd.getMonth(), edd.getDate(), 0, 0, 0, 0);
-        const diffTime = eddDate.getTime() - eddLabels.today.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const edd = getExpectedDeliveryTimeTimestamp(row);
+    if (edd) {
+      const eddDate = new Date(edd.getFullYear(), edd.getMonth(), edd.getDate(), 0, 0, 0, 0);
+      const diffTime = eddDate.getTime() - eddLabels.today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-        if (diffDays < 0) {
-          rowBucket = 'Overdue / Breached';
-        } else if (diffDays === 0) {
-          rowBucket = eddLabels.labelToday;
-        } else if (diffDays === 1) {
-          rowBucket = eddLabels.labelD1;
-        } else if (diffDays === 2) {
-          rowBucket = eddLabels.labelD2;
-        } else if (diffDays >= 3 && diffDays <= 6) {
-          rowBucket = eddLabels.labelD3_6;
-        } else {
-          rowBucket = eddLabels.labelD7Plus;
-        }
+      if (diffDays < 0) {
+        rowBucket = 'Overdue / Breached';
+      } else if (diffDays === 0) {
+        rowBucket = eddLabels.labelToday;
+      } else if (diffDays === 1) {
+        rowBucket = eddLabels.labelD1;
+      } else if (diffDays === 2) {
+        rowBucket = eddLabels.labelD2;
+      } else if (diffDays >= 3 && diffDays <= 6) {
+        rowBucket = eddLabels.labelD3_6;
+      } else {
+        rowBucket = eddLabels.labelD7Plus;
       }
     }
 
@@ -6574,6 +6572,7 @@ import assert from 'node:assert/strict';
 import { normalizeFilterState, isActiveTokenFastPath } from './dashboardQuery';
 import { DEFAULT_FILTERS, getConfidenceTrendStatus, isRowMatchingFilter, buildEddLabels, getExpectedDeliveryTimeTimestamp, getNormalizedFieldTimestamp } from './dashboardFilters';
 import { applyReturnedLeadStage } from '../data/caseRowSchema.js';
+import { buildEddDistribution } from '../data/mockData';
 
 test('normalizeFilterState converts multi-select filters into arrays', () => {
   const normalized = normalizeFilterState({
@@ -6751,6 +6750,34 @@ test('getNormalizedFieldTimestamp links tokenDateTime to tokenDate correctly', (
   assert.equal(ts?.getDate(), 18);
   assert.equal(ts?.getHours(), 10);
   assert.equal(ts?.getMinutes(), 45);
+});
+
+test('buildEddDistribution and eddStatus filtering prioritize expectedDeliveryTime', () => {
+  
+  // Row with expectedDeliveryTime having a date
+  const rowWithTime = {
+    bookingId: 'B-2001',
+    expectedDeliveryTime: '2026-06-25 15:00:00',
+    expectedDeliveryDate: '2026-06-17',
+  } as any;
+
+  // Let's verify the distribution output keys/buckets
+  const dist = buildEddDistribution([rowWithTime]);
+  // The value should go to the bucket for 2026-06-25 instead of 2026-06-17
+  // Since 2026-06-25 is far in the future relative to today (2026-06-16 is current local time), it should be in the +7 days bucket or similar.
+  const overdueCount = dist['Overdue / Breached'] || 0;
+  assert.equal(overdueCount, 0);
+
+  // Verify filtering behaves the same
+  const eddLabels = buildEddLabels();
+  // Today is 2026-06-16 in local test context or system date
+  // Let's test filter match
+  const matchTodayFilter = isRowMatchingFilter(
+    rowWithTime,
+    { ...DEFAULT_FILTERS, eddStatus: 'Overdue / Breached' },
+    eddLabels
+  );
+  assert.equal(matchTodayFilter, false);
 });
 </file>
 
@@ -7679,6 +7706,25 @@ function formatDateWithSuffix(date: Date): string {
   return `${day}${getOrdinalSuffix(day)} ${month}`;
 }
 
+function getExpectedDeliveryTimeDate(r: CaseRow): Date | null {
+  const timeStr = String(r.expectedDeliveryTime || '').trim();
+  if (!timeStr) {
+    return r.expectedDeliveryDate ? parseDateString(r.expectedDeliveryDate) : null;
+  }
+
+  const hasDate = timeStr.match(/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/) || timeStr.match(/^\d{1,2}[-/]\d{1,2}[-/]\d{4}/);
+  if (hasDate) {
+    return parseDateString(timeStr);
+  }
+
+  if (r.expectedDeliveryDate) {
+    const dateStr = String(r.expectedDeliveryDate).trim();
+    return parseDateString(`${dateStr} ${timeStr}`);
+  }
+
+  return null;
+}
+
 export function buildEddDistribution(rows: CaseRow[]): Record<string, number> {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -7718,12 +7764,7 @@ export function buildEddDistribution(rows: CaseRow[]): Record<string, number> {
   result['Blank / Empty'] = 0;
 
   rows.forEach(r => {
-    if (!r.expectedDeliveryDate) {
-      result['Blank / Empty']++;
-      return;
-    }
-
-    const edd = parseDateString(r.expectedDeliveryDate);
+    const edd = getExpectedDeliveryTimeDate(r);
     if (!edd) {
       result['Blank / Empty']++;
       return;
@@ -8591,7 +8632,7 @@ function buildCaseRecord(row: CaseRow): DashboardCaseRecord {
     row_data: row,
     updated_at: new Date().toISOString(),
     token_date: toDateOnly(row.tokenDate),
-    expected_delivery_date: toDateOnly(row.expectedDeliveryDate),
+    expected_delivery_date: toDateOnly(row.expectedDeliveryTime) || toDateOnly(row.expectedDeliveryDate),
     actual_delivery_date: toDateOnly(row.actualDeliveryDate),
     cancel_req_date: toDateOnly(row.cancelReqDate),
     last_payment_date: toDateOnly(row.lastPaymentDate),

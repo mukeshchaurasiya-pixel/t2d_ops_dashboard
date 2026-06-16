@@ -384,26 +384,24 @@ export function isRowMatchingFilter(
   if (ignoreKey !== 'eddStatus' && filters.eddStatus && filters.eddStatus !== 'All') {
     let rowBucket = 'Blank / Empty';
 
-    if (row.expectedDeliveryDate) {
-      const edd = parseDateString(row.expectedDeliveryDate);
-      if (edd) {
-        const eddDate = new Date(edd.getFullYear(), edd.getMonth(), edd.getDate(), 0, 0, 0, 0);
-        const diffTime = eddDate.getTime() - eddLabels.today.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const edd = getExpectedDeliveryTimeTimestamp(row);
+    if (edd) {
+      const eddDate = new Date(edd.getFullYear(), edd.getMonth(), edd.getDate(), 0, 0, 0, 0);
+      const diffTime = eddDate.getTime() - eddLabels.today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-        if (diffDays < 0) {
-          rowBucket = 'Overdue / Breached';
-        } else if (diffDays === 0) {
-          rowBucket = eddLabels.labelToday;
-        } else if (diffDays === 1) {
-          rowBucket = eddLabels.labelD1;
-        } else if (diffDays === 2) {
-          rowBucket = eddLabels.labelD2;
-        } else if (diffDays >= 3 && diffDays <= 6) {
-          rowBucket = eddLabels.labelD3_6;
-        } else {
-          rowBucket = eddLabels.labelD7Plus;
-        }
+      if (diffDays < 0) {
+        rowBucket = 'Overdue / Breached';
+      } else if (diffDays === 0) {
+        rowBucket = eddLabels.labelToday;
+      } else if (diffDays === 1) {
+        rowBucket = eddLabels.labelD1;
+      } else if (diffDays === 2) {
+        rowBucket = eddLabels.labelD2;
+      } else if (diffDays >= 3 && diffDays <= 6) {
+        rowBucket = eddLabels.labelD3_6;
+      } else {
+        rowBucket = eddLabels.labelD7Plus;
       }
     }
 

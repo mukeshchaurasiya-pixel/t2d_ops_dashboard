@@ -103,7 +103,7 @@ function buildCaseRecord(row: CaseRow): DashboardCaseRecord {
     row_data: row,
     updated_at: new Date().toISOString(),
     token_date: toDateOnly(row.tokenDate),
-    expected_delivery_date: toDateOnly(row.expectedDeliveryDate),
+    expected_delivery_date: toDateOnly(row.expectedDeliveryTime) || toDateOnly(row.expectedDeliveryDate),
     actual_delivery_date: toDateOnly(row.actualDeliveryDate),
     cancel_req_date: toDateOnly(row.cancelReqDate),
     last_payment_date: toDateOnly(row.lastPaymentDate),
