@@ -2649,411 +2649,6 @@ export function applyReturnedLeadStage(row) {
 }
 </file>
 
-<file path="src/hooks/useDashboardDataSource.ts">
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  CaseRow,
-  DashboardFilterOptions,
-  DashboardMatrixResult,
-  DashboardSummaryResult,
-  FilterState,
-} from '../types';
-import {
-  buildLocalDashboardMatrix,
-  buildLocalDashboardSummary,
-  createCaseQuery,
-  EMPTY_CASE_PAGE,
-  EMPTY_DASHBOARD_MATRIX,
-  EMPTY_DASHBOARD_SUMMARY,
-  EMPTY_FILTER_OPTIONS,
-  isActiveTokenFastPath,
-} from '../lib/dashboardQuery';
-import {
-  getActiveTokenCasesFromDb,
-  getCasesPageFromDb,
-  getDashboardFilterOptionsFromDb,
-  getDashboardMatrixFromDb,
-  getDashboardSummaryFromDb,
-} from '../lib/supabaseDb';
-import { buildDynamicFilterOptions, buildEddLabels, isRowMatchingFilter } from '../lib/dashboardFilters';
-import { getDerivedFlags, splitTasks } from '../data/mockData';
-import { parseDateString } from '../lib/dateUtils';
-
-type DashboardDataSourceArgs = {
-  activeTab: 'ops' | 'performance' | 'loss' | 'ledger';
-  demoMode: boolean;
-  demoRows: CaseRow[];
-  filters: FilterState;
-  page: number;
-  pageSize: number;
-  sortField: keyof CaseRow | string;
-  sortDirection: 'asc' | 'desc';
-  refreshKey?: number;
-};
-
-function sortRows(rows: CaseRow[], sortField: keyof CaseRow | string, sortDirection: 'asc' | 'desc') {
-  const fieldName = String(sortField).toLowerCase();
-  const isDateField = fieldName.includes('date') || fieldName.includes('time') || fieldName.includes('timestamp');
-
-  if (isDateField) {
-    const mapped = rows.map(row => {
-      const val = row[sortField as keyof CaseRow];
-      const date = val ? parseDateString(String(val)) : null;
-      return { row, val: date ? date.getTime() : 0 };
-    });
-    mapped.sort((a, b) => {
-      return sortDirection === 'asc' ? a.val - b.val : b.val - a.val;
-    });
-    return mapped.map(item => item.row);
-  }
-
-  return [...rows].sort((a, b) => {
-    const valA = a[sortField as keyof CaseRow];
-    const valB = b[sortField as keyof CaseRow];
-
-    if (typeof valA === 'number' && typeof valB === 'number') {
-      return sortDirection === 'asc' ? valA - valB : valB - valA;
-    }
-
-    const strA = String(valA || '').toLowerCase();
-    const strB = String(valB || '').toLowerCase();
-    if (strA < strB) return sortDirection === 'asc' ? -1 : 1;
-    if (strA > strB) return sortDirection === 'asc' ? 1 : -1;
-    return 0;
-  });
-}
-
-function buildLocalFilterOptions(rows: CaseRow[]): DashboardFilterOptions {
-  const dynamic = buildDynamicFilterOptions(rows);
-  const hubsByCity: Record<string, string[]> = {};
-  const hubs = new Set<string>();
-  const tokenTypesWithNrt = new Set<string>();
-  const dealStatuses = new Set<string>();
-
-  rows.forEach(row => {
-    if (row.hubName) {
-      hubs.add(row.hubName.trim());
-      const city = String(row.city || '').trim();
-      if (city) {
-        if (!hubsByCity[city]) hubsByCity[city] = [];
-        if (!hubsByCity[city].includes(row.hubName.trim())) {
-          hubsByCity[city].push(row.hubName.trim());
-        }
-      }
-    }
-    if (row.tokenTypeWithNrt) tokenTypesWithNrt.add(String(row.tokenTypeWithNrt).trim());
-    if (row.dealStatus) dealStatuses.add(String(row.dealStatus).trim());
-  });
-
-  Object.values(hubsByCity).forEach(values => values.sort());
-
-  return {
-    cities: dynamic.cities,
-    hubs: Array.from(hubs).sort(),
-    hubsByCity,
-    tokenTypes: dynamic.tokenTypes,
-    tokenTypesWithNrt: Array.from(tokenTypesWithNrt).sort(),
-    rms: dynamic.rms,
-    dcs: dynamic.dcs,
-    paymentTypes: dynamic.paymentTypes,
-    leadStages: dynamic.leadStages,
-    dealStatuses: Array.from(dealStatuses).sort(),
-    funnelStages: dynamic.funnelStages,
-    sheetFinalStatuses: dynamic.sheetFinalStatuses,
-    formFinalStatuses: dynamic.formFinalStatuses,
-    gmailPendencyStatuses: dynamic.gmailPendencyStatuses,
-    onDemandStatuses: dynamic.onDemandStatuses,
-    tasks: dynamic.tasks,
-    cancelReasons: dynamic.cancelReasons,
-    leadDsChannels: dynamic.leadDsChannels,
-  };
-}
-
-function buildFilteredCancelledC2dCount(rows: CaseRow[]): number {
-  const groupedByCustomer = new Map<string, CaseRow[]>();
-
-  rows.forEach(row => {
-    const key = row.userId || row.uid || row.leadId;
-    if (!key) return;
-    const list = groupedByCustomer.get(key) || [];
-    list.push(row);
-    groupedByCustomer.set(key, list);
-  });
-
-  let total = 0;
-  groupedByCustomer.forEach(customerRows => {
-    const hasCancelled = customerRows.some(row => {
-      const flags = getDerivedFlags(row);
-      return flags.isCancelled;
-    });
-    const hasDelivered = customerRows.some(row => row.leadStage === 'DELIVERED');
-    if (hasCancelled && hasDelivered) {
-      total += customerRows.filter(row => {
-        const flags = getDerivedFlags(row);
-        return flags.isCancelled;
-      }).length;
-    }
-  });
-
-  return total;
-}
-
-function buildLocalSnapshot(
-  sourceRows: CaseRow[],
-  filters: FilterState,
-  page: number,
-  pageSize: number,
-  sortField: keyof CaseRow | string,
-  sortDirection: 'asc' | 'desc'
-) {
-  const eddLabels = buildEddLabels();
-  const filtered = sourceRows.filter(row => isRowMatchingFilter(row, filters, eddLabels));
-  const sorted = sortRows(filtered, sortField, sortDirection);
-  const totalCount = sorted.length;
-  const start = Math.max(0, (page - 1) * pageSize);
-  const pagedRows = sorted.slice(start, start + pageSize);
-  const filteredCancelledC2dCount = buildFilteredCancelledC2dCount(sorted);
-
-  return {
-    pageRows: pagedRows,
-    totalCount,
-    summary: buildLocalDashboardSummary(sorted, filteredCancelledC2dCount),
-    matrix: buildLocalDashboardMatrix(sorted),
-    filterOptions: buildLocalFilterOptions(sourceRows),
-  };
-}
-
-export function useDashboardDataSource({
-  activeTab,
-  demoMode,
-  demoRows,
-  filters,
-  page,
-  pageSize,
-  sortField,
-  sortDirection,
-  refreshKey = 0,
-}: DashboardDataSourceArgs) {
-  const [pageRows, setPageRows] = useState<CaseRow[]>(demoRows);
-  const [activeTokenRows, setActiveTokenRows] = useState<CaseRow[]>([]);
-  const [summary, setSummary] = useState<DashboardSummaryResult>(EMPTY_DASHBOARD_SUMMARY);
-  const [matrix, setMatrix] = useState<DashboardMatrixResult>(EMPTY_DASHBOARD_MATRIX);
-  const [filterOptions, setFilterOptions] = useState<DashboardFilterOptions>(EMPTY_FILTER_OPTIONS);
-  const [totalCount, setTotalCount] = useState(0);
-  const [loadingPage, setLoadingPage] = useState(false);
-  const [loadingSummary, setLoadingSummary] = useState(false);
-  const [loadingMatrix, setLoadingMatrix] = useState(false);
-  const [reloadNonce, setReloadNonce] = useState(0);
-
-  const query = useMemo(
-    () => createCaseQuery(filters, page, pageSize, sortField, sortDirection),
-    [filters, page, pageSize, sortField, sortDirection]
-  );
-  const activeTokenFastPath = !demoMode && isActiveTokenFastPath(query.filters) && activeTokenRows.length > 0;
-
-  // 1. Determine local source rows
-  const localSourceRows = useMemo(() => {
-    if (demoMode) return demoRows;
-    if (activeTokenFastPath) return activeTokenRows;
-    return [];
-  }, [demoMode, demoRows, activeTokenFastPath, activeTokenRows]);
-
-  // 2. Local filtering
-  const localFilteredRows = useMemo(() => {
-    if (localSourceRows.length === 0) return [];
-    const eddLabels = buildEddLabels();
-    return localSourceRows.filter(row => isRowMatchingFilter(row, filters, eddLabels));
-  }, [localSourceRows, filters]);
-
-  // 3. Filtered Cancelled C2D Count
-  const localFilteredCancelledC2dCount = useMemo(() => {
-    if (localFilteredRows.length === 0) return 0;
-    return buildFilteredCancelledC2dCount(localFilteredRows);
-  }, [localFilteredRows]);
-
-  // 4. Local Summary
-  const localSummary = useMemo(() => {
-    if (localSourceRows.length === 0) return EMPTY_DASHBOARD_SUMMARY;
-    return buildLocalDashboardSummary(localFilteredRows, localFilteredCancelledC2dCount);
-  }, [localFilteredRows, localFilteredCancelledC2dCount, localSourceRows.length]);
-
-  // 5. Local Matrix
-  const localMatrix = useMemo(() => {
-    if (localSourceRows.length === 0) return EMPTY_DASHBOARD_MATRIX;
-    return buildLocalDashboardMatrix(localFilteredRows);
-  }, [localFilteredRows, localSourceRows.length]);
-
-  // 6. Local Filter Options
-  const localFilterOptions = useMemo(() => {
-    if (localSourceRows.length === 0) return EMPTY_FILTER_OPTIONS;
-    return buildLocalFilterOptions(localSourceRows);
-  }, [localSourceRows]);
-
-  // 7. Local Sorting
-  const localSortedRows = useMemo(() => {
-    if (localFilteredRows.length === 0) return [];
-    return sortRows(localFilteredRows, sortField, sortDirection);
-  }, [localFilteredRows, sortField, sortDirection]);
-
-  // 8. Local Paged Rows
-  const localPagedRows = useMemo(() => {
-    if (localSortedRows.length === 0) return [];
-    const start = Math.max(0, (page - 1) * pageSize);
-    return localSortedRows.slice(start, start + pageSize);
-  }, [localSortedRows, page, pageSize]);
-
-  // 9. Local Total Count
-  const localTotalCount = useMemo(() => {
-    return localSortedRows.length;
-  }, [localSortedRows]);
-
-  // Sync local changes to state
-  useEffect(() => {
-    if (demoMode || activeTokenFastPath) {
-      setPageRows(localPagedRows);
-      setTotalCount(localTotalCount);
-      setSummary(localSummary);
-      setMatrix(localMatrix);
-      setFilterOptions(localFilterOptions);
-    }
-  }, [
-    demoMode,
-    activeTokenFastPath,
-    localPagedRows,
-    localTotalCount,
-    localSummary,
-    localMatrix,
-    localFilterOptions,
-  ]);
-
-  useEffect(() => {
-    if (demoMode) {
-      return;
-    }
-
-    let cancelled = false;
-    const loadStaticData = async () => {
-      try {
-        const [options, workingSet] = await Promise.all([
-          getDashboardFilterOptionsFromDb(),
-          getActiveTokenCasesFromDb(),
-        ]);
-        if (!cancelled) {
-          setFilterOptions(options);
-          setActiveTokenRows(workingSet);
-        }
-      } catch (err) {
-        console.warn('Failed to bootstrap dashboard filter options or ACTIVE_TOKEN working set:', err);
-      }
-    };
-
-    void loadStaticData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [demoMode, refreshKey, reloadNonce]);
-
-  const reload = useCallback(() => {
-    setReloadNonce(prev => prev + 1);
-  }, []);
-
-  useEffect(() => {
-    if (demoMode || activeTokenFastPath) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadServerData = async () => {
-      setLoadingPage(true);
-      setLoadingSummary(true);
-
-      try {
-        const [pageResult, summaryResult] = await Promise.all([
-          getCasesPageFromDb(query),
-          getDashboardSummaryFromDb({ filters: query.filters }),
-        ]);
-
-        if (!cancelled) {
-          setPageRows(pageResult.rows || EMPTY_CASE_PAGE.rows);
-          setTotalCount(pageResult.totalCount || 0);
-          setSummary(summaryResult);
-        }
-      } catch (err) {
-        console.error('Failed to load dashboard page or summary:', err);
-      } finally {
-        if (!cancelled) {
-          setLoadingPage(false);
-          setLoadingSummary(false);
-        }
-      }
-    };
-
-    void loadServerData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeTokenFastPath,
-    demoMode,
-    query,
-    reloadNonce,
-  ]);
-
-  useEffect(() => {
-    if (demoMode || activeTokenFastPath) {
-      return;
-    }
-
-    let cancelled = false;
-
-    if (activeTab !== 'ledger') {
-      setMatrix(EMPTY_DASHBOARD_MATRIX);
-      return;
-    }
-
-    const loadMatrix = async () => {
-      setLoadingMatrix(true);
-      try {
-        const matrixResult = await getDashboardMatrixFromDb({ filters: query.filters });
-        if (!cancelled) {
-          setMatrix(matrixResult);
-        }
-      } catch (err) {
-        console.error('Failed to load dashboard matrix summary:', err);
-      } finally {
-        if (!cancelled) {
-          setLoadingMatrix(false);
-        }
-      }
-    };
-
-    void loadMatrix();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, activeTokenFastPath, demoMode, query.filters, reloadNonce]);
-
-  return {
-    pageRows,
-    setPageRows,
-    activeTokenRows,
-    summary,
-    matrix,
-    filterOptions,
-    totalCount,
-    loadingPage,
-    loadingSummary,
-    loadingMatrix,
-    activeTokenFastPath,
-    reload,
-  };
-}
-</file>
-
 <file path="src/lib/firebaseAuth.ts">
 /**
  * @license
@@ -5563,6 +5158,408 @@ export function useCaseData(
     loadCachedRows,
     syncCasesFromSheets,
     syncPendingChangesToSheets,
+  };
+}
+</file>
+
+<file path="src/hooks/useDashboardDataSource.ts">
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  CaseRow,
+  DashboardFilterOptions,
+  DashboardMatrixResult,
+  DashboardSummaryResult,
+  FilterState,
+} from '../types';
+import {
+  buildLocalDashboardMatrix,
+  buildLocalDashboardSummary,
+  createCaseQuery,
+  EMPTY_CASE_PAGE,
+  EMPTY_DASHBOARD_MATRIX,
+  EMPTY_DASHBOARD_SUMMARY,
+  EMPTY_FILTER_OPTIONS,
+  isActiveTokenFastPath,
+} from '../lib/dashboardQuery';
+import {
+  getActiveTokenCasesFromDb,
+  getCasesPageFromDb,
+  getDashboardFilterOptionsFromDb,
+  getDashboardMatrixFromDb,
+  getDashboardSummaryFromDb,
+} from '../lib/supabaseDb';
+import { buildDynamicFilterOptions, buildEddLabels, isRowMatchingFilter } from '../lib/dashboardFilters';
+import { getDerivedFlags, splitTasks } from '../data/mockData';
+import { parseDateString } from '../lib/dateUtils';
+
+type DashboardDataSourceArgs = {
+  activeTab: 'ops' | 'performance' | 'loss' | 'ledger';
+  demoMode: boolean;
+  demoRows: CaseRow[];
+  filters: FilterState;
+  page: number;
+  pageSize: number;
+  sortField: keyof CaseRow | string;
+  sortDirection: 'asc' | 'desc';
+  refreshKey?: number;
+};
+
+function sortRows(rows: CaseRow[], sortField: keyof CaseRow | string, sortDirection: 'asc' | 'desc') {
+  const fieldName = String(sortField).toLowerCase();
+  const isDateField = fieldName.includes('date') || fieldName.includes('time') || fieldName.includes('timestamp');
+
+  if (isDateField) {
+    const mapped = rows.map(row => {
+      const val = row[sortField as keyof CaseRow];
+      const date = val ? parseDateString(String(val)) : null;
+      return { row, val: date ? date.getTime() : 0 };
+    });
+    mapped.sort((a, b) => {
+      return sortDirection === 'asc' ? a.val - b.val : b.val - a.val;
+    });
+    return mapped.map(item => item.row);
+  }
+
+  return [...rows].sort((a, b) => {
+    const valA = a[sortField as keyof CaseRow];
+    const valB = b[sortField as keyof CaseRow];
+
+    if (typeof valA === 'number' && typeof valB === 'number') {
+      return sortDirection === 'asc' ? valA - valB : valB - valA;
+    }
+
+    const strA = String(valA || '').toLowerCase();
+    const strB = String(valB || '').toLowerCase();
+    if (strA < strB) return sortDirection === 'asc' ? -1 : 1;
+    if (strA > strB) return sortDirection === 'asc' ? 1 : -1;
+    return 0;
+  });
+}
+
+function buildLocalFilterOptions(rows: CaseRow[]): DashboardFilterOptions {
+  const dynamic = buildDynamicFilterOptions(rows);
+  const hubsByCity: Record<string, string[]> = {};
+  const hubs = new Set<string>();
+  const tokenTypesWithNrt = new Set<string>();
+  const dealStatuses = new Set<string>();
+
+  rows.forEach(row => {
+    if (row.hubName) {
+      hubs.add(row.hubName.trim());
+      const city = String(row.city || '').trim();
+      if (city) {
+        if (!hubsByCity[city]) hubsByCity[city] = [];
+        if (!hubsByCity[city].includes(row.hubName.trim())) {
+          hubsByCity[city].push(row.hubName.trim());
+        }
+      }
+    }
+    if (row.tokenTypeWithNrt) tokenTypesWithNrt.add(String(row.tokenTypeWithNrt).trim());
+    if (row.dealStatus) dealStatuses.add(String(row.dealStatus).trim());
+  });
+
+  Object.values(hubsByCity).forEach(values => values.sort());
+
+  return {
+    cities: dynamic.cities,
+    hubs: Array.from(hubs).sort(),
+    hubsByCity,
+    tokenTypes: dynamic.tokenTypes,
+    tokenTypesWithNrt: Array.from(tokenTypesWithNrt).sort(),
+    rms: dynamic.rms,
+    dcs: dynamic.dcs,
+    paymentTypes: dynamic.paymentTypes,
+    leadStages: dynamic.leadStages,
+    dealStatuses: Array.from(dealStatuses).sort(),
+    funnelStages: dynamic.funnelStages,
+    sheetFinalStatuses: dynamic.sheetFinalStatuses,
+    formFinalStatuses: dynamic.formFinalStatuses,
+    gmailPendencyStatuses: dynamic.gmailPendencyStatuses,
+    onDemandStatuses: dynamic.onDemandStatuses,
+    tasks: dynamic.tasks,
+    cancelReasons: dynamic.cancelReasons,
+    leadDsChannels: dynamic.leadDsChannels,
+  };
+}
+
+function buildFilteredCancelledC2dCount(filteredRows: CaseRow[], allRows: CaseRow[]): number {
+  const deliveredCustomers = new Set<string>();
+
+  allRows.forEach(row => {
+    if (row.leadStage === 'DELIVERED') {
+      const key = row.userId || row.uid || row.leadId;
+      if (key) {
+        deliveredCustomers.add(key.trim());
+      }
+    }
+  });
+
+  let total = 0;
+  filteredRows.forEach(row => {
+    const flags = getDerivedFlags(row);
+    if (flags.isCancelled) {
+      const key = row.userId || row.uid || row.leadId;
+      if (key && deliveredCustomers.has(key.trim())) {
+        total++;
+      }
+    }
+  });
+
+  return total;
+}
+
+function buildLocalSnapshot(
+  sourceRows: CaseRow[],
+  filters: FilterState,
+  page: number,
+  pageSize: number,
+  sortField: keyof CaseRow | string,
+  sortDirection: 'asc' | 'desc'
+) {
+  const eddLabels = buildEddLabels();
+  const filtered = sourceRows.filter(row => isRowMatchingFilter(row, filters, eddLabels));
+  const sorted = sortRows(filtered, sortField, sortDirection);
+  const totalCount = sorted.length;
+  const start = Math.max(0, (page - 1) * pageSize);
+  const pagedRows = sorted.slice(start, start + pageSize);
+  const filteredCancelledC2dCount = buildFilteredCancelledC2dCount(sorted, sourceRows);
+
+  return {
+    pageRows: pagedRows,
+    totalCount,
+    summary: buildLocalDashboardSummary(sorted, filteredCancelledC2dCount),
+    matrix: buildLocalDashboardMatrix(sorted),
+    filterOptions: buildLocalFilterOptions(sourceRows),
+  };
+}
+
+export function useDashboardDataSource({
+  activeTab,
+  demoMode,
+  demoRows,
+  filters,
+  page,
+  pageSize,
+  sortField,
+  sortDirection,
+  refreshKey = 0,
+}: DashboardDataSourceArgs) {
+  const [pageRows, setPageRows] = useState<CaseRow[]>(demoRows);
+  const [activeTokenRows, setActiveTokenRows] = useState<CaseRow[]>([]);
+  const [summary, setSummary] = useState<DashboardSummaryResult>(EMPTY_DASHBOARD_SUMMARY);
+  const [matrix, setMatrix] = useState<DashboardMatrixResult>(EMPTY_DASHBOARD_MATRIX);
+  const [filterOptions, setFilterOptions] = useState<DashboardFilterOptions>(EMPTY_FILTER_OPTIONS);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loadingPage, setLoadingPage] = useState(false);
+  const [loadingSummary, setLoadingSummary] = useState(false);
+  const [loadingMatrix, setLoadingMatrix] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
+
+  const query = useMemo(
+    () => createCaseQuery(filters, page, pageSize, sortField, sortDirection),
+    [filters, page, pageSize, sortField, sortDirection]
+  );
+  const activeTokenFastPath = !demoMode && isActiveTokenFastPath(query.filters) && activeTokenRows.length > 0;
+
+  // 1. Determine local source rows
+  const localSourceRows = useMemo(() => {
+    if (demoMode) return demoRows;
+    if (activeTokenFastPath) return activeTokenRows;
+    return [];
+  }, [demoMode, demoRows, activeTokenFastPath, activeTokenRows]);
+
+  // 2. Local filtering
+  const localFilteredRows = useMemo(() => {
+    if (localSourceRows.length === 0) return [];
+    const eddLabels = buildEddLabels();
+    return localSourceRows.filter(row => isRowMatchingFilter(row, filters, eddLabels));
+  }, [localSourceRows, filters]);
+
+  // 3. Filtered Cancelled C2D Count
+  const localFilteredCancelledC2dCount = useMemo(() => {
+    if (localFilteredRows.length === 0) return 0;
+    return buildFilteredCancelledC2dCount(localFilteredRows, localSourceRows);
+  }, [localFilteredRows, localSourceRows]);
+
+  // 4. Local Summary
+  const localSummary = useMemo(() => {
+    if (localSourceRows.length === 0) return EMPTY_DASHBOARD_SUMMARY;
+    return buildLocalDashboardSummary(localFilteredRows, localFilteredCancelledC2dCount);
+  }, [localFilteredRows, localFilteredCancelledC2dCount, localSourceRows.length]);
+
+  // 5. Local Matrix
+  const localMatrix = useMemo(() => {
+    if (localSourceRows.length === 0) return EMPTY_DASHBOARD_MATRIX;
+    return buildLocalDashboardMatrix(localFilteredRows);
+  }, [localFilteredRows, localSourceRows.length]);
+
+  // 6. Local Filter Options
+  const localFilterOptions = useMemo(() => {
+    if (localSourceRows.length === 0) return EMPTY_FILTER_OPTIONS;
+    return buildLocalFilterOptions(localSourceRows);
+  }, [localSourceRows]);
+
+  // 7. Local Sorting
+  const localSortedRows = useMemo(() => {
+    if (localFilteredRows.length === 0) return [];
+    return sortRows(localFilteredRows, sortField, sortDirection);
+  }, [localFilteredRows, sortField, sortDirection]);
+
+  // 8. Local Paged Rows
+  const localPagedRows = useMemo(() => {
+    if (localSortedRows.length === 0) return [];
+    const start = Math.max(0, (page - 1) * pageSize);
+    return localSortedRows.slice(start, start + pageSize);
+  }, [localSortedRows, page, pageSize]);
+
+  // 9. Local Total Count
+  const localTotalCount = useMemo(() => {
+    return localSortedRows.length;
+  }, [localSortedRows]);
+
+  // Sync local changes to state
+  useEffect(() => {
+    if (demoMode || activeTokenFastPath) {
+      setPageRows(localPagedRows);
+      setTotalCount(localTotalCount);
+      setSummary(localSummary);
+      setMatrix(localMatrix);
+      setFilterOptions(localFilterOptions);
+    }
+  }, [
+    demoMode,
+    activeTokenFastPath,
+    localPagedRows,
+    localTotalCount,
+    localSummary,
+    localMatrix,
+    localFilterOptions,
+  ]);
+
+  useEffect(() => {
+    if (demoMode) {
+      return;
+    }
+
+    let cancelled = false;
+    const loadStaticData = async () => {
+      try {
+        const [options, workingSet] = await Promise.all([
+          getDashboardFilterOptionsFromDb(),
+          getActiveTokenCasesFromDb(),
+        ]);
+        if (!cancelled) {
+          setFilterOptions(options);
+          setActiveTokenRows(workingSet);
+        }
+      } catch (err) {
+        console.warn('Failed to bootstrap dashboard filter options or ACTIVE_TOKEN working set:', err);
+      }
+    };
+
+    void loadStaticData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [demoMode, refreshKey, reloadNonce]);
+
+  const reload = useCallback(() => {
+    setReloadNonce(prev => prev + 1);
+  }, []);
+
+  useEffect(() => {
+    if (demoMode || activeTokenFastPath) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadServerData = async () => {
+      setLoadingPage(true);
+      setLoadingSummary(true);
+
+      try {
+        const [pageResult, summaryResult] = await Promise.all([
+          getCasesPageFromDb(query),
+          getDashboardSummaryFromDb({ filters: query.filters }),
+        ]);
+
+        if (!cancelled) {
+          setPageRows(pageResult.rows || EMPTY_CASE_PAGE.rows);
+          setTotalCount(pageResult.totalCount || 0);
+          setSummary(summaryResult);
+        }
+      } catch (err) {
+        console.error('Failed to load dashboard page or summary:', err);
+      } finally {
+        if (!cancelled) {
+          setLoadingPage(false);
+          setLoadingSummary(false);
+        }
+      }
+    };
+
+    void loadServerData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeTokenFastPath,
+    demoMode,
+    query,
+    reloadNonce,
+  ]);
+
+  useEffect(() => {
+    if (demoMode || activeTokenFastPath) {
+      return;
+    }
+
+    let cancelled = false;
+
+    if (activeTab !== 'ledger') {
+      setMatrix(EMPTY_DASHBOARD_MATRIX);
+      return;
+    }
+
+    const loadMatrix = async () => {
+      setLoadingMatrix(true);
+      try {
+        const matrixResult = await getDashboardMatrixFromDb({ filters: query.filters });
+        if (!cancelled) {
+          setMatrix(matrixResult);
+        }
+      } catch (err) {
+        console.error('Failed to load dashboard matrix summary:', err);
+      } finally {
+        if (!cancelled) {
+          setLoadingMatrix(false);
+        }
+      }
+    };
+
+    void loadMatrix();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, activeTokenFastPath, demoMode, query.filters, reloadNonce]);
+
+  return {
+    pageRows,
+    setPageRows,
+    activeTokenRows,
+    summary,
+    matrix,
+    filterOptions,
+    totalCount,
+    loadingPage,
+    loadingSummary,
+    loadingMatrix,
+    activeTokenFastPath,
+    reload,
   };
 }
 </file>
@@ -8817,6 +8814,610 @@ export async function exportFilteredRowsToGoogleSheet(
 }
 </file>
 
+<file path="src/lib/supabaseDb.ts">
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { supabase } from './supabaseClient';
+import {
+  AuditLog,
+  CasePageResult,
+  CaseQuery,
+  CaseRow,
+  DashboardFilterOptions,
+  DashboardMatrixResult,
+  DashboardSummaryQuery,
+  DashboardSummaryResult,
+  UserSession,
+} from '../types';
+import {
+  EMPTY_CASE_PAGE,
+  EMPTY_DASHBOARD_MATRIX,
+  EMPTY_DASHBOARD_SUMMARY,
+  EMPTY_FILTER_OPTIONS,
+} from './dashboardQuery';
+import { parseDateString } from './dateUtils';
+
+type DashboardCaseRecord = {
+  booking_id: string;
+  row_data: CaseRow;
+  updated_at: string;
+  token_date: string | null;
+  expected_delivery_date: string | null;
+  actual_delivery_date: string | null;
+  cancel_req_date: string | null;
+  last_payment_date: string | null;
+  latest_remark_date: string | null;
+  expected_od_completion_date: string | null;
+  edd_reviewer_date: string | null;
+  gmail_pendency_date: string | null;
+  city: string | null;
+  hub_name: string | null;
+  allocated_rm: string | null;
+  assigned_dc: string | null;
+  lead_stage: string | null;
+  deal_status: string | null;
+  task_bucket: string | null;
+  payment_type: string | null;
+  token_type: string | null;
+  token_type_with_nrt: string | null;
+  sheet_final_status: string | null;
+  form_final_status: string | null;
+  gmail_pendency_status: string | null;
+  ready_to_deliver: string | null;
+  cancel_reason: string | null;
+  lead_ds_channel: string | null;
+  total_listing_days: number | null;
+  payment_percentage: number | null;
+  customer_key: string | null;
+};
+
+export type DashboardCacheImportStats = {
+  sourceRows: number;
+  uniqueBookingIds: number;
+  blankBookingIdRows: number;
+  duplicateBookingIdRows: number;
+};
+
+const ACTIVE_TOKEN_FETCH_LIMIT = 1000;
+const AUDIT_LOG_CHUNK_SIZE = 500;
+
+function cleanString(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  const cleaned = String(value).trim();
+  return cleaned === '' ? null : cleaned;
+}
+
+function toDateOnly(value: unknown): string | null {
+  const cleaned = cleanString(value);
+  if (!cleaned) return null;
+  const parsed = parseDateString(cleaned);
+  if (!parsed) return null;
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function toTimestamp(value: unknown): string | null {
+  const cleaned = cleanString(value);
+  if (!cleaned) return null;
+  const parsed = parseDateString(cleaned);
+  return parsed ? parsed.toISOString() : null;
+}
+
+function toNumeric(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function buildCaseRecord(row: CaseRow): DashboardCaseRecord {
+  return {
+    booking_id: String(row.bookingId).trim(),
+    row_data: row,
+    updated_at: new Date().toISOString(),
+    token_date: toDateOnly(row.tokenDate),
+    expected_delivery_date: toDateOnly(row.expectedDeliveryTime) || toDateOnly(row.expectedDeliveryDate),
+    actual_delivery_date: toDateOnly(row.actualDeliveryDate),
+    cancel_req_date: toDateOnly(row.cancelReqDate),
+    last_payment_date: toDateOnly(row.lastPaymentDate),
+    latest_remark_date: toTimestamp(row.latestRemarkDate),
+    expected_od_completion_date: toDateOnly(row.expectedOdCompletionDate),
+    edd_reviewer_date: toDateOnly(row.eddReviewerDate),
+    gmail_pendency_date: toDateOnly(row.gmailPendencyDate),
+    city: cleanString(row.city),
+    hub_name: cleanString(row.hubName),
+    allocated_rm: cleanString(row.allocatedRm),
+    assigned_dc: cleanString(row.assignedDc),
+    lead_stage: cleanString(row.leadStage),
+    deal_status: cleanString(row.dealStatus),
+    task_bucket: cleanString(row.taskBucket),
+    payment_type: cleanString(row.paymentType),
+    token_type: cleanString(row.tokenType),
+    token_type_with_nrt: cleanString(row.tokenTypeWithNrt),
+    sheet_final_status: cleanString(row.sheetFinalStatus),
+    form_final_status: cleanString(row.formFinalStatus),
+    gmail_pendency_status: cleanString(row.gmailPendencyStatus),
+    ready_to_deliver: cleanString(row.readyToDeliver),
+    cancel_reason: cleanString(row.cancelReason),
+    lead_ds_channel: cleanString(row.leadDsChannel),
+    total_listing_days: toNumeric(row.totalListingDays),
+    payment_percentage: toNumeric(row.paymentPercentage),
+    customer_key: cleanString(row.userId || row.uid || row.leadId),
+  };
+}
+
+function parseRpcResult<T>(data: unknown, fallback: T): T {
+  if (data === null || data === undefined) return fallback;
+  if (Array.isArray(data) && data.length === 1) {
+    return (data[0] as T) ?? fallback;
+  }
+  return data as T;
+}
+
+/**
+ * Fetches one server-paginated page of cases from Supabase.
+ */
+export async function getCasesPageFromDb(query: CaseQuery): Promise<CasePageResult> {
+  const { data, error } = await supabase.rpc('get_dashboard_case_page', {
+    input_filters: query.filters,
+    input_sort_field: String(query.sortField || 'tokenDate'),
+    input_sort_direction: query.sortDirection,
+    input_page: query.page,
+    input_page_size: query.pageSize,
+  });
+
+  if (error) {
+    console.error('Failed to fetch paginated cases from Supabase DB:', error.message);
+    throw new Error(error.message);
+  }
+
+  return parseRpcResult<CasePageResult>(data, {
+    ...EMPTY_CASE_PAGE,
+    page: query.page,
+    pageSize: query.pageSize,
+  });
+}
+
+/**
+ * Backward-compatible wrapper used by older callers that only need the first page.
+ */
+export async function getCasesFromDb(): Promise<CaseRow[]> {
+  const page = await getCasesPageFromDb({
+    page: 1,
+    pageSize: 15,
+    sortField: 'tokenDate',
+    sortDirection: 'desc',
+    filters: {},
+  });
+  return page.rows;
+}
+
+/**
+ * Loads the sub-1k ACTIVE_TOKEN working set into the browser for low-latency ops actions.
+ */
+export async function getActiveTokenCasesFromDb(limit: number = ACTIVE_TOKEN_FETCH_LIMIT): Promise<CaseRow[]> {
+  const { data, error } = await supabase
+    .from('dashboard_cases')
+    .select('row_data')
+    .eq('lead_stage', 'ACTIVE_TOKEN')
+    .order('token_date', { ascending: false, nullsFirst: false })
+    .limit(limit);
+
+  if (error) {
+    console.error('Failed to fetch ACTIVE_TOKEN working set from Supabase DB:', error.message);
+    throw new Error(error.message);
+  }
+
+  return (data || []).map(record => record.row_data as CaseRow);
+}
+
+export async function getDashboardSummaryFromDb(query: DashboardSummaryQuery): Promise<DashboardSummaryResult> {
+  const { data, error } = await supabase.rpc('get_dashboard_summary', {
+    input_filters: query.filters,
+  });
+
+  if (error) {
+    console.error('Failed to fetch dashboard summary from Supabase DB:', error.message);
+    throw new Error(error.message);
+  }
+
+  return parseRpcResult<DashboardSummaryResult>(data, EMPTY_DASHBOARD_SUMMARY);
+}
+
+export async function getDashboardMatrixFromDb(query: DashboardSummaryQuery): Promise<DashboardMatrixResult> {
+  const { data, error } = await supabase.rpc('get_dashboard_matrix_summary', {
+    input_filters: query.filters,
+  });
+
+  if (error) {
+    console.error('Failed to fetch dashboard matrix summary from Supabase DB:', error.message);
+    throw new Error(error.message);
+  }
+
+  return parseRpcResult<DashboardMatrixResult>(data, EMPTY_DASHBOARD_MATRIX);
+}
+
+export async function getDashboardFilterOptionsFromDb(): Promise<DashboardFilterOptions> {
+  const { data, error } = await supabase.rpc('get_dashboard_filter_options');
+
+  if (error) {
+    console.error('Failed to fetch dashboard filter options from Supabase DB:', error.message);
+    throw new Error(error.message);
+  }
+
+  return parseRpcResult<DashboardFilterOptions>(data, EMPTY_FILTER_OPTIONS);
+}
+
+async function getExistingCasesByBookingIds(bookingIds: string[]): Promise<Map<string, CaseRow>> {
+  const existingRows = new Map<string, CaseRow>();
+  const uniqueBookingIds = Array.from(
+    new Set(
+      bookingIds
+        .map(id => String(id || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  const chunkSize = 500;
+  for (let i = 0; i < uniqueBookingIds.length; i += chunkSize) {
+    const chunk = uniqueBookingIds.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('dashboard_cases')
+      .select('booking_id,row_data')
+      .in('booking_id', chunk);
+
+    if (error) {
+      console.error('Failed to fetch existing cases for targeted diff:', error.message);
+      throw new Error(error.message);
+    }
+
+    (data || []).forEach((record: any) => {
+      const cleanId = String(record.booking_id || '').trim().toLowerCase();
+      if (cleanId) {
+        existingRows.set(cleanId, record.row_data as CaseRow);
+      }
+    });
+  }
+
+  return existingRows;
+}
+
+/**
+ * Detects changes between oldRow and newRow for a list of audited columns.
+ */
+function detectChanges(
+  oldRow: CaseRow,
+  newRow: CaseRow,
+  changedBy: string
+): Omit<AuditLog, 'id' | 'changed_at'>[] {
+  const auditedColumns: (keyof CaseRow)[] = [
+    'readyToDeliver',
+    'cancelReqDate',
+    'expectedOdCompletionDate',
+    'eddReviewerDate',
+    'reviewerRemarks',
+    'onDemandStatus',
+    'expectedDeliveryDate',
+    'paymentPercentage',
+    'sheetFinalStatus',
+    'formFinalStatus',
+    'confidenceScore',
+    'leadStage',
+    'dealStatus',
+    'allocatedRm',
+    'assignedDc',
+    'deliveryStatus',
+    'taskBucket'
+  ];
+
+  const logs: Omit<AuditLog, 'id' | 'changed_at'>[] = [];
+  auditedColumns.forEach(col => {
+    const oldValRaw = oldRow[col];
+    const newValRaw = newRow[col];
+
+    const oldVal = oldValRaw !== undefined && oldValRaw !== null ? String(oldValRaw).trim() : '';
+    const newVal = newValRaw !== undefined && newValRaw !== null ? String(newValRaw).trim() : '';
+
+    if (oldVal !== newVal) {
+      logs.push({
+        booking_id: newRow.bookingId,
+        changed_by: changedBy,
+        column_name: col,
+        old_value: oldVal || null,
+        new_value: newVal || null
+      });
+    }
+  });
+  return logs;
+}
+
+/**
+ * Batch upserts case rows from Google Sheet into the Supabase table.
+ */
+export async function upsertCasesToDb(
+  rows: CaseRow[],
+  changedByEmail?: string
+): Promise<DashboardCacheImportStats> {
+  if (rows.length === 0) {
+    return {
+      sourceRows: 0,
+      uniqueBookingIds: 0,
+      blankBookingIdRows: 0,
+      duplicateBookingIdRows: 0,
+    };
+  }
+
+  // Deduplicate by normalized lowercase bookingId to prevent "ON CONFLICT DO UPDATE" target errors
+  const uniqueRowsMap = new Map<string, CaseRow>();
+  let blankBookingIdRows = 0;
+  let duplicateBookingIdRows = 0;
+
+  rows.forEach(row => {
+    const cleanId = String(row.bookingId || '').trim().toLowerCase();
+    if (!cleanId) {
+      blankBookingIdRows += 1;
+      return;
+    }
+
+    if (uniqueRowsMap.has(cleanId)) {
+      duplicateBookingIdRows += 1;
+    }
+
+    uniqueRowsMap.set(cleanId, row);
+  });
+  const uniqueRows = Array.from(uniqueRowsMap.values());
+
+  // 1. Fetch existing rows from database to compare
+  const bookingIds = uniqueRows.map(row => String(row.bookingId || '').trim()).filter(Boolean);
+  let existingRowsMap = new Map<string, CaseRow>();
+  try {
+    existingRowsMap = await getExistingCasesByBookingIds(bookingIds);
+  } catch (err) {
+    console.warn('Could not fetch existing cases for batch auditing:', err);
+  }
+
+  // 2. Perform bulk upsert in chunks to avoid URL size or payload limitations if the dataset is huge
+  const payload = uniqueRows.map(row => buildCaseRecord(row));
+
+  const chunkSize = 200;
+  for (let i = 0; i < payload.length; i += chunkSize) {
+    const chunk = payload.slice(i, i + chunkSize);
+    const { error } = await supabase
+      .from('dashboard_cases')
+      .upsert(chunk, { onConflict: 'booking_id' });
+
+    if (error) {
+      console.error('Failed to bulk upsert cases into Supabase DB:', error.message);
+      throw new Error(error.message);
+    }
+  }
+
+  // 3. Detect changes and write audit logs in background/after upsert
+  const changedBy = changedByEmail || 'system_sync';
+  const logsToInsert: Omit<AuditLog, 'id' | 'changed_at'>[] = [];
+  
+  uniqueRows.forEach(row => {
+    if (!row.bookingId) return;
+    const cleanId = String(row.bookingId).trim().toLowerCase();
+    const oldRow = existingRowsMap.get(cleanId);
+    if (oldRow) {
+      const rowLogs = detectChanges(oldRow, row, changedBy);
+      logsToInsert.push(...rowLogs);
+    }
+  });
+
+  if (logsToInsert.length > 0) {
+    try {
+      await writeAuditLogs(logsToInsert);
+    } catch (logErr) {
+      console.warn('Failed to write batch audit logs:', logErr);
+    }
+  }
+
+  return {
+    sourceRows: rows.length,
+    uniqueBookingIds: uniqueRows.length,
+    blankBookingIdRows,
+    duplicateBookingIdRows,
+  };
+}
+
+/**
+ * Updates a single case record in the Supabase table.
+ */
+export async function updateSingleCaseInDb(
+  bookingId: string,
+  updatedRow: CaseRow,
+  changedByEmail?: string
+): Promise<void> {
+  // 1. Fetch old row for comparison
+  let oldRow: CaseRow | null = null;
+  try {
+    const { data } = await supabase
+      .from('dashboard_cases')
+      .select('row_data')
+      .eq('booking_id', bookingId)
+      .maybeSingle();
+    if (data) {
+      oldRow = data.row_data as CaseRow;
+    }
+  } catch (err) {
+    console.warn(`Could not fetch existing row for bookingId ${bookingId}:`, err);
+  }
+
+  // 2. Perform the update
+  const { error } = await supabase
+    .from('dashboard_cases')
+    .upsert(buildCaseRecord(updatedRow), { onConflict: 'booking_id' });
+
+  if (error) {
+    console.error(`Failed to update case ${bookingId} in Supabase DB:`, error.message);
+    throw new Error(error.message);
+  }
+
+  // 3. Detect and write audit logs
+  if (oldRow) {
+    const logs = detectChanges(oldRow, updatedRow, changedByEmail || 'unknown_user');
+    if (logs.length > 0) {
+      try {
+        await writeAuditLogs(logs);
+      } catch (logErr) {
+        console.warn(`Failed to write audit logs for bookingId ${bookingId}:`, logErr);
+      }
+    }
+  }
+}
+
+/**
+ * Fetches all cases from Supabase DB that have a pending sheet sync.
+ */
+export async function getUnsyncedCasesFromDb(): Promise<CaseRow[]> {
+  const { data, error } = await supabase
+    .from('dashboard_cases')
+    .select('row_data')
+    .eq('row_data->>syncPending', 'true');
+
+  if (error) {
+    console.error('Failed to fetch unsynced cases from Supabase DB:', error.message);
+    throw new Error(error.message);
+  }
+
+  return (data || []).map(record => record.row_data as CaseRow);
+}
+
+/**
+ * Writes audit log entries for changes to Supabase table.
+ */
+export async function writeAuditLogs(
+  logs: Omit<AuditLog, 'id' | 'changed_at'>[]
+): Promise<void> {
+  if (logs.length === 0) return;
+
+  for (let i = 0; i < logs.length; i += AUDIT_LOG_CHUNK_SIZE) {
+    const chunk = logs.slice(i, i + AUDIT_LOG_CHUNK_SIZE);
+    const { error } = await supabase
+      .from('audit_logs')
+      .insert(chunk);
+
+    if (error) {
+      console.error('Failed to write audit logs to Supabase DB:', error.message);
+      throw new Error(error.message);
+    }
+  }
+}
+
+/**
+ * Fetches audit logs for a specific Booking ID.
+ */
+export async function getAuditLogs(bookingId: string): Promise<AuditLog[]> {
+  const { data, error } = await supabase
+    .from('audit_logs')
+    .select('*')
+    .eq('booking_id', bookingId)
+    .order('changed_at', { ascending: false });
+
+  if (error) {
+    console.error(`Failed to fetch audit logs for case ${bookingId}:`, error.message);
+    throw new Error(error.message);
+  }
+
+  return (data || []) as AuditLog[];
+}
+
+/**
+ * Starts a new user activity tracking session in Supabase DB.
+ * Returns the UUID of the created session.
+ */
+export async function startUserSession(email: string): Promise<string> {
+  const { data, error } = await supabase
+    .from('user_sessions')
+    .insert({
+      user_email: email,
+      login_time: new Date().toISOString(),
+      last_active_time: new Date().toISOString(),
+      duration_minutes: 0
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    console.error('Failed to create user session in Supabase:', error.message);
+    throw new Error(error.message);
+  }
+
+  return data.id;
+}
+
+/**
+ * Updates user session activity heartbeat, recalculating active minutes.
+ */
+export async function heartbeatUserSession(sessionId: string): Promise<void> {
+  try {
+    const { data } = await supabase
+      .from('user_sessions')
+      .select('login_time')
+      .eq('id', sessionId)
+      .maybeSingle();
+
+    if (data && data.login_time) {
+      const loginMs = new Date(data.login_time).getTime();
+      const currentMs = Date.now();
+      const diffMins = Math.max(1, Math.round((currentMs - loginMs) / 60000));
+
+      await supabase
+        .from('user_sessions')
+        .update({
+          last_active_time: new Date().toISOString(),
+          duration_minutes: diffMins
+        })
+        .eq('id', sessionId);
+    }
+  } catch (err) {
+    console.warn('Failed to update user session heartbeat:', err);
+  }
+}
+
+/**
+ * Retrieves list of user sessions (recent first) for admin metrics.
+ */
+export async function getUserSessions(): Promise<UserSession[]> {
+  const { data, error } = await supabase
+    .from('user_sessions')
+    .select('*')
+    .order('login_time', { ascending: false })
+    .limit(200);
+
+  if (error) {
+    console.error('Failed to fetch user sessions:', error.message);
+    throw new Error(error.message);
+  }
+
+  return (data || []) as UserSession[];
+}
+
+/**
+ * Fetches all audit logs (limit 200) for admin overview.
+ */
+export async function getAllAuditLogs(): Promise<AuditLog[]> {
+  const { data, error } = await supabase
+    .from('audit_logs')
+    .select('*')
+    .order('changed_at', { ascending: false })
+    .limit(200);
+
+  if (error) {
+    console.error('Failed to fetch all audit logs:', error.message);
+    throw new Error(error.message);
+  }
+
+  return (data || []) as AuditLog[];
+}
+</file>
+
 <file path="supabase_schema.sql">
 -- SQL Schema Script for CARS24 Dashboard
 -- Run this script in the Supabase SQL Editor.
@@ -9882,22 +10483,17 @@ WITH filtered AS MATERIALIZED (
   WHERE public.dashboard_case_matches_filters(c, input_filters)
 ),
 customer_groups AS (
-  SELECT
-    customer_key,
-    bool_or(lead_stage IN ('CANCELLED', 'RETURNED') OR deal_status = 'CANCEL') AS has_cancelled,
-    bool_or(lead_stage = 'DELIVERED') AS has_delivered
-  FROM filtered
-  WHERE customer_key IS NOT NULL
-  GROUP BY customer_key
+  SELECT DISTINCT customer_key
+  FROM public.dashboard_cases
+  WHERE lead_stage = 'DELIVERED'
+    AND customer_key IS NOT NULL
 ),
 filtered_cancelled_c2d AS (
   SELECT count(*)::INTEGER AS total
   FROM filtered f
   INNER JOIN customer_groups cg
     ON cg.customer_key = f.customer_key
-  WHERE cg.has_cancelled
-    AND cg.has_delivered
-    AND (f.lead_stage IN ('CANCELLED', 'RETURNED') OR f.deal_status = 'CANCEL')
+  WHERE (f.lead_stage IN ('CANCELLED', 'RETURNED') OR f.deal_status = 'CANCEL')
 ),
 task_counts AS (
   SELECT
@@ -10577,610 +11173,6 @@ ON public.user_sessions FOR UPDATE TO authenticated USING (
 ) WITH CHECK (
   lower(user_email) = lower(coalesce(auth.jwt() ->> 'email', ''))
 );
-</file>
-
-<file path="src/lib/supabaseDb.ts">
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import { supabase } from './supabaseClient';
-import {
-  AuditLog,
-  CasePageResult,
-  CaseQuery,
-  CaseRow,
-  DashboardFilterOptions,
-  DashboardMatrixResult,
-  DashboardSummaryQuery,
-  DashboardSummaryResult,
-  UserSession,
-} from '../types';
-import {
-  EMPTY_CASE_PAGE,
-  EMPTY_DASHBOARD_MATRIX,
-  EMPTY_DASHBOARD_SUMMARY,
-  EMPTY_FILTER_OPTIONS,
-} from './dashboardQuery';
-import { parseDateString } from './dateUtils';
-
-type DashboardCaseRecord = {
-  booking_id: string;
-  row_data: CaseRow;
-  updated_at: string;
-  token_date: string | null;
-  expected_delivery_date: string | null;
-  actual_delivery_date: string | null;
-  cancel_req_date: string | null;
-  last_payment_date: string | null;
-  latest_remark_date: string | null;
-  expected_od_completion_date: string | null;
-  edd_reviewer_date: string | null;
-  gmail_pendency_date: string | null;
-  city: string | null;
-  hub_name: string | null;
-  allocated_rm: string | null;
-  assigned_dc: string | null;
-  lead_stage: string | null;
-  deal_status: string | null;
-  task_bucket: string | null;
-  payment_type: string | null;
-  token_type: string | null;
-  token_type_with_nrt: string | null;
-  sheet_final_status: string | null;
-  form_final_status: string | null;
-  gmail_pendency_status: string | null;
-  ready_to_deliver: string | null;
-  cancel_reason: string | null;
-  lead_ds_channel: string | null;
-  total_listing_days: number | null;
-  payment_percentage: number | null;
-  customer_key: string | null;
-};
-
-export type DashboardCacheImportStats = {
-  sourceRows: number;
-  uniqueBookingIds: number;
-  blankBookingIdRows: number;
-  duplicateBookingIdRows: number;
-};
-
-const ACTIVE_TOKEN_FETCH_LIMIT = 1000;
-const AUDIT_LOG_CHUNK_SIZE = 500;
-
-function cleanString(value: unknown): string | null {
-  if (value === undefined || value === null) return null;
-  const cleaned = String(value).trim();
-  return cleaned === '' ? null : cleaned;
-}
-
-function toDateOnly(value: unknown): string | null {
-  const cleaned = cleanString(value);
-  if (!cleaned) return null;
-  const parsed = parseDateString(cleaned);
-  if (!parsed) return null;
-  const year = parsed.getFullYear();
-  const month = String(parsed.getMonth() + 1).padStart(2, '0');
-  const day = String(parsed.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function toTimestamp(value: unknown): string | null {
-  const cleaned = cleanString(value);
-  if (!cleaned) return null;
-  const parsed = parseDateString(cleaned);
-  return parsed ? parsed.toISOString() : null;
-}
-
-function toNumeric(value: unknown): number | null {
-  if (value === undefined || value === null || value === '') return null;
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
-function buildCaseRecord(row: CaseRow): DashboardCaseRecord {
-  return {
-    booking_id: String(row.bookingId).trim(),
-    row_data: row,
-    updated_at: new Date().toISOString(),
-    token_date: toDateOnly(row.tokenDate),
-    expected_delivery_date: toDateOnly(row.expectedDeliveryTime) || toDateOnly(row.expectedDeliveryDate),
-    actual_delivery_date: toDateOnly(row.actualDeliveryDate),
-    cancel_req_date: toDateOnly(row.cancelReqDate),
-    last_payment_date: toDateOnly(row.lastPaymentDate),
-    latest_remark_date: toTimestamp(row.latestRemarkDate),
-    expected_od_completion_date: toDateOnly(row.expectedOdCompletionDate),
-    edd_reviewer_date: toDateOnly(row.eddReviewerDate),
-    gmail_pendency_date: toDateOnly(row.gmailPendencyDate),
-    city: cleanString(row.city),
-    hub_name: cleanString(row.hubName),
-    allocated_rm: cleanString(row.allocatedRm),
-    assigned_dc: cleanString(row.assignedDc),
-    lead_stage: cleanString(row.leadStage),
-    deal_status: cleanString(row.dealStatus),
-    task_bucket: cleanString(row.taskBucket),
-    payment_type: cleanString(row.paymentType),
-    token_type: cleanString(row.tokenType),
-    token_type_with_nrt: cleanString(row.tokenTypeWithNrt),
-    sheet_final_status: cleanString(row.sheetFinalStatus),
-    form_final_status: cleanString(row.formFinalStatus),
-    gmail_pendency_status: cleanString(row.gmailPendencyStatus),
-    ready_to_deliver: cleanString(row.readyToDeliver),
-    cancel_reason: cleanString(row.cancelReason),
-    lead_ds_channel: cleanString(row.leadDsChannel),
-    total_listing_days: toNumeric(row.totalListingDays),
-    payment_percentage: toNumeric(row.paymentPercentage),
-    customer_key: cleanString(row.userId || row.uid || row.leadId),
-  };
-}
-
-function parseRpcResult<T>(data: unknown, fallback: T): T {
-  if (data === null || data === undefined) return fallback;
-  if (Array.isArray(data) && data.length === 1) {
-    return (data[0] as T) ?? fallback;
-  }
-  return data as T;
-}
-
-/**
- * Fetches one server-paginated page of cases from Supabase.
- */
-export async function getCasesPageFromDb(query: CaseQuery): Promise<CasePageResult> {
-  const { data, error } = await supabase.rpc('get_dashboard_case_page', {
-    input_filters: query.filters,
-    input_sort_field: String(query.sortField || 'tokenDate'),
-    input_sort_direction: query.sortDirection,
-    input_page: query.page,
-    input_page_size: query.pageSize,
-  });
-
-  if (error) {
-    console.error('Failed to fetch paginated cases from Supabase DB:', error.message);
-    throw new Error(error.message);
-  }
-
-  return parseRpcResult<CasePageResult>(data, {
-    ...EMPTY_CASE_PAGE,
-    page: query.page,
-    pageSize: query.pageSize,
-  });
-}
-
-/**
- * Backward-compatible wrapper used by older callers that only need the first page.
- */
-export async function getCasesFromDb(): Promise<CaseRow[]> {
-  const page = await getCasesPageFromDb({
-    page: 1,
-    pageSize: 15,
-    sortField: 'tokenDate',
-    sortDirection: 'desc',
-    filters: {},
-  });
-  return page.rows;
-}
-
-/**
- * Loads the sub-1k ACTIVE_TOKEN working set into the browser for low-latency ops actions.
- */
-export async function getActiveTokenCasesFromDb(limit: number = ACTIVE_TOKEN_FETCH_LIMIT): Promise<CaseRow[]> {
-  const { data, error } = await supabase
-    .from('dashboard_cases')
-    .select('row_data')
-    .eq('lead_stage', 'ACTIVE_TOKEN')
-    .order('token_date', { ascending: false, nullsFirst: false })
-    .limit(limit);
-
-  if (error) {
-    console.error('Failed to fetch ACTIVE_TOKEN working set from Supabase DB:', error.message);
-    throw new Error(error.message);
-  }
-
-  return (data || []).map(record => record.row_data as CaseRow);
-}
-
-export async function getDashboardSummaryFromDb(query: DashboardSummaryQuery): Promise<DashboardSummaryResult> {
-  const { data, error } = await supabase.rpc('get_dashboard_summary', {
-    input_filters: query.filters,
-  });
-
-  if (error) {
-    console.error('Failed to fetch dashboard summary from Supabase DB:', error.message);
-    throw new Error(error.message);
-  }
-
-  return parseRpcResult<DashboardSummaryResult>(data, EMPTY_DASHBOARD_SUMMARY);
-}
-
-export async function getDashboardMatrixFromDb(query: DashboardSummaryQuery): Promise<DashboardMatrixResult> {
-  const { data, error } = await supabase.rpc('get_dashboard_matrix_summary', {
-    input_filters: query.filters,
-  });
-
-  if (error) {
-    console.error('Failed to fetch dashboard matrix summary from Supabase DB:', error.message);
-    throw new Error(error.message);
-  }
-
-  return parseRpcResult<DashboardMatrixResult>(data, EMPTY_DASHBOARD_MATRIX);
-}
-
-export async function getDashboardFilterOptionsFromDb(): Promise<DashboardFilterOptions> {
-  const { data, error } = await supabase.rpc('get_dashboard_filter_options');
-
-  if (error) {
-    console.error('Failed to fetch dashboard filter options from Supabase DB:', error.message);
-    throw new Error(error.message);
-  }
-
-  return parseRpcResult<DashboardFilterOptions>(data, EMPTY_FILTER_OPTIONS);
-}
-
-async function getExistingCasesByBookingIds(bookingIds: string[]): Promise<Map<string, CaseRow>> {
-  const existingRows = new Map<string, CaseRow>();
-  const uniqueBookingIds = Array.from(
-    new Set(
-      bookingIds
-        .map(id => String(id || '').trim())
-        .filter(Boolean)
-    )
-  );
-
-  const chunkSize = 500;
-  for (let i = 0; i < uniqueBookingIds.length; i += chunkSize) {
-    const chunk = uniqueBookingIds.slice(i, i + chunkSize);
-    const { data, error } = await supabase
-      .from('dashboard_cases')
-      .select('booking_id,row_data')
-      .in('booking_id', chunk);
-
-    if (error) {
-      console.error('Failed to fetch existing cases for targeted diff:', error.message);
-      throw new Error(error.message);
-    }
-
-    (data || []).forEach((record: any) => {
-      const cleanId = String(record.booking_id || '').trim().toLowerCase();
-      if (cleanId) {
-        existingRows.set(cleanId, record.row_data as CaseRow);
-      }
-    });
-  }
-
-  return existingRows;
-}
-
-/**
- * Detects changes between oldRow and newRow for a list of audited columns.
- */
-function detectChanges(
-  oldRow: CaseRow,
-  newRow: CaseRow,
-  changedBy: string
-): Omit<AuditLog, 'id' | 'changed_at'>[] {
-  const auditedColumns: (keyof CaseRow)[] = [
-    'readyToDeliver',
-    'cancelReqDate',
-    'expectedOdCompletionDate',
-    'eddReviewerDate',
-    'reviewerRemarks',
-    'onDemandStatus',
-    'expectedDeliveryDate',
-    'paymentPercentage',
-    'sheetFinalStatus',
-    'formFinalStatus',
-    'confidenceScore',
-    'leadStage',
-    'dealStatus',
-    'allocatedRm',
-    'assignedDc',
-    'deliveryStatus',
-    'taskBucket'
-  ];
-
-  const logs: Omit<AuditLog, 'id' | 'changed_at'>[] = [];
-  auditedColumns.forEach(col => {
-    const oldValRaw = oldRow[col];
-    const newValRaw = newRow[col];
-
-    const oldVal = oldValRaw !== undefined && oldValRaw !== null ? String(oldValRaw).trim() : '';
-    const newVal = newValRaw !== undefined && newValRaw !== null ? String(newValRaw).trim() : '';
-
-    if (oldVal !== newVal) {
-      logs.push({
-        booking_id: newRow.bookingId,
-        changed_by: changedBy,
-        column_name: col,
-        old_value: oldVal || null,
-        new_value: newVal || null
-      });
-    }
-  });
-  return logs;
-}
-
-/**
- * Batch upserts case rows from Google Sheet into the Supabase table.
- */
-export async function upsertCasesToDb(
-  rows: CaseRow[],
-  changedByEmail?: string
-): Promise<DashboardCacheImportStats> {
-  if (rows.length === 0) {
-    return {
-      sourceRows: 0,
-      uniqueBookingIds: 0,
-      blankBookingIdRows: 0,
-      duplicateBookingIdRows: 0,
-    };
-  }
-
-  // Deduplicate by normalized lowercase bookingId to prevent "ON CONFLICT DO UPDATE" target errors
-  const uniqueRowsMap = new Map<string, CaseRow>();
-  let blankBookingIdRows = 0;
-  let duplicateBookingIdRows = 0;
-
-  rows.forEach(row => {
-    const cleanId = String(row.bookingId || '').trim().toLowerCase();
-    if (!cleanId) {
-      blankBookingIdRows += 1;
-      return;
-    }
-
-    if (uniqueRowsMap.has(cleanId)) {
-      duplicateBookingIdRows += 1;
-    }
-
-    uniqueRowsMap.set(cleanId, row);
-  });
-  const uniqueRows = Array.from(uniqueRowsMap.values());
-
-  // 1. Fetch existing rows from database to compare
-  const bookingIds = uniqueRows.map(row => String(row.bookingId || '').trim()).filter(Boolean);
-  let existingRowsMap = new Map<string, CaseRow>();
-  try {
-    existingRowsMap = await getExistingCasesByBookingIds(bookingIds);
-  } catch (err) {
-    console.warn('Could not fetch existing cases for batch auditing:', err);
-  }
-
-  // 2. Perform bulk upsert in chunks to avoid URL size or payload limitations if the dataset is huge
-  const payload = uniqueRows.map(row => buildCaseRecord(row));
-
-  const chunkSize = 200;
-  for (let i = 0; i < payload.length; i += chunkSize) {
-    const chunk = payload.slice(i, i + chunkSize);
-    const { error } = await supabase
-      .from('dashboard_cases')
-      .upsert(chunk, { onConflict: 'booking_id' });
-
-    if (error) {
-      console.error('Failed to bulk upsert cases into Supabase DB:', error.message);
-      throw new Error(error.message);
-    }
-  }
-
-  // 3. Detect changes and write audit logs in background/after upsert
-  const changedBy = changedByEmail || 'system_sync';
-  const logsToInsert: Omit<AuditLog, 'id' | 'changed_at'>[] = [];
-  
-  uniqueRows.forEach(row => {
-    if (!row.bookingId) return;
-    const cleanId = String(row.bookingId).trim().toLowerCase();
-    const oldRow = existingRowsMap.get(cleanId);
-    if (oldRow) {
-      const rowLogs = detectChanges(oldRow, row, changedBy);
-      logsToInsert.push(...rowLogs);
-    }
-  });
-
-  if (logsToInsert.length > 0) {
-    try {
-      await writeAuditLogs(logsToInsert);
-    } catch (logErr) {
-      console.warn('Failed to write batch audit logs:', logErr);
-    }
-  }
-
-  return {
-    sourceRows: rows.length,
-    uniqueBookingIds: uniqueRows.length,
-    blankBookingIdRows,
-    duplicateBookingIdRows,
-  };
-}
-
-/**
- * Updates a single case record in the Supabase table.
- */
-export async function updateSingleCaseInDb(
-  bookingId: string,
-  updatedRow: CaseRow,
-  changedByEmail?: string
-): Promise<void> {
-  // 1. Fetch old row for comparison
-  let oldRow: CaseRow | null = null;
-  try {
-    const { data } = await supabase
-      .from('dashboard_cases')
-      .select('row_data')
-      .eq('booking_id', bookingId)
-      .maybeSingle();
-    if (data) {
-      oldRow = data.row_data as CaseRow;
-    }
-  } catch (err) {
-    console.warn(`Could not fetch existing row for bookingId ${bookingId}:`, err);
-  }
-
-  // 2. Perform the update
-  const { error } = await supabase
-    .from('dashboard_cases')
-    .upsert(buildCaseRecord(updatedRow), { onConflict: 'booking_id' });
-
-  if (error) {
-    console.error(`Failed to update case ${bookingId} in Supabase DB:`, error.message);
-    throw new Error(error.message);
-  }
-
-  // 3. Detect and write audit logs
-  if (oldRow) {
-    const logs = detectChanges(oldRow, updatedRow, changedByEmail || 'unknown_user');
-    if (logs.length > 0) {
-      try {
-        await writeAuditLogs(logs);
-      } catch (logErr) {
-        console.warn(`Failed to write audit logs for bookingId ${bookingId}:`, logErr);
-      }
-    }
-  }
-}
-
-/**
- * Fetches all cases from Supabase DB that have a pending sheet sync.
- */
-export async function getUnsyncedCasesFromDb(): Promise<CaseRow[]> {
-  const { data, error } = await supabase
-    .from('dashboard_cases')
-    .select('row_data')
-    .eq('row_data->>syncPending', 'true');
-
-  if (error) {
-    console.error('Failed to fetch unsynced cases from Supabase DB:', error.message);
-    throw new Error(error.message);
-  }
-
-  return (data || []).map(record => record.row_data as CaseRow);
-}
-
-/**
- * Writes audit log entries for changes to Supabase table.
- */
-export async function writeAuditLogs(
-  logs: Omit<AuditLog, 'id' | 'changed_at'>[]
-): Promise<void> {
-  if (logs.length === 0) return;
-
-  for (let i = 0; i < logs.length; i += AUDIT_LOG_CHUNK_SIZE) {
-    const chunk = logs.slice(i, i + AUDIT_LOG_CHUNK_SIZE);
-    const { error } = await supabase
-      .from('audit_logs')
-      .insert(chunk);
-
-    if (error) {
-      console.error('Failed to write audit logs to Supabase DB:', error.message);
-      throw new Error(error.message);
-    }
-  }
-}
-
-/**
- * Fetches audit logs for a specific Booking ID.
- */
-export async function getAuditLogs(bookingId: string): Promise<AuditLog[]> {
-  const { data, error } = await supabase
-    .from('audit_logs')
-    .select('*')
-    .eq('booking_id', bookingId)
-    .order('changed_at', { ascending: false });
-
-  if (error) {
-    console.error(`Failed to fetch audit logs for case ${bookingId}:`, error.message);
-    throw new Error(error.message);
-  }
-
-  return (data || []) as AuditLog[];
-}
-
-/**
- * Starts a new user activity tracking session in Supabase DB.
- * Returns the UUID of the created session.
- */
-export async function startUserSession(email: string): Promise<string> {
-  const { data, error } = await supabase
-    .from('user_sessions')
-    .insert({
-      user_email: email,
-      login_time: new Date().toISOString(),
-      last_active_time: new Date().toISOString(),
-      duration_minutes: 0
-    })
-    .select('id')
-    .single();
-
-  if (error) {
-    console.error('Failed to create user session in Supabase:', error.message);
-    throw new Error(error.message);
-  }
-
-  return data.id;
-}
-
-/**
- * Updates user session activity heartbeat, recalculating active minutes.
- */
-export async function heartbeatUserSession(sessionId: string): Promise<void> {
-  try {
-    const { data } = await supabase
-      .from('user_sessions')
-      .select('login_time')
-      .eq('id', sessionId)
-      .maybeSingle();
-
-    if (data && data.login_time) {
-      const loginMs = new Date(data.login_time).getTime();
-      const currentMs = Date.now();
-      const diffMins = Math.max(1, Math.round((currentMs - loginMs) / 60000));
-
-      await supabase
-        .from('user_sessions')
-        .update({
-          last_active_time: new Date().toISOString(),
-          duration_minutes: diffMins
-        })
-        .eq('id', sessionId);
-    }
-  } catch (err) {
-    console.warn('Failed to update user session heartbeat:', err);
-  }
-}
-
-/**
- * Retrieves list of user sessions (recent first) for admin metrics.
- */
-export async function getUserSessions(): Promise<UserSession[]> {
-  const { data, error } = await supabase
-    .from('user_sessions')
-    .select('*')
-    .order('login_time', { ascending: false })
-    .limit(200);
-
-  if (error) {
-    console.error('Failed to fetch user sessions:', error.message);
-    throw new Error(error.message);
-  }
-
-  return (data || []) as UserSession[];
-}
-
-/**
- * Fetches all audit logs (limit 200) for admin overview.
- */
-export async function getAllAuditLogs(): Promise<AuditLog[]> {
-  const { data, error } = await supabase
-    .from('audit_logs')
-    .select('*')
-    .order('changed_at', { ascending: false })
-    .limit(200);
-
-  if (error) {
-    console.error('Failed to fetch all audit logs:', error.message);
-    throw new Error(error.message);
-  }
-
-  return (data || []) as AuditLog[];
-}
 </file>
 
 <file path="src/types.ts">
