@@ -71,7 +71,8 @@ function runVerification() {
 
     // Check if local saving/session fallback is handled when error occurs or when offline
     const hasLocalSaveFallback = editorContent.includes('Your changes are saved locally in this session.') || 
-                                  editorContent.includes('Offline Change Saved');
+                                  editorContent.includes('Saved offline') ||
+                                  editorContent.includes('Saved offline to DB');
     if (hasLocalSaveFallback) {
       console.log('[PASS] local save/session fallback logic exists and runs gracefully.');
     } else {

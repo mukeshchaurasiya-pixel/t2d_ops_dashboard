@@ -376,6 +376,7 @@ export default function Dashboard({
     setTempRowData,
     savingRow,
     saveSuccess,
+    saveFeedback,
     fetchingLatestRow,
     auditLogs,
     loadingAuditLogs,
@@ -1611,6 +1612,8 @@ export default function Dashboard({
         tempRowData={tempRowData}
         setTempRowData={setTempRowData}
         saveSuccess={saveSuccess}
+        saveFeedback={saveFeedback}
+        isOffline={!accessToken}
         savingRow={savingRow}
         handleSaveActionables={handleSaveActionables}
         loadingAuditLogs={loadingAuditLogs}

@@ -20,6 +20,8 @@ interface CaseDetailsSidebarProps {
   tempRowData: CaseEditorDraft;
   setTempRowData: React.Dispatch<React.SetStateAction<CaseEditorDraft>>;
   saveSuccess: boolean;
+  saveFeedback?: string | null;
+  isOffline?: boolean;
   savingRow: boolean;
   handleSaveActionables: () => void;
   loadingAuditLogs: boolean;
@@ -34,6 +36,8 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
   tempRowData,
   setTempRowData,
   saveSuccess,
+  saveFeedback = null,
+  isOffline = false,
   savingRow,
   handleSaveActionables,
   loadingAuditLogs,
@@ -423,17 +427,31 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                       </div>
 
                       {/* Save & Sync button — directly below Extra Remark */}
-                      {saveSuccess && (
-                        <motion.div
-                          initial={{ opacity: 0, y: -6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -6 }}
-                          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold"
-                        >
-                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                          Updated successfully
-                        </motion.div>
-                      )}
+                      <AnimatePresence>
+                        {saveFeedback && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            className={`flex items-start gap-2 px-3 py-2 rounded-lg text-[11px] font-medium leading-normal ${
+                              saveFeedback.includes('Failed')
+                                ? 'bg-rose-950/20 border border-rose-900/40 text-rose-300'
+                                : saveFeedback.includes('offline') || saveFeedback.includes('Offline')
+                                ? 'bg-amber-950/20 border border-amber-900/40 text-amber-300'
+                                : 'bg-emerald-950/20 border border-emerald-900/40 text-emerald-300'
+                            }`}
+                          >
+                            {saveFeedback.includes('Failed') ? (
+                              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                            ) : saveFeedback.includes('offline') || saveFeedback.includes('Offline') ? (
+                              <Clock className="w-4 h-4 text-amber-500 shrink-0 mt-0.5 animate-pulse" />
+                            ) : (
+                              <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                            )}
+                            <div>{saveFeedback}</div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                       <button
                         type="button"
                         onClick={handleSaveActionables}
@@ -443,10 +461,10 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                         {savingRow ? (
                           <>
                             <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            Synchronizing to GSheets Layer...
+                            {isOffline ? "Saving to database cache..." : "Synchronizing to GSheets Layer..."}
                           </>
                         ) : (
-                          "Save & Sync back to Spreadsheet"
+                          isOffline ? "Save Change (Offline)" : "Save & Sync back to Spreadsheet"
                         )}
                       </button>
 

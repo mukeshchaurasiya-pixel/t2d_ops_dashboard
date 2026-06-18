@@ -42,6 +42,7 @@ export function useCaseEditor({
   const [tempRowData, setTempRowData] = useState<CaseEditorDraft>({});
   const [savingRow, setSavingRow] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   const [fetchingLatestRow, setFetchingLatestRow] = useState(false);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [loadingAuditLogs, setLoadingAuditLogs] = useState<boolean>(false);
@@ -172,19 +173,25 @@ export function useCaseEditor({
           updatedAt: updatedRowBase.updatedAt,
         });
       } else {
-        alert("Offline Change Saved: Your edits are stored in the database cache. They will sync back to the Google Sheet once any operator connects with Google Sign-In.");
+        setSaveFeedback("Saved offline to DB. Edits will sync back to Google Sheets once connected.");
       }
 
       setRows(prevRows => prevRows.map(row => row.bookingId === selectedRow.bookingId ? updatedRowBase : row));
       setSaveSuccess(true);
-      setSelectedBookingId(null);
+      if (accessToken) {
+        setSaveFeedback("Updated and synced to Google Sheets successfully.");
+      }
       if (onAfterSave) {
         await onAfterSave();
       }
-      setTimeout(() => setSaveSuccess(false), 2500);
+      setTimeout(() => {
+        setSaveSuccess(false);
+        setSaveFeedback(null);
+      }, 5000);
     } catch (err: any) {
       console.error('Failed to save to database or Google Sheet:', err);
-      alert(`Failed to save: ${err.message || err}\n\nYour changes are saved locally in this session.`);
+      setSaveFeedback(`Failed to save: ${err.message || err}`);
+      setTimeout(() => setSaveFeedback(null), 5000);
 
       const fallbackRow: CaseRow = {
         ...selectedRow,
@@ -195,7 +202,6 @@ export function useCaseEditor({
       delete (fallbackRow as CaseEditorDraft).newRemarkAddition;
 
       setRows(prevRows => prevRows.map(row => row.bookingId === selectedRow.bookingId ? fallbackRow : row));
-      setSelectedBookingId(null);
     } finally {
       setSavingRow(false);
     }
@@ -208,6 +214,7 @@ export function useCaseEditor({
     setTempRowData,
     savingRow,
     saveSuccess,
+    saveFeedback,
     fetchingLatestRow,
     auditLogs,
     loadingAuditLogs,
