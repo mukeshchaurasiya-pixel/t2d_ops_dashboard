@@ -23,7 +23,11 @@ import { useDashboardDataSource } from '../hooks/useDashboardDataSource';
 import {
   createDerivedLabels,
   DEFAULT_FILTERS,
+  isRowMatchingFilter,
+  buildEddLabels,
 } from '../lib/dashboardFilters';
+import { createCaseQuery } from '../lib/dashboardQuery';
+import { getCasesPageFromDb } from '../lib/supabaseDb';
 
 import { parseDateString } from '../lib/dateUtils';
 
@@ -198,6 +202,47 @@ export default function Dashboard({
   const [exportingGoogleSheet, setExportingGoogleSheet] = useState(false);
   const [exportFeedback, setExportFeedback] = useState<string | null>(null);
 
+  const getAllFilteredRowsForExport = async (): Promise<CaseRow[]> => {
+    if (demoMode) {
+      const eddLabels = buildEddLabels();
+      return rows.filter(row => isRowMatchingFilter(row, filters, eddLabels));
+    }
+    
+    if (activeTokenFastPath && activeTokenRows.length > 0) {
+      const eddLabels = buildEddLabels();
+      return activeTokenRows.filter(row => isRowMatchingFilter(row, filters, eddLabels));
+    }
+    
+    // Server mode
+    const query = createCaseQuery(filters, 1, 200, sortField || 'tokenDate', sortDirection);
+    const firstPage = await getCasesPageFromDb(query);
+    const total = firstPage.totalCount;
+    const rowsList = [...firstPage.rows];
+    
+    if (total <= 200) {
+      return rowsList;
+    }
+    
+    const totalPages = Math.ceil(total / 200);
+    const promises = [];
+    for (let p = 2; p <= totalPages; p++) {
+      promises.push(
+        getCasesPageFromDb({
+          ...query,
+          page: p,
+          pageSize: 200
+        }).then(res => res.rows)
+      );
+    }
+    
+    const remainingPages = await Promise.all(promises);
+    remainingPages.forEach(pageRows => {
+      rowsList.push(...pageRows);
+    });
+    
+    return rowsList;
+  };
+
   const handleExportGoogleSheet = async () => {
     if (!accessToken) {
       alert("Please sign in with Google to export to Google Sheets.");
@@ -205,13 +250,15 @@ export default function Dashboard({
     }
 
     setExportingGoogleSheet(true);
-    setExportFeedback("Creating brand new Google Spreadsheet...");
+    setExportFeedback("Preparing data for export...");
     
     try {
+      const allFilteredRows = await getAllFilteredRowsForExport();
+      setExportFeedback(`Exporting ${allFilteredRows.length} rows to Google Sheet...`);
       const { exportFilteredRowsToGoogleSheet } = await import('../lib/sheetsService');
       const result = await exportFilteredRowsToGoogleSheet(
         accessToken,
-        currentRows,
+        allFilteredRows,
         additionalCsvCols
       );
       setExportFeedback(`Successfully created new sheet: "${result.title}"! Opening...`);
@@ -229,54 +276,67 @@ export default function Dashboard({
     }
   };
 
-  const handleExportCsv = () => {
-    // Basic standard columns
-    const standardHeader = ["Booking ID", "Loan ID", "Token Date", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"];
+  const handleExportCsv = async () => {
+    setExportFeedback("Preparing CSV data for export...");
     
-    // Add additional headers
-    const additionalHeaders = AVAILABLE_ADDITIONAL_COLS
-      .filter(col => additionalCsvCols.includes(String(col.key)))
-      .map(col => col.label);
+    try {
+      const allFilteredRows = await getAllFilteredRowsForExport();
+      setExportFeedback(`Exporting ${allFilteredRows.length} rows to CSV...`);
       
-    const headerRow = [...standardHeader, ...additionalHeaders].join(",");
-    
-    const dataRows = currentRows.map(row => {
-      const standardVals = [
-        row.bookingId,
-        row.loanId,
-        row.tokenDate,
-        row.hubName,
-        row.allocatedRm,
-        row.tokenType,
-        row.paymentType,
-        row.leadStage,
-        row.taskBucket,
-        row.expectedDeliveryDate,
-        row.readyToDeliver,
-        row.expectedOdCompletionDate,
-        row.reviewerRemarks
-      ];
+      // Basic standard columns
+      const standardHeader = ["Booking ID", "Loan ID", "Token Date", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"];
       
-      const additionalVals = AVAILABLE_ADDITIONAL_COLS
+      // Add additional headers
+      const additionalHeaders = AVAILABLE_ADDITIONAL_COLS
         .filter(col => additionalCsvCols.includes(String(col.key)))
-        .map(col => {
-          const val = row[col.key];
-          return val !== undefined && val !== null ? val : '';
-        });
+        .map(col => col.label);
         
-      return [...standardVals, ...additionalVals]
-        .map(v => `"${String(v).replace(/"/g, '""')}"`)
-        .join(',');
-    });
-    
-    const csvContent = [headerRow, ...dataRows].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'cars24_ops_filtered_dataset.csv';
-    link.click();
-    setShowCsvModal(false);
+      const headerRow = [...standardHeader, ...additionalHeaders].join(",");
+      
+      const dataRows = allFilteredRows.map(row => {
+        const standardVals = [
+          row.bookingId,
+          row.loanId,
+          row.tokenDate,
+          row.hubName,
+          row.allocatedRm,
+          row.tokenType,
+          row.paymentType,
+          row.leadStage,
+          row.taskBucket,
+          row.expectedDeliveryDate,
+          row.readyToDeliver,
+          row.expectedOdCompletionDate,
+          row.reviewerRemarks
+        ];
+        
+        const additionalVals = AVAILABLE_ADDITIONAL_COLS
+          .filter(col => additionalCsvCols.includes(String(col.key)))
+          .map(col => {
+            const val = row[col.key];
+            return val !== undefined && val !== null ? val : '';
+          });
+          
+        return [...standardVals, ...additionalVals]
+          .map(v => `"${String(v).replace(/"/g, '""')}"`)
+          .join(',');
+      });
+      
+      const csvContent = [headerRow, ...dataRows].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'cars24_ops_filtered_dataset.csv';
+      link.click();
+      
+      setExportFeedback(null);
+      setShowCsvModal(false);
+    } catch (err: any) {
+      console.error("CSV export failed:", err);
+      setExportFeedback(`Export failed: ${err.message || err}`);
+      setTimeout(() => setExportFeedback(null), 5000);
+    }
   };
 
   const handleExportImage = () => {

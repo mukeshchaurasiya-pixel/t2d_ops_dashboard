@@ -799,6 +799,30 @@ export default defineConfig(() => {
 });
 </file>
 
+<file path=".env.example">
+# GEMINI_API_KEY: Required for Gemini AI API calls.
+# AI Studio automatically injects this at runtime from user secrets.
+# Users configure this via the Secrets panel in the AI Studio UI.
+GEMINI_API_KEY="MY_GEMINI_API_KEY"
+
+# APP_URL: The URL where this applet is hosted.
+# AI Studio automatically injects this at runtime with the Cloud Run service URL.
+# Used for self-referential links, OAuth callbacks, and API endpoints.
+APP_URL="MY_APP_URL"
+
+# SUPABASE: Required for authentication and shared spreadsheet config storage.
+# Get these from your Supabase project: Settings -> API
+VITE_SUPABASE_URL="https://YOUR_PROJECT_ID.supabase.co"
+VITE_SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_KEY"
+
+# BACKGROUND SYNC WORKER:
+# Used by GitHub Actions or any backend worker that syncs the private Google Sheet
+# into Supabase. The service account email must be granted access to the sheet.
+SUPABASE_SERVICE_ROLE_KEY="YOUR_SUPABASE_SERVICE_ROLE_KEY"
+GOOGLE_SERVICE_ACCOUNT_EMAIL="service-account@your-project.iam.gserviceaccount.com"
+GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+</file>
+
 <file path=".gitignore">
 node_modules/
 build/
@@ -1398,6 +1422,207 @@ body {
 }
 </file>
 
+<file path="src/lib/firebaseAuth.ts">
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Auth & shared config layer — powered by Supabase.
+ * Drop-in replacement for the previous Firebase implementation.
+ * Exposes the same public interface so App.tsx requires minimal changes.
+ */
+
+import { supabase } from './supabaseClient';
+import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
+
+// ─── Re-export a User shape compatible with the rest of the app ───────────────
+export interface AppUser {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+}
+
+// ─── Shared spreadsheet config stored in Supabase ────────────────────────────
+export interface SharedConfig {
+  userId: string;
+  sheetId: string;
+  sheetName: string;
+  updatedAt: string;
+  updatedBy?: string;
+}
+
+// ─── Internal helpers ─────────────────────────────────────────────────────────
+const TOKEN_CACHE_KEY = 'cars24_google_provider_token';
+
+function cacheProviderToken(token: string | null) {
+  if (token) {
+    localStorage.setItem(TOKEN_CACHE_KEY, token);
+  }
+}
+
+function getProviderToken(session: Session): string | null {
+  // provider_token is available immediately after OAuth but may be null
+  // on session restore (PKCE limitation). Fall back to localStorage cache.
+  return session.provider_token ?? localStorage.getItem(TOKEN_CACHE_KEY);
+}
+
+function sessionToAppUser(session: Session): AppUser {
+  const u = session.user;
+  return {
+    uid: u.id,
+    email: u.email ?? null,
+    displayName: u.user_metadata?.full_name ?? u.user_metadata?.name ?? null,
+    photoURL: u.user_metadata?.avatar_url ?? null,
+  };
+}
+
+// ─── Auth state listener ──────────────────────────────────────────────────────
+/**
+ * Subscribe to Supabase auth state changes.
+ * Calls onAuthSuccess with an AppUser + provider_token on sign-in,
+ * and onAuthFailure on sign-out.
+ * Returns an unsubscribe function.
+ */
+export function initAuth(
+  onAuthSuccess?: (user: AppUser, token: string | null) => void,
+  onAuthFailure?: () => void
+): () => void {
+  // Check current session immediately
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    if (session) {
+      const token = getProviderToken(session);
+      cacheProviderToken(token);
+      if (onAuthSuccess) onAuthSuccess(sessionToAppUser(session), token);
+    } else {
+      if (onAuthFailure) onAuthFailure();
+    }
+  });
+
+  // Subscribe to future changes
+  const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    (_event, session) => {
+      if (session) {
+        const token = getProviderToken(session);
+        cacheProviderToken(token); // persist for session restores
+        if (onAuthSuccess) onAuthSuccess(sessionToAppUser(session), token);
+      } else {
+        if (onAuthFailure) onAuthFailure();
+      }
+    }
+  );
+
+  return () => subscription.unsubscribe();
+}
+
+// ─── Google Sign-In via Supabase OAuth ───────────────────────────────────────
+/**
+ * Trigger Google OAuth popup (redirects to Supabase OAuth flow).
+ * Supabase will redirect back to the app; the auth state listener picks it up.
+ * Returns the user + access token from the current session after redirect.
+ */
+export async function googleSignIn(): Promise<{ user: AppUser; accessToken: string } | null> {
+  const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined;
+
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo,
+      scopes: 'https://www.googleapis.com/auth/spreadsheets',
+      queryParams: {
+        access_type: 'offline',
+        prompt: 'consent',
+      },
+    },
+  });
+
+  if (error) {
+    console.error('Supabase Google sign-in error:', error);
+    throw new Error(error.message);
+  }
+
+  // The page will redirect; we return null here.
+  // After redirect, initAuth picks up the new session automatically.
+  return null;
+}
+
+// ─── Get access token from current session ────────────────────────────────────
+export async function getAccessToken(): Promise<string | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.provider_token ?? null;
+}
+
+// ─── Sign out ─────────────────────────────────────────────────────────────────
+export async function logout(): Promise<void> {
+  localStorage.removeItem(TOKEN_CACHE_KEY);
+  await supabase.auth.signOut();
+}
+
+// ─── Shared spreadsheet config (Supabase table: shared_config) ───────────────
+/**
+ * Reads the globally shared configuration from the Supabase shared_config table.
+ */
+export async function getSharedConfig(): Promise<SharedConfig | null> {
+  try {
+    const { data, error } = await supabase
+      .from('shared_config')
+      .select('*')
+      .eq('id', 'shared')
+      .maybeSingle();
+
+    if (error) {
+      console.warn('Could not read shared config from Supabase:', error.message);
+      return null;
+    }
+
+    if (!data) return null;
+
+    return {
+      userId: 'shared',
+      sheetId: data.sheet_id,
+      sheetName: data.sheet_name,
+      updatedAt: data.updated_at,
+      updatedBy: data.updated_by ?? undefined,
+    };
+  } catch (err) {
+    console.warn('Unexpected error reading shared config:', err);
+    return null;
+  }
+}
+
+/**
+ * Writes the shared configuration to the Supabase shared_config table.
+ */
+export async function saveSharedConfig(
+  sheetId: string,
+  sheetName: string,
+  updatedByEmail?: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('shared_config')
+    .upsert(
+      {
+        id: 'shared',
+        sheet_id: sheetId,
+        sheet_name: sheetName,
+        updated_at: new Date().toISOString(),
+        updated_by: updatedByEmail ?? 'unknown',
+      },
+      { onConflict: 'id' }
+    );
+
+  if (error) {
+    console.error('Failed to write shared config to Supabase:', error.message);
+    throw new Error(error.message);
+  }
+}
+
+// ─── Legacy Firebase exports kept for compatibility ───────────────────────────
+// These are no-ops or aliases so any remaining imports don't break.
+export const auth = null;
+export const db = null;
+</file>
+
 <file path="src/lib/sheetAccessCache.ts">
 export function getSheetAccessCacheKeys(activeSheetId: string, activeUserEmail?: string | null) {
   const emailKey = String(activeUserEmail || 'anonymous').trim().toLowerCase();
@@ -1410,6 +1635,47 @@ export function getSheetAccessCacheKeys(activeSheetId: string, activeUserEmail?:
     legacyTimeKey: `cars24_sheet_access_time_${activeSheetId}`,
   };
 }
+</file>
+
+<file path="src/lib/supabaseClient.ts">
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Supabase client initialization.
+ * Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env.local file
+ * or as Vercel Environment Variables.
+ *
+ * IMPORTANT: flowType is set to 'implicit' so that provider_token
+ * (the Google OAuth access token needed for Sheets API calls) is stored
+ * in the session and survives page refreshes. PKCE flow (the default)
+ * does NOT persist provider_token across reloads.
+ */
+
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL as string;
+const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY as string;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.warn(
+    'Supabase environment variables missing (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY). ' +
+    'Authentication will not work until these are set.'
+  );
+}
+
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder',
+  {
+    auth: {
+      flowType: 'implicit',          // persists provider_token in session storage
+      persistSession: true,
+      detectSessionInUrl: true,
+      autoRefreshToken: true,
+    },
+  }
+);
 </file>
 
 <file path="src/verify_app.ts">
@@ -1814,30 +2080,6 @@ process.nextTick(() => {
 }
 </file>
 
-<file path=".env.example">
-# GEMINI_API_KEY: Required for Gemini AI API calls.
-# AI Studio automatically injects this at runtime from user secrets.
-# Users configure this via the Secrets panel in the AI Studio UI.
-GEMINI_API_KEY="MY_GEMINI_API_KEY"
-
-# APP_URL: The URL where this applet is hosted.
-# AI Studio automatically injects this at runtime with the Cloud Run service URL.
-# Used for self-referential links, OAuth callbacks, and API endpoints.
-APP_URL="MY_APP_URL"
-
-# SUPABASE: Required for authentication and shared spreadsheet config storage.
-# Get these from your Supabase project: Settings -> API
-VITE_SUPABASE_URL="https://YOUR_PROJECT_ID.supabase.co"
-VITE_SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_KEY"
-
-# BACKGROUND SYNC WORKER:
-# Used by GitHub Actions or any backend worker that syncs the private Google Sheet
-# into Supabase. The service account email must be granted access to the sheet.
-SUPABASE_SERVICE_ROLE_KEY="YOUR_SUPABASE_SERVICE_ROLE_KEY"
-GOOGLE_SERVICE_ACCOUNT_EMAIL="service-account@your-project.iam.gserviceaccount.com"
-GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-</file>
-
 <file path="src/components/DashboardKpiCards.tsx">
 import React from 'react';
 import { DashboardKpis } from '../types';
@@ -2153,248 +2395,6 @@ function parseDateStringInternal(str: string): Date | null {
   
   return null;
 }
-</file>
-
-<file path="src/lib/firebaseAuth.ts">
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- *
- * Auth & shared config layer — powered by Supabase.
- * Drop-in replacement for the previous Firebase implementation.
- * Exposes the same public interface so App.tsx requires minimal changes.
- */
-
-import { supabase } from './supabaseClient';
-import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
-
-// ─── Re-export a User shape compatible with the rest of the app ───────────────
-export interface AppUser {
-  uid: string;
-  email: string | null;
-  displayName: string | null;
-  photoURL: string | null;
-}
-
-// ─── Shared spreadsheet config stored in Supabase ────────────────────────────
-export interface SharedConfig {
-  userId: string;
-  sheetId: string;
-  sheetName: string;
-  updatedAt: string;
-  updatedBy?: string;
-}
-
-// ─── Internal helpers ─────────────────────────────────────────────────────────
-const TOKEN_CACHE_KEY = 'cars24_google_provider_token';
-
-function cacheProviderToken(token: string | null) {
-  if (token) {
-    localStorage.setItem(TOKEN_CACHE_KEY, token);
-  }
-}
-
-function getProviderToken(session: Session): string | null {
-  // provider_token is available immediately after OAuth but may be null
-  // on session restore (PKCE limitation). Fall back to localStorage cache.
-  return session.provider_token ?? localStorage.getItem(TOKEN_CACHE_KEY);
-}
-
-function sessionToAppUser(session: Session): AppUser {
-  const u = session.user;
-  return {
-    uid: u.id,
-    email: u.email ?? null,
-    displayName: u.user_metadata?.full_name ?? u.user_metadata?.name ?? null,
-    photoURL: u.user_metadata?.avatar_url ?? null,
-  };
-}
-
-// ─── Auth state listener ──────────────────────────────────────────────────────
-/**
- * Subscribe to Supabase auth state changes.
- * Calls onAuthSuccess with an AppUser + provider_token on sign-in,
- * and onAuthFailure on sign-out.
- * Returns an unsubscribe function.
- */
-export function initAuth(
-  onAuthSuccess?: (user: AppUser, token: string | null) => void,
-  onAuthFailure?: () => void
-): () => void {
-  // Check current session immediately
-  supabase.auth.getSession().then(({ data: { session } }) => {
-    if (session) {
-      const token = getProviderToken(session);
-      cacheProviderToken(token);
-      if (onAuthSuccess) onAuthSuccess(sessionToAppUser(session), token);
-    } else {
-      if (onAuthFailure) onAuthFailure();
-    }
-  });
-
-  // Subscribe to future changes
-  const { data: { subscription } } = supabase.auth.onAuthStateChange(
-    (_event, session) => {
-      if (session) {
-        const token = getProviderToken(session);
-        cacheProviderToken(token); // persist for session restores
-        if (onAuthSuccess) onAuthSuccess(sessionToAppUser(session), token);
-      } else {
-        if (onAuthFailure) onAuthFailure();
-      }
-    }
-  );
-
-  return () => subscription.unsubscribe();
-}
-
-// ─── Google Sign-In via Supabase OAuth ───────────────────────────────────────
-/**
- * Trigger Google OAuth popup (redirects to Supabase OAuth flow).
- * Supabase will redirect back to the app; the auth state listener picks it up.
- * Returns the user + access token from the current session after redirect.
- */
-export async function googleSignIn(): Promise<{ user: AppUser; accessToken: string } | null> {
-  const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined;
-
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo,
-      scopes: 'https://www.googleapis.com/auth/spreadsheets',
-      queryParams: {
-        access_type: 'offline',
-        prompt: 'consent',
-      },
-    },
-  });
-
-  if (error) {
-    console.error('Supabase Google sign-in error:', error);
-    throw new Error(error.message);
-  }
-
-  // The page will redirect; we return null here.
-  // After redirect, initAuth picks up the new session automatically.
-  return null;
-}
-
-// ─── Get access token from current session ────────────────────────────────────
-export async function getAccessToken(): Promise<string | null> {
-  const { data: { session } } = await supabase.auth.getSession();
-  return session?.provider_token ?? null;
-}
-
-// ─── Sign out ─────────────────────────────────────────────────────────────────
-export async function logout(): Promise<void> {
-  localStorage.removeItem(TOKEN_CACHE_KEY);
-  await supabase.auth.signOut();
-}
-
-// ─── Shared spreadsheet config (Supabase table: shared_config) ───────────────
-/**
- * Reads the globally shared configuration from the Supabase shared_config table.
- */
-export async function getSharedConfig(): Promise<SharedConfig | null> {
-  try {
-    const { data, error } = await supabase
-      .from('shared_config')
-      .select('*')
-      .eq('id', 'shared')
-      .maybeSingle();
-
-    if (error) {
-      console.warn('Could not read shared config from Supabase:', error.message);
-      return null;
-    }
-
-    if (!data) return null;
-
-    return {
-      userId: 'shared',
-      sheetId: data.sheet_id,
-      sheetName: data.sheet_name,
-      updatedAt: data.updated_at,
-      updatedBy: data.updated_by ?? undefined,
-    };
-  } catch (err) {
-    console.warn('Unexpected error reading shared config:', err);
-    return null;
-  }
-}
-
-/**
- * Writes the shared configuration to the Supabase shared_config table.
- */
-export async function saveSharedConfig(
-  sheetId: string,
-  sheetName: string,
-  updatedByEmail?: string
-): Promise<void> {
-  const { error } = await supabase
-    .from('shared_config')
-    .upsert(
-      {
-        id: 'shared',
-        sheet_id: sheetId,
-        sheet_name: sheetName,
-        updated_at: new Date().toISOString(),
-        updated_by: updatedByEmail ?? 'unknown',
-      },
-      { onConflict: 'id' }
-    );
-
-  if (error) {
-    console.error('Failed to write shared config to Supabase:', error.message);
-    throw new Error(error.message);
-  }
-}
-
-// ─── Legacy Firebase exports kept for compatibility ───────────────────────────
-// These are no-ops or aliases so any remaining imports don't break.
-export const auth = null;
-export const db = null;
-</file>
-
-<file path="src/lib/supabaseClient.ts">
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- *
- * Supabase client initialization.
- * Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env.local file
- * or as Vercel Environment Variables.
- *
- * IMPORTANT: flowType is set to 'implicit' so that provider_token
- * (the Google OAuth access token needed for Sheets API calls) is stored
- * in the session and survives page refreshes. PKCE flow (the default)
- * does NOT persist provider_token across reloads.
- */
-
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL as string;
-const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY as string;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn(
-    'Supabase environment variables missing (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY). ' +
-    'Authentication will not work until these are set.'
-  );
-}
-
-export const supabase = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder',
-  {
-    auth: {
-      flowType: 'implicit',          // persists provider_token in session storage
-      persistSession: true,
-      detectSessionInUrl: true,
-      autoRefreshToken: true,
-    },
-  }
-);
 </file>
 
 <file path=".github/workflows/sync-sheets.yml">
@@ -3354,6 +3354,50 @@ function runVerification() {
 }
 
 runVerification();
+</file>
+
+<file path="package.json">
+{
+  "name": "react-example",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port=3000 --host=0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview",
+    "clean": "rm -rf dist server.js",
+    "lint": "tsc --noEmit",
+    "test": "tsx --test src/lib/dashboardQuery.test.ts",
+    "sync:sheets": "node scripts/sync-sheets.js"
+  },
+  "dependencies": {
+    "@google/genai": "^2.4.0",
+    "@supabase/supabase-js": "^2.107.0",
+    "@tailwindcss/vite": "^4.1.14",
+    "@vitejs/plugin-react": "^5.0.4",
+    "cavemen": "^0.0.21",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "firebase": "^12.14.0",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "vite": "^6.2.3"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.14.0",
+    "autoprefixer": "^10.4.21",
+    "esbuild": "^0.25.0",
+    "tailwindcss": "^4.1.14",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.3",
+    "xlsx": "^0.18.5"
+  }
+}
 </file>
 
 <file path="scripts/sync-sheets.js">
@@ -5304,50 +5348,6 @@ export function useCaseData(
 }
 </file>
 
-<file path="package.json">
-{
-  "name": "react-example",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite --port=3000 --host=0.0.0.0",
-    "build": "vite build",
-    "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit",
-    "test": "tsx --test src/lib/dashboardQuery.test.ts",
-    "sync:sheets": "node scripts/sync-sheets.js"
-  },
-  "dependencies": {
-    "@google/genai": "^2.4.0",
-    "@supabase/supabase-js": "^2.107.0",
-    "@tailwindcss/vite": "^4.1.14",
-    "@vitejs/plugin-react": "^5.0.4",
-    "cavemen": "^0.0.21",
-    "dotenv": "^17.2.3",
-    "express": "^4.21.2",
-    "firebase": "^12.14.0",
-    "lucide-react": "^0.546.0",
-    "motion": "^12.23.24",
-    "react": "^19.0.1",
-    "react-dom": "^19.0.1",
-    "vite": "^6.2.3"
-  },
-  "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@types/node": "^22.14.0",
-    "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
-    "tailwindcss": "^4.1.14",
-    "tsx": "^4.21.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.3",
-    "xlsx": "^0.18.5"
-  }
-}
-</file>
-
 <file path="src/hooks/useCaseEditor.ts">
 import { Dispatch, SetStateAction, useCallback, useEffect, useState } from 'react';
 import { AppUser } from '../lib/firebaseAuth';
@@ -5572,526 +5572,6 @@ export function useCaseEditor({
     closeEditor,
     handleEditRowClick,
     handleSaveActionables,
-  };
-}
-</file>
-
-<file path="src/hooks/useDashboardDataSource.ts">
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  CaseRow,
-  DashboardFilterOptions,
-  DashboardMatrixResult,
-  DashboardSummaryResult,
-  FilterState,
-} from '../types';
-import {
-  buildLocalDashboardMatrix,
-  buildLocalDashboardSummary,
-  createCaseQuery,
-  EMPTY_CASE_PAGE,
-  EMPTY_DASHBOARD_MATRIX,
-  EMPTY_DASHBOARD_SUMMARY,
-  EMPTY_FILTER_OPTIONS,
-  isActiveTokenFastPath,
-} from '../lib/dashboardQuery';
-import {
-  getActiveTokenCasesFromDb,
-  getCasesPageFromDb,
-  getDashboardFilterOptionsFromDb,
-  getDashboardMatrixFromDb,
-  getDashboardSummaryFromDb,
-} from '../lib/supabaseDb';
-import { buildDynamicFilterOptions, buildEddLabels, isRowMatchingFilter } from '../lib/dashboardFilters';
-import { getDerivedFlags, splitTasks } from '../data/mockData';
-import { parseDateString } from '../lib/dateUtils';
-
-type DashboardDataSourceArgs = {
-  activeTab: 'ops' | 'performance' | 'loss' | 'ledger';
-  demoMode: boolean;
-  demoRows: CaseRow[];
-  filters: FilterState;
-  page: number;
-  pageSize: number;
-  sortField: keyof CaseRow | string;
-  sortDirection: 'asc' | 'desc';
-  refreshKey?: number;
-};
-
-function sortRows(rows: CaseRow[], sortField: keyof CaseRow | string, sortDirection: 'asc' | 'desc') {
-  const fieldName = String(sortField).toLowerCase();
-  const isDateField = fieldName.includes('date') || fieldName.includes('time') || fieldName.includes('timestamp');
-
-  if (isDateField) {
-    const mapped = rows.map(row => {
-      const val = row[sortField as keyof CaseRow];
-      const date = val ? parseDateString(String(val)) : null;
-      return { row, val: date ? date.getTime() : 0 };
-    });
-    mapped.sort((a, b) => {
-      return sortDirection === 'asc' ? a.val - b.val : b.val - a.val;
-    });
-    return mapped.map(item => item.row);
-  }
-
-  return [...rows].sort((a, b) => {
-    const valA = a[sortField as keyof CaseRow];
-    const valB = b[sortField as keyof CaseRow];
-
-    if (typeof valA === 'number' && typeof valB === 'number') {
-      return sortDirection === 'asc' ? valA - valB : valB - valA;
-    }
-
-    const strA = String(valA || '').toLowerCase();
-    const strB = String(valB || '').toLowerCase();
-    if (strA < strB) return sortDirection === 'asc' ? -1 : 1;
-    if (strA > strB) return sortDirection === 'asc' ? 1 : -1;
-    return 0;
-  });
-}
-
-function buildLocalFilterOptions(rows: CaseRow[]): DashboardFilterOptions {
-  const dynamic = buildDynamicFilterOptions(rows);
-  const hubsByCity: Record<string, string[]> = {};
-  const hubs = new Set<string>();
-  const tokenTypesWithNrt = new Set<string>();
-  const dealStatuses = new Set<string>();
-
-  rows.forEach(row => {
-    if (row.hubName) {
-      hubs.add(row.hubName.trim());
-      const city = String(row.city || '').trim();
-      if (city) {
-        if (!hubsByCity[city]) hubsByCity[city] = [];
-        if (!hubsByCity[city].includes(row.hubName.trim())) {
-          hubsByCity[city].push(row.hubName.trim());
-        }
-      }
-    }
-    if (row.tokenTypeWithNrt) tokenTypesWithNrt.add(String(row.tokenTypeWithNrt).trim());
-    if (row.dealStatus) dealStatuses.add(String(row.dealStatus).trim());
-  });
-
-  Object.values(hubsByCity).forEach(values => values.sort());
-
-  return {
-    cities: dynamic.cities,
-    hubs: Array.from(hubs).sort(),
-    hubsByCity,
-    tokenTypes: dynamic.tokenTypes,
-    tokenTypesWithNrt: Array.from(tokenTypesWithNrt).sort(),
-    rms: dynamic.rms,
-    dcs: dynamic.dcs,
-    paymentTypes: dynamic.paymentTypes,
-    leadStages: dynamic.leadStages,
-    dealStatuses: Array.from(dealStatuses).sort(),
-    funnelStages: dynamic.funnelStages,
-    sheetFinalStatuses: dynamic.sheetFinalStatuses,
-    formFinalStatuses: dynamic.formFinalStatuses,
-    gmailPendencyStatuses: dynamic.gmailPendencyStatuses,
-    onDemandStatuses: dynamic.onDemandStatuses,
-    tasks: dynamic.tasks,
-    cancelReasons: dynamic.cancelReasons,
-    leadDsChannels: dynamic.leadDsChannels,
-  };
-}
-
-function buildFilteredCancelledC2dCount(filteredRows: CaseRow[], allRows: CaseRow[]): number {
-  const customerDeliveredTimes = new Map<string, number[]>();
-
-  allRows.forEach(row => {
-    if (row.leadStage === 'DELIVERED') {
-      const key = row.userId || row.uid || row.leadId;
-      if (key) {
-        const cleanedKey = key.trim();
-        const delDateStr = row.actualDeliveryDate || row.tokenDate;
-        if (delDateStr) {
-          const t = parseDateString(delDateStr)?.getTime() || 0;
-          if (t > 0) {
-            if (!customerDeliveredTimes.has(cleanedKey)) {
-              customerDeliveredTimes.set(cleanedKey, []);
-            }
-            customerDeliveredTimes.get(cleanedKey)!.push(t);
-          }
-        }
-      }
-    }
-  });
-
-  let total = 0;
-  filteredRows.forEach(row => {
-    const flags = getDerivedFlags(row);
-    if (flags.isCancelled) {
-      const key = row.userId || row.uid || row.leadId;
-      if (key) {
-        const cleanedKey = key.trim();
-        const deliveredTimes = customerDeliveredTimes.get(cleanedKey);
-        if (deliveredTimes && deliveredTimes.length > 0) {
-          const cancelledTime = row.tokenDate ? (parseDateString(row.tokenDate)?.getTime() || 0) : 0;
-          const hasDeliveredAfter = deliveredTimes.some(t => t >= cancelledTime);
-          if (hasDeliveredAfter) {
-            total++;
-          }
-        }
-      }
-    }
-  });
-
-  return total;
-}
-
-function buildFilteredCancelledC2aCount(filteredRows: CaseRow[], allRows: CaseRow[]): number {
-  const customerBookings = new Map<string, CaseRow[]>();
-  allRows.forEach(row => {
-    const key = row.userId || row.uid || row.leadId;
-    if (key) {
-      const cleanedKey = key.trim();
-      if (!customerBookings.has(cleanedKey)) {
-        customerBookings.set(cleanedKey, []);
-      }
-      customerBookings.get(cleanedKey)!.push(row);
-    }
-  });
-
-  customerBookings.forEach(rows => {
-    rows.sort((a, b) => {
-      const ta = a.tokenDate ? (parseDateString(a.tokenDate)?.getTime() || 0) : 0;
-      const tb = b.tokenDate ? (parseDateString(b.tokenDate)?.getTime() || 0) : 0;
-      return ta - tb;
-    });
-  });
-
-  let total = 0;
-  filteredRows.forEach(row => {
-    const flags = getDerivedFlags(row);
-    if (flags.isCancelled) {
-      const key = row.userId || row.uid || row.leadId;
-      if (key) {
-        const cleanedKey = key.trim();
-        const sortedBookings = customerBookings.get(cleanedKey) || [];
-        const index = sortedBookings.findIndex(b => b.bookingId === row.bookingId);
-        if (index !== -1) {
-          const cancelledTime = row.tokenDate ? (parseDateString(row.tokenDate)?.getTime() || 0) : 0;
-          let prevTime = 0;
-          if (index > 0) {
-            const prevBooking = sortedBookings[index - 1];
-            prevTime = prevBooking.tokenDate ? (parseDateString(prevBooking.tokenDate)?.getTime() || 0) : 0;
-          }
-
-          const hasMatchingActive = sortedBookings.some(r => {
-            if (r.leadStage === 'ACTIVE_TOKEN') {
-              const activeTime = r.tokenDate ? (parseDateString(r.tokenDate)?.getTime() || 0) : 0;
-              if (activeTime >= cancelledTime) {
-                return true;
-              }
-              if (index > 0 && activeTime >= prevTime && activeTime <= cancelledTime) {
-                return true;
-              }
-            }
-            return false;
-          });
-
-          if (hasMatchingActive) {
-            total++;
-          }
-        }
-      }
-    }
-  });
-
-  return total;
-}
-
-function buildFilteredCancelledCr2dCount(filteredRows: CaseRow[]): number {
-  let total = 0;
-  filteredRows.forEach(row => {
-    if (row.leadStage === 'DELIVERED' && Boolean(row.cancelReason)) {
-      total++;
-    }
-  });
-  return total;
-}
-
-function buildLocalSnapshot(
-  sourceRows: CaseRow[],
-  filters: FilterState,
-  page: number,
-  pageSize: number,
-  sortField: keyof CaseRow | string,
-  sortDirection: 'asc' | 'desc'
-) {
-  const eddLabels = buildEddLabels();
-  const filtered = sourceRows.filter(row => isRowMatchingFilter(row, filters, eddLabels));
-  const sorted = sortRows(filtered, sortField, sortDirection);
-  const totalCount = sorted.length;
-  const start = Math.max(0, (page - 1) * pageSize);
-  const pagedRows = sorted.slice(start, start + pageSize);
-  const filteredCancelledC2dCount = buildFilteredCancelledC2dCount(sorted, sourceRows);
-  const filteredCancelledC2aCount = buildFilteredCancelledC2aCount(sorted, sourceRows);
-  const filteredCancelledCr2dCount = buildFilteredCancelledCr2dCount(sorted);
-
-  return {
-    pageRows: pagedRows,
-    totalCount,
-    summary: buildLocalDashboardSummary(
-      sorted,
-      filteredCancelledC2dCount,
-      filteredCancelledC2aCount,
-      filteredCancelledCr2dCount
-    ),
-    matrix: buildLocalDashboardMatrix(sorted),
-    filterOptions: buildLocalFilterOptions(sourceRows),
-  };
-}
-
-export function useDashboardDataSource({
-  activeTab,
-  demoMode,
-  demoRows,
-  filters,
-  page,
-  pageSize,
-  sortField,
-  sortDirection,
-  refreshKey = 0,
-}: DashboardDataSourceArgs) {
-  const [pageRows, setPageRows] = useState<CaseRow[]>(demoRows);
-  const [activeTokenRows, setActiveTokenRows] = useState<CaseRow[]>([]);
-  const [summary, setSummary] = useState<DashboardSummaryResult>(EMPTY_DASHBOARD_SUMMARY);
-  const [matrix, setMatrix] = useState<DashboardMatrixResult>(EMPTY_DASHBOARD_MATRIX);
-  const [filterOptions, setFilterOptions] = useState<DashboardFilterOptions>(EMPTY_FILTER_OPTIONS);
-  const [totalCount, setTotalCount] = useState(0);
-  const [loadingPage, setLoadingPage] = useState(false);
-  const [loadingSummary, setLoadingSummary] = useState(false);
-  const [loadingMatrix, setLoadingMatrix] = useState(false);
-  const [reloadNonce, setReloadNonce] = useState(0);
-
-  const query = useMemo(
-    () => createCaseQuery(filters, page, pageSize, sortField, sortDirection),
-    [filters, page, pageSize, sortField, sortDirection]
-  );
-  const activeTokenFastPath = !demoMode && isActiveTokenFastPath(query.filters) && activeTokenRows.length > 0;
-
-  // 1. Determine local source rows
-  const localSourceRows = useMemo(() => {
-    if (demoMode) return demoRows;
-    if (activeTokenFastPath) return activeTokenRows;
-    return [];
-  }, [demoMode, demoRows, activeTokenFastPath, activeTokenRows]);
-
-  // 2. Local filtering
-  const localFilteredRows = useMemo(() => {
-    if (localSourceRows.length === 0) return [];
-    const eddLabels = buildEddLabels();
-    return localSourceRows.filter(row => isRowMatchingFilter(row, filters, eddLabels));
-  }, [localSourceRows, filters]);
-
-  // 3. Filtered Cancelled C2D Count
-  const localFilteredCancelledC2dCount = useMemo(() => {
-    if (localFilteredRows.length === 0) return 0;
-    return buildFilteredCancelledC2dCount(localFilteredRows, localSourceRows);
-  }, [localFilteredRows, localSourceRows]);
-
-  const localFilteredCancelledC2aCount = useMemo(() => {
-    if (localFilteredRows.length === 0) return 0;
-    return buildFilteredCancelledC2aCount(localFilteredRows, localSourceRows);
-  }, [localFilteredRows, localSourceRows]);
-
-  const localFilteredCancelledCr2dCount = useMemo(() => {
-    if (localFilteredRows.length === 0) return 0;
-    return buildFilteredCancelledCr2dCount(localFilteredRows);
-  }, [localFilteredRows]);
-
-  // 4. Local Summary
-  const localSummary = useMemo(() => {
-    if (localSourceRows.length === 0) return EMPTY_DASHBOARD_SUMMARY;
-    return buildLocalDashboardSummary(
-      localFilteredRows,
-      localFilteredCancelledC2dCount,
-      localFilteredCancelledC2aCount,
-      localFilteredCancelledCr2dCount
-    );
-  }, [
-    localFilteredRows,
-    localFilteredCancelledC2dCount,
-    localFilteredCancelledC2aCount,
-    localFilteredCancelledCr2dCount,
-    localSourceRows.length
-  ]);
-
-  // 5. Local Matrix
-  const localMatrix = useMemo(() => {
-    if (localSourceRows.length === 0) return EMPTY_DASHBOARD_MATRIX;
-    return buildLocalDashboardMatrix(localFilteredRows);
-  }, [localFilteredRows, localSourceRows.length]);
-
-  // 6. Local Filter Options
-  const localFilterOptions = useMemo(() => {
-    if (localSourceRows.length === 0) return EMPTY_FILTER_OPTIONS;
-    return buildLocalFilterOptions(localSourceRows);
-  }, [localSourceRows]);
-
-  // 7. Local Sorting
-  const localSortedRows = useMemo(() => {
-    if (localFilteredRows.length === 0) return [];
-    return sortRows(localFilteredRows, sortField, sortDirection);
-  }, [localFilteredRows, sortField, sortDirection]);
-
-  // 8. Local Paged Rows
-  const localPagedRows = useMemo(() => {
-    if (localSortedRows.length === 0) return [];
-    const start = Math.max(0, (page - 1) * pageSize);
-    return localSortedRows.slice(start, start + pageSize);
-  }, [localSortedRows, page, pageSize]);
-
-  // 9. Local Total Count
-  const localTotalCount = useMemo(() => {
-    return localSortedRows.length;
-  }, [localSortedRows]);
-
-  // Sync local changes to state
-  useEffect(() => {
-    if (demoMode || activeTokenFastPath) {
-      setPageRows(localPagedRows);
-      setTotalCount(localTotalCount);
-      setSummary(localSummary);
-      setMatrix(localMatrix);
-      setFilterOptions(localFilterOptions);
-    }
-  }, [
-    demoMode,
-    activeTokenFastPath,
-    localPagedRows,
-    localTotalCount,
-    localSummary,
-    localMatrix,
-    localFilterOptions,
-  ]);
-
-  useEffect(() => {
-    if (demoMode) {
-      return;
-    }
-
-    let cancelled = false;
-    const loadStaticData = async () => {
-      try {
-        const [options, workingSet] = await Promise.all([
-          getDashboardFilterOptionsFromDb(),
-          getActiveTokenCasesFromDb(),
-        ]);
-        if (!cancelled) {
-          setFilterOptions(options);
-          setActiveTokenRows(workingSet);
-        }
-      } catch (err) {
-        console.warn('Failed to bootstrap dashboard filter options or ACTIVE_TOKEN working set:', err);
-      }
-    };
-
-    void loadStaticData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [demoMode, refreshKey, reloadNonce]);
-
-  const reload = useCallback(() => {
-    setReloadNonce(prev => prev + 1);
-  }, []);
-
-  useEffect(() => {
-    if (demoMode || activeTokenFastPath) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadServerData = async () => {
-      setLoadingPage(true);
-      setLoadingSummary(true);
-
-      try {
-        const [pageResult, summaryResult] = await Promise.all([
-          getCasesPageFromDb(query),
-          getDashboardSummaryFromDb({ filters: query.filters }),
-        ]);
-
-        if (!cancelled) {
-          setPageRows(pageResult.rows || EMPTY_CASE_PAGE.rows);
-          setTotalCount(pageResult.totalCount || 0);
-          setSummary(summaryResult);
-        }
-      } catch (err) {
-        console.error('Failed to load dashboard page or summary:', err);
-      } finally {
-        if (!cancelled) {
-          setLoadingPage(false);
-          setLoadingSummary(false);
-        }
-      }
-    };
-
-    void loadServerData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeTokenFastPath,
-    demoMode,
-    query,
-    reloadNonce,
-  ]);
-
-  useEffect(() => {
-    if (demoMode || activeTokenFastPath) {
-      return;
-    }
-
-    let cancelled = false;
-
-    if (activeTab !== 'ledger') {
-      setMatrix(EMPTY_DASHBOARD_MATRIX);
-      return;
-    }
-
-    const loadMatrix = async () => {
-      setLoadingMatrix(true);
-      try {
-        const matrixResult = await getDashboardMatrixFromDb({ filters: query.filters });
-        if (!cancelled) {
-          setMatrix(matrixResult);
-        }
-      } catch (err) {
-        console.error('Failed to load dashboard matrix summary:', err);
-      } finally {
-        if (!cancelled) {
-          setLoadingMatrix(false);
-        }
-      }
-    };
-
-    void loadMatrix();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, activeTokenFastPath, demoMode, query.filters, reloadNonce]);
-
-  return {
-    pageRows,
-    setPageRows,
-    activeTokenRows,
-    summary,
-    matrix,
-    filterOptions,
-    totalCount,
-    loadingPage,
-    loadingSummary,
-    loadingMatrix,
-    activeTokenFastPath,
-    reload,
   };
 }
 </file>
@@ -6612,6 +6092,526 @@ export default function LoginPage({
       </motion.div>
     </div>
   );
+}
+</file>
+
+<file path="src/hooks/useDashboardDataSource.ts">
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  CaseRow,
+  DashboardFilterOptions,
+  DashboardMatrixResult,
+  DashboardSummaryResult,
+  FilterState,
+} from '../types';
+import {
+  buildLocalDashboardMatrix,
+  buildLocalDashboardSummary,
+  createCaseQuery,
+  EMPTY_CASE_PAGE,
+  EMPTY_DASHBOARD_MATRIX,
+  EMPTY_DASHBOARD_SUMMARY,
+  EMPTY_FILTER_OPTIONS,
+  isActiveTokenFastPath,
+} from '../lib/dashboardQuery';
+import {
+  getActiveTokenCasesFromDb,
+  getCasesPageFromDb,
+  getDashboardFilterOptionsFromDb,
+  getDashboardMatrixFromDb,
+  getDashboardSummaryFromDb,
+} from '../lib/supabaseDb';
+import { buildDynamicFilterOptions, buildEddLabels, isRowMatchingFilter } from '../lib/dashboardFilters';
+import { getDerivedFlags, splitTasks } from '../data/mockData';
+import { parseDateString } from '../lib/dateUtils';
+
+type DashboardDataSourceArgs = {
+  activeTab: 'ops' | 'performance' | 'loss' | 'ledger';
+  demoMode: boolean;
+  demoRows: CaseRow[];
+  filters: FilterState;
+  page: number;
+  pageSize: number;
+  sortField: keyof CaseRow | string;
+  sortDirection: 'asc' | 'desc';
+  refreshKey?: number;
+};
+
+function sortRows(rows: CaseRow[], sortField: keyof CaseRow | string, sortDirection: 'asc' | 'desc') {
+  const fieldName = String(sortField).toLowerCase();
+  const isDateField = fieldName.includes('date') || fieldName.includes('time') || fieldName.includes('timestamp');
+
+  if (isDateField) {
+    const mapped = rows.map(row => {
+      const val = row[sortField as keyof CaseRow];
+      const date = val ? parseDateString(String(val)) : null;
+      return { row, val: date ? date.getTime() : 0 };
+    });
+    mapped.sort((a, b) => {
+      return sortDirection === 'asc' ? a.val - b.val : b.val - a.val;
+    });
+    return mapped.map(item => item.row);
+  }
+
+  return [...rows].sort((a, b) => {
+    const valA = a[sortField as keyof CaseRow];
+    const valB = b[sortField as keyof CaseRow];
+
+    if (typeof valA === 'number' && typeof valB === 'number') {
+      return sortDirection === 'asc' ? valA - valB : valB - valA;
+    }
+
+    const strA = String(valA || '').toLowerCase();
+    const strB = String(valB || '').toLowerCase();
+    if (strA < strB) return sortDirection === 'asc' ? -1 : 1;
+    if (strA > strB) return sortDirection === 'asc' ? 1 : -1;
+    return 0;
+  });
+}
+
+function buildLocalFilterOptions(rows: CaseRow[]): DashboardFilterOptions {
+  const dynamic = buildDynamicFilterOptions(rows);
+  const hubsByCity: Record<string, string[]> = {};
+  const hubs = new Set<string>();
+  const tokenTypesWithNrt = new Set<string>();
+  const dealStatuses = new Set<string>();
+
+  rows.forEach(row => {
+    if (row.hubName) {
+      hubs.add(row.hubName.trim());
+      const city = String(row.city || '').trim();
+      if (city) {
+        if (!hubsByCity[city]) hubsByCity[city] = [];
+        if (!hubsByCity[city].includes(row.hubName.trim())) {
+          hubsByCity[city].push(row.hubName.trim());
+        }
+      }
+    }
+    if (row.tokenTypeWithNrt) tokenTypesWithNrt.add(String(row.tokenTypeWithNrt).trim());
+    if (row.dealStatus) dealStatuses.add(String(row.dealStatus).trim());
+  });
+
+  Object.values(hubsByCity).forEach(values => values.sort());
+
+  return {
+    cities: dynamic.cities,
+    hubs: Array.from(hubs).sort(),
+    hubsByCity,
+    tokenTypes: dynamic.tokenTypes,
+    tokenTypesWithNrt: Array.from(tokenTypesWithNrt).sort(),
+    rms: dynamic.rms,
+    dcs: dynamic.dcs,
+    paymentTypes: dynamic.paymentTypes,
+    leadStages: dynamic.leadStages,
+    dealStatuses: Array.from(dealStatuses).sort(),
+    funnelStages: dynamic.funnelStages,
+    sheetFinalStatuses: dynamic.sheetFinalStatuses,
+    formFinalStatuses: dynamic.formFinalStatuses,
+    gmailPendencyStatuses: dynamic.gmailPendencyStatuses,
+    onDemandStatuses: dynamic.onDemandStatuses,
+    tasks: dynamic.tasks,
+    cancelReasons: dynamic.cancelReasons,
+    leadDsChannels: dynamic.leadDsChannels,
+  };
+}
+
+function buildFilteredCancelledC2dCount(filteredRows: CaseRow[], allRows: CaseRow[]): number {
+  const customerDeliveredTimes = new Map<string, number[]>();
+
+  allRows.forEach(row => {
+    if (row.leadStage === 'DELIVERED') {
+      const key = row.userId || row.uid || row.leadId;
+      if (key) {
+        const cleanedKey = key.trim();
+        const delDateStr = row.actualDeliveryDate || row.tokenDate;
+        if (delDateStr) {
+          const t = parseDateString(delDateStr)?.getTime() || 0;
+          if (t > 0) {
+            if (!customerDeliveredTimes.has(cleanedKey)) {
+              customerDeliveredTimes.set(cleanedKey, []);
+            }
+            customerDeliveredTimes.get(cleanedKey)!.push(t);
+          }
+        }
+      }
+    }
+  });
+
+  let total = 0;
+  filteredRows.forEach(row => {
+    const flags = getDerivedFlags(row);
+    if (flags.isCancelled) {
+      const key = row.userId || row.uid || row.leadId;
+      if (key) {
+        const cleanedKey = key.trim();
+        const deliveredTimes = customerDeliveredTimes.get(cleanedKey);
+        if (deliveredTimes && deliveredTimes.length > 0) {
+          const cancelledTime = row.tokenDate ? (parseDateString(row.tokenDate)?.getTime() || 0) : 0;
+          const hasDeliveredAfter = deliveredTimes.some(t => t >= cancelledTime);
+          if (hasDeliveredAfter) {
+            total++;
+          }
+        }
+      }
+    }
+  });
+
+  return total;
+}
+
+function buildFilteredCancelledC2aCount(filteredRows: CaseRow[], allRows: CaseRow[]): number {
+  const customerBookings = new Map<string, CaseRow[]>();
+  allRows.forEach(row => {
+    const key = row.userId || row.uid || row.leadId;
+    if (key) {
+      const cleanedKey = key.trim();
+      if (!customerBookings.has(cleanedKey)) {
+        customerBookings.set(cleanedKey, []);
+      }
+      customerBookings.get(cleanedKey)!.push(row);
+    }
+  });
+
+  customerBookings.forEach(rows => {
+    rows.sort((a, b) => {
+      const ta = a.tokenDate ? (parseDateString(a.tokenDate)?.getTime() || 0) : 0;
+      const tb = b.tokenDate ? (parseDateString(b.tokenDate)?.getTime() || 0) : 0;
+      return ta - tb;
+    });
+  });
+
+  let total = 0;
+  filteredRows.forEach(row => {
+    const flags = getDerivedFlags(row);
+    if (flags.isCancelled) {
+      const key = row.userId || row.uid || row.leadId;
+      if (key) {
+        const cleanedKey = key.trim();
+        const sortedBookings = customerBookings.get(cleanedKey) || [];
+        const index = sortedBookings.findIndex(b => b.bookingId === row.bookingId);
+        if (index !== -1) {
+          const cancelledTime = row.tokenDate ? (parseDateString(row.tokenDate)?.getTime() || 0) : 0;
+          let prevTime = 0;
+          if (index > 0) {
+            const prevBooking = sortedBookings[index - 1];
+            prevTime = prevBooking.tokenDate ? (parseDateString(prevBooking.tokenDate)?.getTime() || 0) : 0;
+          }
+
+          const hasMatchingActive = sortedBookings.some(r => {
+            if (r.leadStage === 'ACTIVE_TOKEN') {
+              const activeTime = r.tokenDate ? (parseDateString(r.tokenDate)?.getTime() || 0) : 0;
+              if (activeTime >= cancelledTime) {
+                return true;
+              }
+              if (index > 0 && activeTime >= prevTime && activeTime <= cancelledTime) {
+                return true;
+              }
+            }
+            return false;
+          });
+
+          if (hasMatchingActive) {
+            total++;
+          }
+        }
+      }
+    }
+  });
+
+  return total;
+}
+
+function buildFilteredCancelledCr2dCount(filteredRows: CaseRow[]): number {
+  let total = 0;
+  filteredRows.forEach(row => {
+    if (row.leadStage === 'DELIVERED' && Boolean(row.cancelReason)) {
+      total++;
+    }
+  });
+  return total;
+}
+
+function buildLocalSnapshot(
+  sourceRows: CaseRow[],
+  filters: FilterState,
+  page: number,
+  pageSize: number,
+  sortField: keyof CaseRow | string,
+  sortDirection: 'asc' | 'desc'
+) {
+  const eddLabels = buildEddLabels();
+  const filtered = sourceRows.filter(row => isRowMatchingFilter(row, filters, eddLabels));
+  const sorted = sortRows(filtered, sortField, sortDirection);
+  const totalCount = sorted.length;
+  const start = Math.max(0, (page - 1) * pageSize);
+  const pagedRows = sorted.slice(start, start + pageSize);
+  const filteredCancelledC2dCount = buildFilteredCancelledC2dCount(sorted, sourceRows);
+  const filteredCancelledC2aCount = buildFilteredCancelledC2aCount(sorted, sourceRows);
+  const filteredCancelledCr2dCount = buildFilteredCancelledCr2dCount(sorted);
+
+  return {
+    pageRows: pagedRows,
+    totalCount,
+    summary: buildLocalDashboardSummary(
+      sorted,
+      filteredCancelledC2dCount,
+      filteredCancelledC2aCount,
+      filteredCancelledCr2dCount
+    ),
+    matrix: buildLocalDashboardMatrix(sorted),
+    filterOptions: buildLocalFilterOptions(sourceRows),
+  };
+}
+
+export function useDashboardDataSource({
+  activeTab,
+  demoMode,
+  demoRows,
+  filters,
+  page,
+  pageSize,
+  sortField,
+  sortDirection,
+  refreshKey = 0,
+}: DashboardDataSourceArgs) {
+  const [pageRows, setPageRows] = useState<CaseRow[]>(demoRows);
+  const [activeTokenRows, setActiveTokenRows] = useState<CaseRow[]>([]);
+  const [summary, setSummary] = useState<DashboardSummaryResult>(EMPTY_DASHBOARD_SUMMARY);
+  const [matrix, setMatrix] = useState<DashboardMatrixResult>(EMPTY_DASHBOARD_MATRIX);
+  const [filterOptions, setFilterOptions] = useState<DashboardFilterOptions>(EMPTY_FILTER_OPTIONS);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loadingPage, setLoadingPage] = useState(false);
+  const [loadingSummary, setLoadingSummary] = useState(false);
+  const [loadingMatrix, setLoadingMatrix] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
+
+  const query = useMemo(
+    () => createCaseQuery(filters, page, pageSize, sortField, sortDirection),
+    [filters, page, pageSize, sortField, sortDirection]
+  );
+  const activeTokenFastPath = !demoMode && isActiveTokenFastPath(query.filters) && activeTokenRows.length > 0;
+
+  // 1. Determine local source rows
+  const localSourceRows = useMemo(() => {
+    if (demoMode) return demoRows;
+    if (activeTokenFastPath) return activeTokenRows;
+    return [];
+  }, [demoMode, demoRows, activeTokenFastPath, activeTokenRows]);
+
+  // 2. Local filtering
+  const localFilteredRows = useMemo(() => {
+    if (localSourceRows.length === 0) return [];
+    const eddLabels = buildEddLabels();
+    return localSourceRows.filter(row => isRowMatchingFilter(row, filters, eddLabels));
+  }, [localSourceRows, filters]);
+
+  // 3. Filtered Cancelled C2D Count
+  const localFilteredCancelledC2dCount = useMemo(() => {
+    if (localFilteredRows.length === 0) return 0;
+    return buildFilteredCancelledC2dCount(localFilteredRows, localSourceRows);
+  }, [localFilteredRows, localSourceRows]);
+
+  const localFilteredCancelledC2aCount = useMemo(() => {
+    if (localFilteredRows.length === 0) return 0;
+    return buildFilteredCancelledC2aCount(localFilteredRows, localSourceRows);
+  }, [localFilteredRows, localSourceRows]);
+
+  const localFilteredCancelledCr2dCount = useMemo(() => {
+    if (localFilteredRows.length === 0) return 0;
+    return buildFilteredCancelledCr2dCount(localFilteredRows);
+  }, [localFilteredRows]);
+
+  // 4. Local Summary
+  const localSummary = useMemo(() => {
+    if (localSourceRows.length === 0) return EMPTY_DASHBOARD_SUMMARY;
+    return buildLocalDashboardSummary(
+      localFilteredRows,
+      localFilteredCancelledC2dCount,
+      localFilteredCancelledC2aCount,
+      localFilteredCancelledCr2dCount
+    );
+  }, [
+    localFilteredRows,
+    localFilteredCancelledC2dCount,
+    localFilteredCancelledC2aCount,
+    localFilteredCancelledCr2dCount,
+    localSourceRows.length
+  ]);
+
+  // 5. Local Matrix
+  const localMatrix = useMemo(() => {
+    if (localSourceRows.length === 0) return EMPTY_DASHBOARD_MATRIX;
+    return buildLocalDashboardMatrix(localFilteredRows);
+  }, [localFilteredRows, localSourceRows.length]);
+
+  // 6. Local Filter Options
+  const localFilterOptions = useMemo(() => {
+    if (localSourceRows.length === 0) return EMPTY_FILTER_OPTIONS;
+    return buildLocalFilterOptions(localSourceRows);
+  }, [localSourceRows]);
+
+  // 7. Local Sorting
+  const localSortedRows = useMemo(() => {
+    if (localFilteredRows.length === 0) return [];
+    return sortRows(localFilteredRows, sortField, sortDirection);
+  }, [localFilteredRows, sortField, sortDirection]);
+
+  // 8. Local Paged Rows
+  const localPagedRows = useMemo(() => {
+    if (localSortedRows.length === 0) return [];
+    const start = Math.max(0, (page - 1) * pageSize);
+    return localSortedRows.slice(start, start + pageSize);
+  }, [localSortedRows, page, pageSize]);
+
+  // 9. Local Total Count
+  const localTotalCount = useMemo(() => {
+    return localSortedRows.length;
+  }, [localSortedRows]);
+
+  // Sync local changes to state
+  useEffect(() => {
+    if (demoMode || activeTokenFastPath) {
+      setPageRows(localPagedRows);
+      setTotalCount(localTotalCount);
+      setSummary(localSummary);
+      setMatrix(localMatrix);
+      setFilterOptions(localFilterOptions);
+    }
+  }, [
+    demoMode,
+    activeTokenFastPath,
+    localPagedRows,
+    localTotalCount,
+    localSummary,
+    localMatrix,
+    localFilterOptions,
+  ]);
+
+  useEffect(() => {
+    if (demoMode) {
+      return;
+    }
+
+    let cancelled = false;
+    const loadStaticData = async () => {
+      try {
+        const [options, workingSet] = await Promise.all([
+          getDashboardFilterOptionsFromDb(),
+          getActiveTokenCasesFromDb(),
+        ]);
+        if (!cancelled) {
+          setFilterOptions(options);
+          setActiveTokenRows(workingSet);
+        }
+      } catch (err) {
+        console.warn('Failed to bootstrap dashboard filter options or ACTIVE_TOKEN working set:', err);
+      }
+    };
+
+    void loadStaticData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [demoMode, refreshKey, reloadNonce]);
+
+  const reload = useCallback(() => {
+    setReloadNonce(prev => prev + 1);
+  }, []);
+
+  useEffect(() => {
+    if (demoMode || activeTokenFastPath) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadServerData = async () => {
+      setLoadingPage(true);
+      setLoadingSummary(true);
+
+      try {
+        const [pageResult, summaryResult] = await Promise.all([
+          getCasesPageFromDb(query),
+          getDashboardSummaryFromDb({ filters: query.filters }),
+        ]);
+
+        if (!cancelled) {
+          setPageRows(pageResult.rows || EMPTY_CASE_PAGE.rows);
+          setTotalCount(pageResult.totalCount || 0);
+          setSummary(summaryResult);
+        }
+      } catch (err) {
+        console.error('Failed to load dashboard page or summary:', err);
+      } finally {
+        if (!cancelled) {
+          setLoadingPage(false);
+          setLoadingSummary(false);
+        }
+      }
+    };
+
+    void loadServerData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeTokenFastPath,
+    demoMode,
+    query,
+    reloadNonce,
+  ]);
+
+  useEffect(() => {
+    if (demoMode || activeTokenFastPath) {
+      return;
+    }
+
+    let cancelled = false;
+
+    if (activeTab !== 'ledger') {
+      setMatrix(EMPTY_DASHBOARD_MATRIX);
+      return;
+    }
+
+    const loadMatrix = async () => {
+      setLoadingMatrix(true);
+      try {
+        const matrixResult = await getDashboardMatrixFromDb({ filters: query.filters });
+        if (!cancelled) {
+          setMatrix(matrixResult);
+        }
+      } catch (err) {
+        console.error('Failed to load dashboard matrix summary:', err);
+      } finally {
+        if (!cancelled) {
+          setLoadingMatrix(false);
+        }
+      }
+    };
+
+    void loadMatrix();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, activeTokenFastPath, demoMode, query.filters, reloadNonce]);
+
+  return {
+    pageRows,
+    setPageRows,
+    activeTokenRows,
+    summary,
+    matrix,
+    filterOptions,
+    totalCount,
+    loadingPage,
+    loadingSummary,
+    loadingMatrix,
+    activeTokenFastPath,
+    reload,
+  };
 }
 </file>
 
@@ -11362,397 +11362,6 @@ ON public.user_sessions FOR UPDATE TO authenticated USING (
 );
 </file>
 
-<file path="src/types.ts">
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-export interface CaseRow {
-  _rowNumber: number; // Google Sheet row index (e.g. 2, 3...)
-  bookingId: string;  // Unique ID
-  
-  // IDs and links
-  uid?: string;
-  leadId?: string;
-  userId?: string;
-  loanId?: string;
-  appointmentId?: string;
-  carRegNo?: string;
-
-  // Location and ownership
-  hubCode?: string;
-  hubName?: string;
-  city?: string;
-  allocatedRm?: string;
-  assignedDc?: string;
-  caAssignedLms?: string;
-  sm?: string;
-  tm?: string;
-  rm?: string;
-
-  // Deal and lead status
-  dealStatus?: string;
-  dealStatusUpdatedAt?: string;
-  cancellationDate?: string;
-  autoCancelledFlag?: string;
-  tokenAutoCancellationExtendedDate?: string;
-  leadStage?: string;
-  tokenType?: string;
-  tokenTypeWithNrt?: string;
-  paymentType?: string;
-  leadStatus?: string;
-  funnelStage?: string;
-
-  // Dates
-  tokenDate?: string;
-  tokenDateTime?: string;
-  bookingDate?: string;
-  expectedDeliveryDate?: string;
-  expectedDeliveryTime?: string;
-  actualDeliveryDate?: string;
-  lastPaymentDate?: string;
-  latestRemarkDate?: string;
-  updatedAt?: string;
-  cancelReqDate?: string;
-
-  // Delivery
-  deliveryStatus?: string;
-  deliverySegment?: string;
-  onDemandStatus?: string;
-
-  // Amounts
-  amountCollected?: number;
-  amountPending?: number;
-  totalExpectedAmount?: number;
-  agreedSalesPrice?: number;
-  paymentPercentage?: number;
-
-  // Actionable columns
-  readyToDeliver?: string; // 'Yes', 'No', or ''
-  expectedOdCompletionDate?: string;
-  eddReviewerDate?: string;
-  reviewerRemarks?: string;
-
-  // Vehicle
-  make?: string;
-  model?: string;
-  variant?: string;
-  manufacturingYear?: string;
-
-  // Finance and risk
-  rcCaseType?: string;
-  incomeSource?: string;
-  oglPincodeFlag?: string;
-  creditLtv?: string;
-  lastRiskBucket?: string;
-  dsRoi?: string;
-  finalRoi?: string;
-  creditRejectionReason?: string;
-  creditRejectionSubReason?: string;
-  diligenceRejectionReason?: string;
-  diligenceRejectionSubReason?: string;
-  redChannelReason?: string;
-  softDerogFlag?: string;
-  hardDerogFlag?: string;
-  nonOgl?: string;
-  contactNumber?: string;
-  redChannelFlag?: string;
-  tofRejectedFlag?: string;
-  deviationMitigationComment?: string;
-  bajajSegment?: string;
-  companyName?: string;
-  leadDsChannel?: string;
-  foir?: string;
-
-  // Milestones
-  latestLeadCreationTimestamp?: string;
-  latestLoginTime?: string;
-  latestCreditAssessedTimestamp?: string;
-  latestDiligenceAssessedTimestamp?: string;
-  latestFcuAssessedTimestamp?: string;
-  tncGeneratedDate?: string;
-  tncAcceptedTimestamp?: string;
-  fcuSentDate?: string;
-  sentToRcuTimestamp?: string;
-  sentToOpsTimestamp?: string;
-  submitToOpsTimestamp?: string;
-  opsDisbursalTimestamp?: string;
-  financeDisbursedTimestamp?: string;
-
-  // Calling
-  lastCallAt?: string;
-  followupAt?: string;
-  totalCallAttempts?: number;
-  totalConnectedCalls?: number;
-  lastCallConnectedSp?: string;
-  callDuration?: string;
-  latestCallOutcome?: string;
-  lastDisposition?: string;
-
-  // Remarks / status info
-  latestRemark?: string;
-  latestRemarkBy?: string;
-  isActive?: string;
-  isAlertVisible?: string;
-  cancelReason?: string;
-  taskBucket?: string;
-  reasonPointer?: string;
-
-  // Sheet Status
-  sheetLoginPartner?: string;
-  sheetFinalStatus?: string;
-  sheetYardName?: string;
-  sheetYardCity?: string;
-  sheetDetailedRemarks?: string;
-  sheetLastDisbursalActivity?: string;
-  sheetLoginTimestamp?: string;
-
-  // Form Status
-  formRiskBucket?: string;
-  formFinalStatus?: string;
-  formCaseStage?: string;
-  formFinalRemarks?: string;
-  formDeviationRequired?: string;
-  formDetailedAsk?: string;
-
-  // Gmail / ML
-  gmailSummary?: string;
-  gmailPendencyStatus?: string;
-  gmailPendencyReason?: string;
-  gmailNextAction?: string;
-  gmailPendencySource?: string;
-  gmailPendencyDate?: string;
-  confidenceScore?: string;
-  confidenceTrendStatus?: 'Decline' | 'Stable' | 'Improving';
-  mlEstimatedDeliveryDate?: string;
-  totalListingDays?: number;
-  syncPending?: boolean;
-}
-
-export type CaseEditorDraft = Partial<CaseRow> & {
-  newRemarkAddition?: string;
-};
-
-export interface DerivedFlags {
-  isAlertCase: boolean;
-  isActiveToken: boolean;
-  isDelivered: boolean;
-  isCancelled: boolean;
-  isEddMissing: boolean;
-  isEddBreached: boolean;
-  isPmaxCase: boolean;
-  isPmaxStuck: boolean;
-  isCustomerConnectPending: boolean;
-  isHighPaymentPendingDelivery: boolean;
-  isPaymentPending: boolean;
-  isCancelledAfterPayment: boolean;
-  isOdPending: boolean;
-  isBlankPaymentType: boolean;
-}
-
-export interface DateFilter {
-  id: string;
-  dateField: string;
-  startDate: string;
-  endDate: string;
-  filterBlankDates?: boolean;
-}
-
-export interface FilterState {
-  city: string;
-  hubName: string;
-  tokenType: string;
-  tokenTypeWithNrt: string;
-  rmName: string;
-  dcName: string;
-  paymentType: string;
-  leadStage: string;
-  dealStatus: string;
-  funnelStage: string;
-  sheetFinalStatus: string;
-  formFinalStatus: string;
-  gmailPendencyStatus: string;
-  confidenceTrend: string;
-  onDemandStatus: string;
-  taskBucket: string;
-  derivedStatus: string;
-  dateField: string;
-  startDate: string;
-  endDate: string;
-  filterBlankDates?: boolean;
-  searchQuery: string;
-  eddStatus?: string;
-  cancelReason?: string;
-  leadDsChannel?: string;
-  readyToDeliver?: string;
-  dateFilters?: DateFilter[];
-  minPaymentPercentage?: string;
-  listingDaysBucket: string;
-}
-
-export interface DashboardKpis {
-  totalCases: number;
-  activeTokens: number;
-  delivered: number;
-  cancelled: number;
-  bookingsWithTasks: number;
-  totalTaskInstances: number;
-  pmaxCases: number;
-  paymentPending: number;
-  totalCollected: number;
-  totalPending: number;
-  avgPaymentPercentage: number;
-}
-
-export interface MatrixColumn {
-  key: string;
-  label: string;
-  subLabel: string;
-}
-
-export interface MatrixRow {
-  category: string;
-  name: string;
-  isPercent: boolean;
-  indent: boolean;
-  values: Record<string, string | number>;
-}
-
-export interface DashboardCharts {
-  leadStage: Record<string, number>;
-  dealStatus: Record<string, number>;
-  city: Record<string, number>;
-  hub: Record<string, number>;
-  rm: Record<string, number>;
-  dc: Record<string, number>;
-  readyToDeliver: Record<string, number>;
-  onDemandStatusDistribution: Record<string, number>;
-  totalExpectedAmountDistribution: Record<string, number>;
-  tokenType: Record<string, number>;
-  tokenTypeWithNrt: Record<string, number>;
-  paymentType: Record<string, number>;
-  funnelStage: Record<string, number>;
-  taskBucket: Record<string, number>;
-  cancellationReason: Record<string, number>;
-  sheetFinalStatus: Record<string, number>;
-  formFinalStatus: Record<string, number>;
-  eddDistribution: Record<string, number>;
-  leadDsChannel?: Record<string, number>;
-  listingDaysDistribution: Record<string, number>;
-}
-
-export interface NormalizedDateFilter {
-  field: string;
-  startDate?: string;
-  endDate?: string;
-  filterBlankDates?: boolean;
-}
-
-export interface DashboardFilterQuery {
-  city?: string[];
-  hubName?: string[];
-  tokenType?: string[];
-  tokenTypeWithNrt?: string[];
-  rmName?: string[];
-  dcName?: string[];
-  paymentType?: string[];
-  leadStage?: string[];
-  dealStatus?: string[];
-  funnelStage?: string[];
-  sheetFinalStatus?: string[];
-  formFinalStatus?: string[];
-  gmailPendencyStatus?: string[];
-  confidenceTrend?: string[];
-  onDemandStatus?: string[];
-  taskBucket?: string[];
-  derivedStatus?: string[];
-  cancelReason?: string[];
-  leadDsChannel?: string[];
-  readyToDeliver?: string[];
-  eddStatus?: string | null;
-  listingDaysBucket?: string | null;
-  searchQuery?: string | null;
-  dateField?: string | null;
-  startDate?: string | null;
-  endDate?: string | null;
-  filterBlankDates?: boolean;
-  dateFilters?: NormalizedDateFilter[];
-  minPaymentPercentage?: number | null;
-}
-
-export interface CaseQuery {
-  page: number;
-  pageSize: number;
-  sortField: keyof CaseRow | string;
-  sortDirection: 'asc' | 'desc';
-  filters: DashboardFilterQuery;
-}
-
-export interface CasePageResult {
-  rows: CaseRow[];
-  totalCount: number;
-  page: number;
-  pageSize: number;
-}
-
-export interface DashboardSummaryQuery {
-  filters: DashboardFilterQuery;
-}
-
-export interface DashboardSummaryResult {
-  kpis: DashboardKpis;
-  charts: DashboardCharts;
-  filteredCancelledC2dCount: number;
-  filteredCancelledC2aCount?: number;
-  filteredCancelledCr2dCount?: number;
-}
-
-export interface DashboardMatrixResult {
-  columns: MatrixColumn[];
-  rows: MatrixRow[];
-}
-
-export interface DashboardFilterOptions {
-  cities: string[];
-  hubs: string[];
-  hubsByCity: Record<string, string[]>;
-  tokenTypes: string[];
-  tokenTypesWithNrt: string[];
-  rms: string[];
-  dcs: string[];
-  paymentTypes: string[];
-  leadStages: string[];
-  dealStatuses: string[];
-  funnelStages: string[];
-  sheetFinalStatuses: string[];
-  formFinalStatuses: string[];
-  gmailPendencyStatuses: string[];
-  onDemandStatuses: string[];
-  tasks: string[];
-  cancelReasons: string[];
-  leadDsChannels: string[];
-}
-
-export interface AuditLog {
-  id?: string;
-  booking_id: string;
-  changed_by: string;
-  changed_at?: string;
-  column_name: string;
-  old_value: string | null;
-  new_value: string | null;
-}
-
-export interface UserSession {
-  id?: string;
-  user_email: string;
-  login_time?: string;
-  last_active_time?: string;
-  duration_minutes: number;
-}
-</file>
-
 <file path="src/App.tsx">
 /**
  * @license
@@ -12583,6 +12192,397 @@ export default function App() {
 }
 </file>
 
+<file path="src/types.ts">
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+export interface CaseRow {
+  _rowNumber: number; // Google Sheet row index (e.g. 2, 3...)
+  bookingId: string;  // Unique ID
+  
+  // IDs and links
+  uid?: string;
+  leadId?: string;
+  userId?: string;
+  loanId?: string;
+  appointmentId?: string;
+  carRegNo?: string;
+
+  // Location and ownership
+  hubCode?: string;
+  hubName?: string;
+  city?: string;
+  allocatedRm?: string;
+  assignedDc?: string;
+  caAssignedLms?: string;
+  sm?: string;
+  tm?: string;
+  rm?: string;
+
+  // Deal and lead status
+  dealStatus?: string;
+  dealStatusUpdatedAt?: string;
+  cancellationDate?: string;
+  autoCancelledFlag?: string;
+  tokenAutoCancellationExtendedDate?: string;
+  leadStage?: string;
+  tokenType?: string;
+  tokenTypeWithNrt?: string;
+  paymentType?: string;
+  leadStatus?: string;
+  funnelStage?: string;
+
+  // Dates
+  tokenDate?: string;
+  tokenDateTime?: string;
+  bookingDate?: string;
+  expectedDeliveryDate?: string;
+  expectedDeliveryTime?: string;
+  actualDeliveryDate?: string;
+  lastPaymentDate?: string;
+  latestRemarkDate?: string;
+  updatedAt?: string;
+  cancelReqDate?: string;
+
+  // Delivery
+  deliveryStatus?: string;
+  deliverySegment?: string;
+  onDemandStatus?: string;
+
+  // Amounts
+  amountCollected?: number;
+  amountPending?: number;
+  totalExpectedAmount?: number;
+  agreedSalesPrice?: number;
+  paymentPercentage?: number;
+
+  // Actionable columns
+  readyToDeliver?: string; // 'Yes', 'No', or ''
+  expectedOdCompletionDate?: string;
+  eddReviewerDate?: string;
+  reviewerRemarks?: string;
+
+  // Vehicle
+  make?: string;
+  model?: string;
+  variant?: string;
+  manufacturingYear?: string;
+
+  // Finance and risk
+  rcCaseType?: string;
+  incomeSource?: string;
+  oglPincodeFlag?: string;
+  creditLtv?: string;
+  lastRiskBucket?: string;
+  dsRoi?: string;
+  finalRoi?: string;
+  creditRejectionReason?: string;
+  creditRejectionSubReason?: string;
+  diligenceRejectionReason?: string;
+  diligenceRejectionSubReason?: string;
+  redChannelReason?: string;
+  softDerogFlag?: string;
+  hardDerogFlag?: string;
+  nonOgl?: string;
+  contactNumber?: string;
+  redChannelFlag?: string;
+  tofRejectedFlag?: string;
+  deviationMitigationComment?: string;
+  bajajSegment?: string;
+  companyName?: string;
+  leadDsChannel?: string;
+  foir?: string;
+
+  // Milestones
+  latestLeadCreationTimestamp?: string;
+  latestLoginTime?: string;
+  latestCreditAssessedTimestamp?: string;
+  latestDiligenceAssessedTimestamp?: string;
+  latestFcuAssessedTimestamp?: string;
+  tncGeneratedDate?: string;
+  tncAcceptedTimestamp?: string;
+  fcuSentDate?: string;
+  sentToRcuTimestamp?: string;
+  sentToOpsTimestamp?: string;
+  submitToOpsTimestamp?: string;
+  opsDisbursalTimestamp?: string;
+  financeDisbursedTimestamp?: string;
+
+  // Calling
+  lastCallAt?: string;
+  followupAt?: string;
+  totalCallAttempts?: number;
+  totalConnectedCalls?: number;
+  lastCallConnectedSp?: string;
+  callDuration?: string;
+  latestCallOutcome?: string;
+  lastDisposition?: string;
+
+  // Remarks / status info
+  latestRemark?: string;
+  latestRemarkBy?: string;
+  isActive?: string;
+  isAlertVisible?: string;
+  cancelReason?: string;
+  taskBucket?: string;
+  reasonPointer?: string;
+
+  // Sheet Status
+  sheetLoginPartner?: string;
+  sheetFinalStatus?: string;
+  sheetYardName?: string;
+  sheetYardCity?: string;
+  sheetDetailedRemarks?: string;
+  sheetLastDisbursalActivity?: string;
+  sheetLoginTimestamp?: string;
+
+  // Form Status
+  formRiskBucket?: string;
+  formFinalStatus?: string;
+  formCaseStage?: string;
+  formFinalRemarks?: string;
+  formDeviationRequired?: string;
+  formDetailedAsk?: string;
+
+  // Gmail / ML
+  gmailSummary?: string;
+  gmailPendencyStatus?: string;
+  gmailPendencyReason?: string;
+  gmailNextAction?: string;
+  gmailPendencySource?: string;
+  gmailPendencyDate?: string;
+  confidenceScore?: string;
+  confidenceTrendStatus?: 'Decline' | 'Stable' | 'Improving';
+  mlEstimatedDeliveryDate?: string;
+  totalListingDays?: number;
+  syncPending?: boolean;
+}
+
+export type CaseEditorDraft = Partial<CaseRow> & {
+  newRemarkAddition?: string;
+};
+
+export interface DerivedFlags {
+  isAlertCase: boolean;
+  isActiveToken: boolean;
+  isDelivered: boolean;
+  isCancelled: boolean;
+  isEddMissing: boolean;
+  isEddBreached: boolean;
+  isPmaxCase: boolean;
+  isPmaxStuck: boolean;
+  isCustomerConnectPending: boolean;
+  isHighPaymentPendingDelivery: boolean;
+  isPaymentPending: boolean;
+  isCancelledAfterPayment: boolean;
+  isOdPending: boolean;
+  isBlankPaymentType: boolean;
+}
+
+export interface DateFilter {
+  id: string;
+  dateField: string;
+  startDate: string;
+  endDate: string;
+  filterBlankDates?: boolean;
+}
+
+export interface FilterState {
+  city: string;
+  hubName: string;
+  tokenType: string;
+  tokenTypeWithNrt: string;
+  rmName: string;
+  dcName: string;
+  paymentType: string;
+  leadStage: string;
+  dealStatus: string;
+  funnelStage: string;
+  sheetFinalStatus: string;
+  formFinalStatus: string;
+  gmailPendencyStatus: string;
+  confidenceTrend: string;
+  onDemandStatus: string;
+  taskBucket: string;
+  derivedStatus: string;
+  dateField: string;
+  startDate: string;
+  endDate: string;
+  filterBlankDates?: boolean;
+  searchQuery: string;
+  eddStatus?: string;
+  cancelReason?: string;
+  leadDsChannel?: string;
+  readyToDeliver?: string;
+  dateFilters?: DateFilter[];
+  minPaymentPercentage?: string;
+  listingDaysBucket: string;
+}
+
+export interface DashboardKpis {
+  totalCases: number;
+  activeTokens: number;
+  delivered: number;
+  cancelled: number;
+  bookingsWithTasks: number;
+  totalTaskInstances: number;
+  pmaxCases: number;
+  paymentPending: number;
+  totalCollected: number;
+  totalPending: number;
+  avgPaymentPercentage: number;
+}
+
+export interface MatrixColumn {
+  key: string;
+  label: string;
+  subLabel: string;
+}
+
+export interface MatrixRow {
+  category: string;
+  name: string;
+  isPercent: boolean;
+  indent: boolean;
+  values: Record<string, string | number>;
+}
+
+export interface DashboardCharts {
+  leadStage: Record<string, number>;
+  dealStatus: Record<string, number>;
+  city: Record<string, number>;
+  hub: Record<string, number>;
+  rm: Record<string, number>;
+  dc: Record<string, number>;
+  readyToDeliver: Record<string, number>;
+  onDemandStatusDistribution: Record<string, number>;
+  totalExpectedAmountDistribution: Record<string, number>;
+  tokenType: Record<string, number>;
+  tokenTypeWithNrt: Record<string, number>;
+  paymentType: Record<string, number>;
+  funnelStage: Record<string, number>;
+  taskBucket: Record<string, number>;
+  cancellationReason: Record<string, number>;
+  sheetFinalStatus: Record<string, number>;
+  formFinalStatus: Record<string, number>;
+  eddDistribution: Record<string, number>;
+  leadDsChannel?: Record<string, number>;
+  listingDaysDistribution: Record<string, number>;
+}
+
+export interface NormalizedDateFilter {
+  field: string;
+  startDate?: string;
+  endDate?: string;
+  filterBlankDates?: boolean;
+}
+
+export interface DashboardFilterQuery {
+  city?: string[];
+  hubName?: string[];
+  tokenType?: string[];
+  tokenTypeWithNrt?: string[];
+  rmName?: string[];
+  dcName?: string[];
+  paymentType?: string[];
+  leadStage?: string[];
+  dealStatus?: string[];
+  funnelStage?: string[];
+  sheetFinalStatus?: string[];
+  formFinalStatus?: string[];
+  gmailPendencyStatus?: string[];
+  confidenceTrend?: string[];
+  onDemandStatus?: string[];
+  taskBucket?: string[];
+  derivedStatus?: string[];
+  cancelReason?: string[];
+  leadDsChannel?: string[];
+  readyToDeliver?: string[];
+  eddStatus?: string | null;
+  listingDaysBucket?: string | null;
+  searchQuery?: string | null;
+  dateField?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  filterBlankDates?: boolean;
+  dateFilters?: NormalizedDateFilter[];
+  minPaymentPercentage?: number | null;
+}
+
+export interface CaseQuery {
+  page: number;
+  pageSize: number;
+  sortField: keyof CaseRow | string;
+  sortDirection: 'asc' | 'desc';
+  filters: DashboardFilterQuery;
+}
+
+export interface CasePageResult {
+  rows: CaseRow[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface DashboardSummaryQuery {
+  filters: DashboardFilterQuery;
+}
+
+export interface DashboardSummaryResult {
+  kpis: DashboardKpis;
+  charts: DashboardCharts;
+  filteredCancelledC2dCount: number;
+  filteredCancelledC2aCount?: number;
+  filteredCancelledCr2dCount?: number;
+}
+
+export interface DashboardMatrixResult {
+  columns: MatrixColumn[];
+  rows: MatrixRow[];
+}
+
+export interface DashboardFilterOptions {
+  cities: string[];
+  hubs: string[];
+  hubsByCity: Record<string, string[]>;
+  tokenTypes: string[];
+  tokenTypesWithNrt: string[];
+  rms: string[];
+  dcs: string[];
+  paymentTypes: string[];
+  leadStages: string[];
+  dealStatuses: string[];
+  funnelStages: string[];
+  sheetFinalStatuses: string[];
+  formFinalStatuses: string[];
+  gmailPendencyStatuses: string[];
+  onDemandStatuses: string[];
+  tasks: string[];
+  cancelReasons: string[];
+  leadDsChannels: string[];
+}
+
+export interface AuditLog {
+  id?: string;
+  booking_id: string;
+  changed_by: string;
+  changed_at?: string;
+  column_name: string;
+  old_value: string | null;
+  new_value: string | null;
+}
+
+export interface UserSession {
+  id?: string;
+  user_email: string;
+  login_time?: string;
+  last_active_time?: string;
+  duration_minutes: number;
+}
+</file>
+
 <file path="src/components/Dashboard.tsx">
 /**
  * @license
@@ -12609,7 +12609,11 @@ import { useDashboardDataSource } from '../hooks/useDashboardDataSource';
 import {
   createDerivedLabels,
   DEFAULT_FILTERS,
+  isRowMatchingFilter,
+  buildEddLabels,
 } from '../lib/dashboardFilters';
+import { createCaseQuery } from '../lib/dashboardQuery';
+import { getCasesPageFromDb } from '../lib/supabaseDb';
 
 import { parseDateString } from '../lib/dateUtils';
 
@@ -12784,6 +12788,47 @@ export default function Dashboard({
   const [exportingGoogleSheet, setExportingGoogleSheet] = useState(false);
   const [exportFeedback, setExportFeedback] = useState<string | null>(null);
 
+  const getAllFilteredRowsForExport = async (): Promise<CaseRow[]> => {
+    if (demoMode) {
+      const eddLabels = buildEddLabels();
+      return rows.filter(row => isRowMatchingFilter(row, filters, eddLabels));
+    }
+    
+    if (activeTokenFastPath && activeTokenRows.length > 0) {
+      const eddLabels = buildEddLabels();
+      return activeTokenRows.filter(row => isRowMatchingFilter(row, filters, eddLabels));
+    }
+    
+    // Server mode
+    const query = createCaseQuery(filters, 1, 200, sortField || 'tokenDate', sortDirection);
+    const firstPage = await getCasesPageFromDb(query);
+    const total = firstPage.totalCount;
+    const rowsList = [...firstPage.rows];
+    
+    if (total <= 200) {
+      return rowsList;
+    }
+    
+    const totalPages = Math.ceil(total / 200);
+    const promises = [];
+    for (let p = 2; p <= totalPages; p++) {
+      promises.push(
+        getCasesPageFromDb({
+          ...query,
+          page: p,
+          pageSize: 200
+        }).then(res => res.rows)
+      );
+    }
+    
+    const remainingPages = await Promise.all(promises);
+    remainingPages.forEach(pageRows => {
+      rowsList.push(...pageRows);
+    });
+    
+    return rowsList;
+  };
+
   const handleExportGoogleSheet = async () => {
     if (!accessToken) {
       alert("Please sign in with Google to export to Google Sheets.");
@@ -12791,13 +12836,15 @@ export default function Dashboard({
     }
 
     setExportingGoogleSheet(true);
-    setExportFeedback("Creating brand new Google Spreadsheet...");
+    setExportFeedback("Preparing data for export...");
     
     try {
+      const allFilteredRows = await getAllFilteredRowsForExport();
+      setExportFeedback(`Exporting ${allFilteredRows.length} rows to Google Sheet...`);
       const { exportFilteredRowsToGoogleSheet } = await import('../lib/sheetsService');
       const result = await exportFilteredRowsToGoogleSheet(
         accessToken,
-        currentRows,
+        allFilteredRows,
         additionalCsvCols
       );
       setExportFeedback(`Successfully created new sheet: "${result.title}"! Opening...`);
@@ -12815,54 +12862,67 @@ export default function Dashboard({
     }
   };
 
-  const handleExportCsv = () => {
-    // Basic standard columns
-    const standardHeader = ["Booking ID", "Loan ID", "Token Date", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"];
+  const handleExportCsv = async () => {
+    setExportFeedback("Preparing CSV data for export...");
     
-    // Add additional headers
-    const additionalHeaders = AVAILABLE_ADDITIONAL_COLS
-      .filter(col => additionalCsvCols.includes(String(col.key)))
-      .map(col => col.label);
+    try {
+      const allFilteredRows = await getAllFilteredRowsForExport();
+      setExportFeedback(`Exporting ${allFilteredRows.length} rows to CSV...`);
       
-    const headerRow = [...standardHeader, ...additionalHeaders].join(",");
-    
-    const dataRows = currentRows.map(row => {
-      const standardVals = [
-        row.bookingId,
-        row.loanId,
-        row.tokenDate,
-        row.hubName,
-        row.allocatedRm,
-        row.tokenType,
-        row.paymentType,
-        row.leadStage,
-        row.taskBucket,
-        row.expectedDeliveryDate,
-        row.readyToDeliver,
-        row.expectedOdCompletionDate,
-        row.reviewerRemarks
-      ];
+      // Basic standard columns
+      const standardHeader = ["Booking ID", "Loan ID", "Token Date", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"];
       
-      const additionalVals = AVAILABLE_ADDITIONAL_COLS
+      // Add additional headers
+      const additionalHeaders = AVAILABLE_ADDITIONAL_COLS
         .filter(col => additionalCsvCols.includes(String(col.key)))
-        .map(col => {
-          const val = row[col.key];
-          return val !== undefined && val !== null ? val : '';
-        });
+        .map(col => col.label);
         
-      return [...standardVals, ...additionalVals]
-        .map(v => `"${String(v).replace(/"/g, '""')}"`)
-        .join(',');
-    });
-    
-    const csvContent = [headerRow, ...dataRows].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'cars24_ops_filtered_dataset.csv';
-    link.click();
-    setShowCsvModal(false);
+      const headerRow = [...standardHeader, ...additionalHeaders].join(",");
+      
+      const dataRows = allFilteredRows.map(row => {
+        const standardVals = [
+          row.bookingId,
+          row.loanId,
+          row.tokenDate,
+          row.hubName,
+          row.allocatedRm,
+          row.tokenType,
+          row.paymentType,
+          row.leadStage,
+          row.taskBucket,
+          row.expectedDeliveryDate,
+          row.readyToDeliver,
+          row.expectedOdCompletionDate,
+          row.reviewerRemarks
+        ];
+        
+        const additionalVals = AVAILABLE_ADDITIONAL_COLS
+          .filter(col => additionalCsvCols.includes(String(col.key)))
+          .map(col => {
+            const val = row[col.key];
+            return val !== undefined && val !== null ? val : '';
+          });
+          
+        return [...standardVals, ...additionalVals]
+          .map(v => `"${String(v).replace(/"/g, '""')}"`)
+          .join(',');
+      });
+      
+      const csvContent = [headerRow, ...dataRows].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'cars24_ops_filtered_dataset.csv';
+      link.click();
+      
+      setExportFeedback(null);
+      setShowCsvModal(false);
+    } catch (err: any) {
+      console.error("CSV export failed:", err);
+      setExportFeedback(`Export failed: ${err.message || err}`);
+      setTimeout(() => setExportFeedback(null), 5000);
+    }
   };
 
   const handleExportImage = () => {
