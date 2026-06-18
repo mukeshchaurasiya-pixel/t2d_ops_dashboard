@@ -87,22 +87,42 @@ export function initAuth(
     }
   );
 
-  return () => subscription.unsubscribe();
+  // Listen to storage changes to sync across tabs
+  const handleStorageChange = (e: StorageEvent) => {
+    if (e.key && e.key.endsWith('-auth-token')) {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) {
+          const token = getProviderToken(session);
+          cacheProviderToken(token);
+          if (onAuthSuccess) onAuthSuccess(sessionToAppUser(session), token);
+        } else {
+          if (onAuthFailure) onAuthFailure();
+        }
+      });
+    }
+  };
+  window.addEventListener('storage', handleStorageChange);
+
+  return () => {
+    subscription.unsubscribe();
+    window.removeEventListener('storage', handleStorageChange);
+  };
 }
 
 // ─── Google Sign-In via Supabase OAuth ───────────────────────────────────────
 /**
- * Trigger Google OAuth popup (redirects to Supabase OAuth flow).
- * Supabase will redirect back to the app; the auth state listener picks it up.
- * Returns the user + access token from the current session after redirect.
+ * Trigger Google OAuth popup (opens sign-in in a new tab/window).
+ * Once completed, the popup notifies the opener and closes itself.
+ * Returns the user + access token from the session.
  */
 export async function googleSignIn(): Promise<{ user: AppUser; accessToken: string } | null> {
   const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined;
 
-  const { error } = await supabase.auth.signInWithOAuth({
+  const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
       redirectTo,
+      skipBrowserRedirect: true,
       scopes: 'https://www.googleapis.com/auth/spreadsheets',
       queryParams: {
         access_type: 'offline',
@@ -116,9 +136,58 @@ export async function googleSignIn(): Promise<{ user: AppUser; accessToken: stri
     throw new Error(error.message);
   }
 
-  // The page will redirect; we return null here.
-  // After redirect, initAuth picks up the new session automatically.
-  return null;
+  if (!data?.url) {
+    throw new Error("Failed to retrieve OAuth authorization URL");
+  }
+
+  // Open popup
+  const width = 600;
+  const height = 700;
+  const left = window.screen.width / 2 - width / 2;
+  const top = window.screen.height / 2 - height / 2;
+  const popup = window.open(
+    data.url,
+    'cars24_google_signin_popup',
+    `width=${width},height=${height},left=${left},top=${top},status=no,resizable=yes,scrollbars=yes`
+  );
+
+  if (!popup) {
+    throw new Error("Popup blocked. Please allow popups for this site.");
+  }
+
+  return new Promise((resolve, reject) => {
+    let checkInterval: any = null;
+
+    const handleMessage = async (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type === 'AUTH_COMPLETE') {
+        cleanup();
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          resolve({
+            user: sessionToAppUser(session),
+            accessToken: session.provider_token ?? '',
+          });
+        } else {
+          reject(new Error("Session not found after auth complete."));
+        }
+      }
+    };
+
+    const cleanup = () => {
+      window.removeEventListener('message', handleMessage);
+      if (checkInterval) clearInterval(checkInterval);
+    };
+
+    window.addEventListener('message', handleMessage);
+
+    checkInterval = setInterval(() => {
+      if (popup.closed) {
+        cleanup();
+        reject(new Error("Login window closed by user."));
+      }
+    }, 1000);
+  });
 }
 
 // ─── Get access token from current session ────────────────────────────────────

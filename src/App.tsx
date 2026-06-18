@@ -150,7 +150,15 @@ export default function App() {
     if (!activeToken) {
       const { googleSignIn } = await import('./lib/firebaseAuth');
       alert("Connecting to Google for synchronization...");
-      await googleSignIn(); // Redirects page to get token
+      try {
+        const result = await googleSignIn();
+        if (result?.accessToken) {
+          await handleSyncFromSheets(result.accessToken);
+        }
+      } catch (err: any) {
+        console.error("Popup sign-in during sync failed:", err);
+        alert(`Authentication failed: ${err.message || err}`);
+      }
       return;
     }
 
