@@ -28,7 +28,7 @@ export const DEFAULT_FILTERS: FilterState = {
   cancelReason: 'All',
   leadDsChannel: 'All',
   readyToDeliver: 'All',
-  dateFilters: [],
+  dateFilters: [{ id: 'initial', dateField: 'All', startDate: '', endDate: '', filterBlankDates: false }],
   minPaymentPercentage: 'All',
   listingDaysBucket: 'All',
 };

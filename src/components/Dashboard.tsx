@@ -616,13 +616,11 @@ export default function Dashboard({
     setFilters(DEFAULT_FILTERS);
   };
 
-  const syncDateFilters = (dfList: DateFilter[], legacyField: string): DateFilter[] => {
-    if (legacyField === 'All') return [];
-    
+  const syncDateFilters = (dfList: DateFilter[], _legacyField: string): DateFilter[] => {
     // Filter out inactive filters (where dateField is 'All')
     const active = dfList.filter(df => df.dateField !== 'All');
     
-    // Append exactly one inactive filter at the end
+    // Always append exactly one inactive (blank) filter at the end
     return [
       ...active,
       {
@@ -681,6 +679,17 @@ export default function Dashboard({
     `block text-[10px] uppercase font-bold tracking-wider mb-1 transition-all duration-200 ${
       isActive ? 'text-amber-700 font-extrabold' : 'text-slate-400'
     }`;
+
+  // Shared renderer — keeps primary & additional dropdowns in perfect sync
+  const renderDateOptions = () =>
+    DATE_OPTIONS.map(group => (
+      <optgroup key={group.label} label={group.label}>
+        {group.options.map(opt => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </optgroup>
+    ));
+
 
   const isCityActive = filters.city !== 'All';
   const isHubActive = filters.hubName !== 'All';
@@ -1325,49 +1334,7 @@ export default function Dashboard({
               className={getFilterSelectClass(isDateFieldActive)}
             >
               <option value="All">No Date Filter</option>
-              <optgroup label="Core Case Dates">
-                <option value="tokenDate">Token Date</option>
-                <option value="tokenDateTime">Token Date & Time</option>
-                <option value="bookingDate">Booking Date</option>
-                <option value="expectedDeliveryDate">Expected Delivery Date</option>
-                <option value="expectedDeliveryTime">Expected Delivery Time</option>
-                <option value="actualDeliveryDate">Actual Delivery Date</option>
-                <option value="mlEstimatedDeliveryDate">ML Est Delivery Date</option>
-              </optgroup>
-              <optgroup label="Payments & OD">
-                <option value="lastPaymentDate">Last Payment Date</option>
-                <option value="expectedOdCompletionDate">OD Completion Date</option>
-                <option value="eddReviewerDate">EDD Date (Reviewer)</option>
-              </optgroup>
-              <optgroup label="Cancellations & Updates">
-                <option value="cancelReqDate">Cancellation Req Date</option>
-                <option value="cancellationDate">Cancellation Date</option>
-                <option value="tokenAutoCancellationExtendedDate">Auto Cancel Ext Date</option>
-                <option value="dealStatusUpdatedAt">Deal Status Update Date</option>
-                <option value="latestRemarkDate">Latest Remark Date</option>
-                <option value="updatedAt">System Update Date</option>
-              </optgroup>
-              <optgroup label="CRM & Outbound Calls">
-                <option value="lastCallAt">Last Call Date</option>
-                <option value="followupAt">Followup Date</option>
-                <option value="gmailPendencyDate">Gmail Pendency Date</option>
-              </optgroup>
-              <optgroup label="Milestones & Journey">
-                <option value="latestLeadCreationTimestamp">Lead Creation Date</option>
-                <option value="latestLoginTime">Login Time</option>
-                <option value="latestCreditAssessedTimestamp">Credit Assessed Date</option>
-                <option value="latestDiligenceAssessedTimestamp">Diligence Assessed Date</option>
-                <option value="latestFcuAssessedTimestamp">FCU Assessed Date</option>
-                <option value="tncGeneratedDate">TnC Generated Date</option>
-                <option value="tncAcceptedTimestamp">TnC Accepted Date</option>
-                <option value="fcuSentDate">FCU Sent Date</option>
-                <option value="sentToRcuTimestamp">Sent to RCU Date</option>
-                <option value="sentToOpsTimestamp">Sent to Ops Date</option>
-                <option value="submitToOpsTimestamp">Submit to Ops Date</option>
-                <option value="opsDisbursalTimestamp">Ops Disbursal Date</option>
-                <option value="financeDisbursedTimestamp">Finance Disbursed Date</option>
-                <option value="sheetLoginTimestamp">Sheet Login Date</option>
-              </optgroup>
+              {renderDateOptions()}
             </select>
           </div>
 
@@ -1449,8 +1416,8 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Additional Dynamic Date Filters (if active) */}
-        {filters.dateField !== 'All' && filters.dateFilters && filters.dateFilters.length > 0 && (
+        {/* Additional Dynamic Date Filters — always visible */}
+        {filters.dateFilters && filters.dateFilters.length > 0 && (
           <div className="border-t border-slate-100 pt-4 mt-2">
             <div className="flex justify-between items-center mb-3">
               <div className="flex items-center gap-2">
@@ -1487,33 +1454,7 @@ export default function Dashboard({
                         }`}
                       >
                         <option value="All">Select Additional Date Parameter...</option>
-                        <optgroup label="Core Case Dates">
-                          <option value="tokenDate">Token Date</option>
-                          <option value="tokenDateTime">Token Date & Time</option>
-                          <option value="bookingDate">Booking Date</option>
-                          <option value="expectedDeliveryDate">Expected Delivery Date</option>
-                          <option value="expectedDeliveryTime">Expected Delivery Time</option>
-                          <option value="actualDeliveryDate">Actual Delivery Date</option>
-                          <option value="mlEstimatedDeliveryDate">ML Est Delivery Date</option>
-                        </optgroup>
-                        <optgroup label="Payments & OD">
-                          <option value="lastPaymentDate">Last Payment Date</option>
-                          <option value="expectedOdCompletionDate">OD Completion Date</option>
-                          <option value="eddReviewerDate">EDD Date (Reviewer)</option>
-                        </optgroup>
-                        <optgroup label="Cancellations & Updates">
-                          <option value="cancelReqDate">Cancellation Req Date</option>
-                          <option value="cancellationDate">Cancellation Date</option>
-                          <option value="tokenAutoCancellationExtendedDate">Auto Cancel Ext Date</option>
-                          <option value="dealStatusUpdatedAt">Deal Status Update Date</option>
-                          <option value="latestRemarkDate">Latest Remark Date</option>
-                          <option value="updatedAt">System Update Date</option>
-                        </optgroup>
-                        <optgroup label="CRM & Outbound Calls">
-                          <option value="lastCallAt">Last Call Date</option>
-                          <option value="followupAt">Followup Date</option>
-                          <option value="gmailPendencyDate">Gmail Pendency Date</option>
-                        </optgroup>
+                        {renderDateOptions()}
                       </select>
                     </div>
 
