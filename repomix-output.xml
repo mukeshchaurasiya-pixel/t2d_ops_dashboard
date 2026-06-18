@@ -407,164 +407,6 @@ Create a comprehensive, step-by-step README update and/or deployment guide speci
 - [ ] The repository includes clear instructions for the user on how to connect their private GitHub repo to Vercel for automatic deployment.
 </file>
 
-<file path="src/components/MultiSelectDropdown.tsx">
-import React, { useMemo } from 'react';
-
-interface MultiSelectDropdownProps {
-  label: string;
-  options: string[];
-  selectedString: string;
-  onChange: (val: string) => void;
-  placeholder: string;
-  showBlank?: boolean;
-  isActive: boolean;
-  isOpen: boolean;
-  onToggle: () => void;
-  optionLabels?: Record<string, string>;
-}
-
-export default function MultiSelectDropdown({
-  label,
-  options,
-  selectedString,
-  onChange,
-  placeholder,
-  showBlank = false,
-  isActive,
-  isOpen,
-  onToggle,
-  optionLabels
-}: MultiSelectDropdownProps) {
-  const totalOptionsTrimmed = useMemo(() => {
-    const list = options.map(o => o.trim());
-    if (showBlank) {
-      list.push('Blank');
-    }
-    return list;
-  }, [options, showBlank]);
-
-  const effectiveSelectedList = useMemo(() => {
-    if (selectedString === 'All') return totalOptionsTrimmed;
-    if (!selectedString) return [];
-    return selectedString.split('|||').map(s => s.trim()).filter(Boolean);
-  }, [selectedString, totalOptionsTrimmed]);
-
-  const handleToggleOption = (val: string) => {
-    const trimmedVal = val.trim();
-    let newList: string[];
-    if (effectiveSelectedList.includes(trimmedVal)) {
-      newList = effectiveSelectedList.filter(v => v !== trimmedVal);
-    } else {
-      newList = [...effectiveSelectedList, trimmedVal];
-    }
-    
-    if (newList.length === totalOptionsTrimmed.length) {
-      onChange('All');
-    } else if (newList.length === 0) {
-      onChange('');
-    } else {
-      onChange(newList.join('|||'));
-    }
-  };
-
-  const handleSelectAll = () => {
-    onChange('All');
-  };
-
-  const handleClear = () => {
-    onChange('');
-  };
-
-  const displayText = useMemo(() => {
-    if (selectedString === 'All') return placeholder;
-    if (!selectedString) return 'None Selected';
-    const parts = selectedString.split('|||').map(s => s.trim()).filter(Boolean);
-    const getLabel = (val: string) => {
-      if (val === 'Blank') return 'Blank / Empty';
-      if (optionLabels && optionLabels[val]) return optionLabels[val];
-      return val;
-    };
-    if (parts.length === 1) {
-      return getLabel(parts[0]);
-    }
-    return `${getLabel(parts[0])} (+${parts.length - 1})`;
-  }, [selectedString, placeholder, optionLabels]);
-
-  return (
-    <div className="relative">
-      <label className={`block text-[10px] uppercase font-bold tracking-wider mb-1 transition-all duration-200 ${
-        isActive ? 'text-brand-orange font-extrabold' : 'text-slate-400'
-      }`}>
-        {label}
-      </label>
-      
-      <button
-        type="button"
-        onClick={onToggle}
-        className={`w-full text-xs p-2 px-3 border rounded-xl cursor-pointer transition-all duration-200 flex items-center justify-between gap-1.5 focus:outline-none focus:ring-1 focus:ring-brand-orange/20 ${
-          isActive 
-            ? 'border-brand-orange bg-orange-50/20 text-brand-orange font-semibold ring-1 ring-brand-orange/30 shadow-sm' 
-            : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100/50'
-        }`}
-      >
-        <span className="truncate max-w-[120px]">{displayText}</span>
-        <span className="text-[10px] text-slate-400">▼</span>
-      </button>
-
-      {isOpen && (
-        <>
-          <div className="fixed inset-0 z-20 cursor-default" onClick={onToggle} />
-          
-          <div className="absolute left-0 mt-1.5 w-56 max-h-60 bg-white border border-slate-150 rounded-xl shadow-lg z-30 flex flex-col overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
-            <div className="p-2 border-b border-slate-100 flex items-center justify-between text-[10px] font-bold text-slate-500 bg-slate-50/50">
-              <button 
-                type="button" 
-                onClick={handleSelectAll} 
-                className="hover:text-slate-800 cursor-pointer"
-              >
-                Select All
-              </button>
-              <button 
-                type="button" 
-                onClick={handleClear} 
-                className="hover:text-slate-800 cursor-pointer"
-              >
-                Clear
-              </button>
-            </div>
-            
-            <div className="overflow-y-auto p-1.5 space-y-0.5 max-h-48 text-slate-700 text-xs">
-              {showBlank && (
-                <label className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer font-sans select-none">
-                  <input
-                    type="checkbox"
-                    checked={effectiveSelectedList.includes('Blank')}
-                    onChange={() => handleToggleOption('Blank')}
-                    className="rounded text-brand-orange focus:ring-brand-orange/20 w-3.5 h-3.5"
-                  />
-                  <span>Blank / Empty</span>
-                </label>
-              )}
-              {options.map(opt => (
-                <label key={opt} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer font-sans select-none">
-                  <input
-                    type="checkbox"
-                    checked={effectiveSelectedList.includes(opt.trim())}
-                    onChange={() => handleToggleOption(opt)}
-                    className="rounded text-brand-orange focus:ring-brand-orange/20 w-3.5 h-3.5"
-                  />
-                  <span className="truncate">{optionLabels?.[opt] || opt}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-</file>
-
 <file path="src/debug_verify.ts">
 /**
  * @license
@@ -911,217 +753,6 @@ signInPromise.then(() => {
 });
 </file>
 
-<file path="src/hooks/useAdminData.ts">
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AuditLog, UserSession } from '../types';
-
-type ViewMode = 'dashboard' | 'admin';
-
-type UseAdminDataArgs = {
-  userEmail?: string | null;
-  demoMode: boolean;
-  viewMode: ViewMode;
-};
-
-export function useAdminData({ userEmail, demoMode, viewMode }: UseAdminDataArgs) {
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [userSessions, setUserSessions] = useState<UserSession[]>([]);
-  const [loadingSessions, setLoadingSessions] = useState<boolean>(false);
-  const [globalAuditLogs, setGlobalAuditLogs] = useState<AuditLog[]>([]);
-  const [loadingAudits, setLoadingAudits] = useState<boolean>(false);
-
-  const isAdmin = useMemo(() => {
-    const emailLower = String(userEmail || '').toLowerCase().trim();
-    return emailLower === 'mukesh.chaurasiya@cars24.com' || emailLower === 'chourasiyamukesh008@gmail.com';
-  }, [userEmail]);
-
-  const fetchAdminData = useCallback(async () => {
-    if (!isAdmin) return;
-
-    setLoadingSessions(true);
-    setLoadingAudits(true);
-
-    try {
-      const { getUserSessions, getAllAuditLogs } = await import('../lib/supabaseDb');
-
-      const sessionPromise = getUserSessions()
-        .then(setUserSessions)
-        .catch(err => console.warn(err));
-
-      const auditPromise = getAllAuditLogs()
-        .then(setGlobalAuditLogs)
-        .catch(err => console.warn(err));
-
-      await Promise.all([sessionPromise, auditPromise]);
-    } catch (err) {
-      console.warn('Failed to load admin logs:', err);
-    } finally {
-      setLoadingSessions(false);
-      setLoadingAudits(false);
-    }
-  }, [isAdmin]);
-
-  useEffect(() => {
-    if (!userEmail || demoMode) {
-      setActiveSessionId(null);
-      return;
-    }
-
-    let sessionId: string | null = null;
-    let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
-
-    const initSession = async () => {
-      try {
-        const { startUserSession, heartbeatUserSession } = await import('../lib/supabaseDb');
-        sessionId = await startUserSession(userEmail);
-        setActiveSessionId(sessionId);
-
-        heartbeatInterval = setInterval(async () => {
-          if (sessionId) {
-            await heartbeatUserSession(sessionId);
-          }
-        }, 60000);
-      } catch (err) {
-        console.warn('Could not track user session activity:', err);
-      }
-    };
-
-    initSession();
-
-    return () => {
-      if (heartbeatInterval) {
-        clearInterval(heartbeatInterval);
-      }
-    };
-  }, [userEmail, demoMode]);
-
-  useEffect(() => {
-    if (viewMode === 'admin' && isAdmin) {
-      void fetchAdminData();
-    }
-  }, [viewMode, isAdmin, fetchAdminData]);
-
-  return {
-    isAdmin,
-    activeSessionId,
-    userSessions,
-    loadingSessions,
-    globalAuditLogs,
-    loadingAudits,
-    fetchAdminData,
-  };
-}
-</file>
-
-<file path="src/hooks/useSheetConfig.ts">
-import { useEffect, useState } from 'react';
-
-const DEFAULT_SHEET_ID = '1ARJ8AzOwNxqdTZA7bd7zPAacabIoBImXqReqzSTrIy4';
-const DEFAULT_SHEET_NAME = 'Sheet1';
-const SHEET_ID_STORAGE_KEY = 'cars24_sheetId';
-const SHEET_NAME_STORAGE_KEY = 'cars24_sheetName';
-
-export function useSheetConfig() {
-  const [sheetId, setSheetId] = useState<string>(() => localStorage.getItem(SHEET_ID_STORAGE_KEY) || DEFAULT_SHEET_ID);
-  const [sheetName, setSheetName] = useState<string>(() => localStorage.getItem(SHEET_NAME_STORAGE_KEY) || DEFAULT_SHEET_NAME);
-  const [showConfigPanel, setShowConfigPanel] = useState<boolean>(false);
-  const [tempSheetId, setTempSheetId] = useState<string>(() => localStorage.getItem(SHEET_ID_STORAGE_KEY) || DEFAULT_SHEET_ID);
-  const [tempSheetName, setTempSheetName] = useState<string>(() => localStorage.getItem(SHEET_NAME_STORAGE_KEY) || DEFAULT_SHEET_NAME);
-
-  useEffect(() => {
-    localStorage.setItem(SHEET_ID_STORAGE_KEY, sheetId);
-  }, [sheetId]);
-
-  useEffect(() => {
-    localStorage.setItem(SHEET_NAME_STORAGE_KEY, sheetName);
-  }, [sheetName]);
-
-  return {
-    sheetId,
-    setSheetId,
-    sheetName,
-    setSheetName,
-    showConfigPanel,
-    setShowConfigPanel,
-    tempSheetId,
-    setTempSheetId,
-    tempSheetName,
-    setTempSheetName,
-  };
-}
-</file>
-
-<file path="src/hooks/useSyncState.ts">
-import { useCallback, useEffect, useState } from 'react';
-
-const LAST_SYNCED_STORAGE_KEY = 'cars24_lastSynced';
-
-function getRelativeTimeString(date: Date | null) {
-  if (!date) return 'Never synced';
-
-  const diffMs = Date.now() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffSecs = Math.floor(diffMs / 1000);
-
-  if (diffSecs < 60) {
-    return 'Just now';
-  }
-
-  if (diffMins < 60) {
-    return `Last synced: ${diffMins}m ago`;
-  }
-
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) {
-    return `Last synced: ${diffHours}h ago`;
-  }
-
-  return `Last synced: ${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-}
-
-export function useSyncState() {
-  const [lastSynced, setLastSynced] = useState<Date | null>(() => {
-    const value = localStorage.getItem(LAST_SYNCED_STORAGE_KEY);
-    return value ? new Date(value) : null;
-  });
-  const [syncStatusText, setSyncStatusText] = useState<string>('Never synced');
-
-  const updateLastSynced = useCallback((date: Date) => {
-    setLastSynced(date);
-    localStorage.setItem(LAST_SYNCED_STORAGE_KEY, date.toISOString());
-  }, []);
-
-  useEffect(() => {
-    const updateText = () => {
-      setSyncStatusText(getRelativeTimeString(lastSynced));
-    };
-
-    updateText();
-    const interval = setInterval(updateText, 10000);
-    return () => clearInterval(interval);
-  }, [lastSynced]);
-
-  return {
-    syncStatusText,
-    updateLastSynced,
-  };
-}
-</file>
-
-<file path="src/lib/sheetAccessCache.ts">
-export function getSheetAccessCacheKeys(activeSheetId: string, activeUserEmail?: string | null) {
-  const emailKey = String(activeUserEmail || 'anonymous').trim().toLowerCase();
-  const suffix = `${emailKey}_${activeSheetId}`;
-
-  return {
-    verifiedKey: `cars24_sheet_access_verified_${suffix}`,
-    timeKey: `cars24_sheet_access_time_${suffix}`,
-    legacyVerifiedKey: `cars24_sheet_access_verified_${activeSheetId}`,
-    legacyTimeKey: `cars24_sheet_access_time_${activeSheetId}`,
-  };
-}
-</file>
-
 <file path="src/main.tsx">
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
@@ -1375,250 +1006,357 @@ Recent hardening changes were introduced in these commits:
 - `68948d5` `Skip private sync when secrets are missing`
 </file>
 
-<file path="src/components/DashboardKpiCards.tsx">
-import React from 'react';
-import { DashboardKpis } from '../types';
+<file path="src/components/MultiSelectDropdown.tsx">
+import React, { useMemo } from 'react';
 
-interface DashboardKpiCardsProps {
-  kpis: DashboardKpis;
-  filteredCancelledC2dCount: number;
-  filteredCancelledC2aCount: number;
-  filteredCancelledCr2dCount: number;
+interface MultiSelectDropdownProps {
+  label: string;
+  options: string[];
+  selectedString: string;
+  onChange: (val: string) => void;
+  placeholder: string;
+  showBlank?: boolean;
+  isActive: boolean;
+  isOpen: boolean;
+  onToggle: () => void;
+  optionLabels?: Record<string, string>;
 }
 
-export default function DashboardKpiCards({
-  kpis,
-  filteredCancelledC2dCount,
-  filteredCancelledC2aCount,
-  filteredCancelledCr2dCount
-}: DashboardKpiCardsProps) {
+export default function MultiSelectDropdown({
+  label,
+  options,
+  selectedString,
+  onChange,
+  placeholder,
+  showBlank = false,
+  isActive,
+  isOpen,
+  onToggle,
+  optionLabels
+}: MultiSelectDropdownProps) {
+  const totalOptionsTrimmed = useMemo(() => {
+    const list = options.map(o => o.trim());
+    if (showBlank) {
+      list.push('Blank');
+    }
+    return list;
+  }, [options, showBlank]);
+
+  const effectiveSelectedList = useMemo(() => {
+    if (selectedString === 'All') return totalOptionsTrimmed;
+    if (!selectedString) return [];
+    return selectedString.split('|||').map(s => s.trim()).filter(Boolean);
+  }, [selectedString, totalOptionsTrimmed]);
+
+  const handleToggleOption = (val: string) => {
+    const trimmedVal = val.trim();
+    let newList: string[];
+    if (effectiveSelectedList.includes(trimmedVal)) {
+      newList = effectiveSelectedList.filter(v => v !== trimmedVal);
+    } else {
+      newList = [...effectiveSelectedList, trimmedVal];
+    }
+    
+    if (newList.length === totalOptionsTrimmed.length) {
+      onChange('All');
+    } else if (newList.length === 0) {
+      onChange('');
+    } else {
+      onChange(newList.join('|||'));
+    }
+  };
+
+  const handleSelectAll = () => {
+    onChange('All');
+  };
+
+  const handleClear = () => {
+    onChange('');
+  };
+
+  const displayText = useMemo(() => {
+    if (selectedString === 'All') return placeholder;
+    if (!selectedString) return 'None Selected';
+    const parts = selectedString.split('|||').map(s => s.trim()).filter(Boolean);
+    const getLabel = (val: string) => {
+      if (val === 'Blank') return 'Blank / Empty';
+      if (optionLabels && optionLabels[val]) return optionLabels[val];
+      return val;
+    };
+    if (parts.length === 1) {
+      return getLabel(parts[0]);
+    }
+    return `${getLabel(parts[0])} (+${parts.length - 1})`;
+  }, [selectedString, placeholder, optionLabels]);
+
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5" id="bento-kpis">
-      {/* Total Cases */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:scale-101 hover:shadow-md transition-all">
-        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Total cases</span>
-        <h4 className="text-2xl font-sans font-bold text-slate-800 leading-none my-1">
-          {kpis.totalCases}
-        </h4>
-        <span className="text-[10px] text-slate-400">filtered operations</span>
-      </div>
+    <div className="relative">
+      <label className={`block text-[10px] uppercase font-bold tracking-wider mb-1 transition-all duration-200 ${
+        isActive ? 'text-brand-orange font-extrabold' : 'text-slate-400'
+      }`}>
+        {label}
+      </label>
+      
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`w-full text-xs p-2 px-3 border rounded-xl cursor-pointer transition-all duration-200 flex items-center justify-between gap-1.5 focus:outline-none focus:ring-1 focus:ring-brand-orange/20 ${
+          isActive 
+            ? 'border-brand-orange bg-orange-50/20 text-brand-orange font-semibold ring-1 ring-brand-orange/30 shadow-sm' 
+            : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100/50'
+        }`}
+      >
+        <span className="truncate max-w-[120px]">{displayText}</span>
+        <span className="text-[10px] text-slate-400">▼</span>
+      </button>
 
-      {/* Active Tokens */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:scale-101 hover:shadow-md transition-all">
-        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Active Tokens</span>
-        <h4 className="text-2xl font-sans font-bold text-brand-orange leading-none my-1">
-          {kpis.activeTokens}
-        </h4>
-        <span className="text-[10px] text-slate-400">awaiting deliveries</span>
-      </div>
-
-      {/* Delivered cases */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:scale-101 hover:shadow-md transition-all">
-        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide flex justify-between items-center">
-          <span>Delivered</span>
-          {filteredCancelledCr2dCount > 0 && (
-            <span className="text-[9px] bg-emerald-50 text-emerald-600 border border-emerald-100 rounded px-1.5 py-0.5 font-bold uppercase tracking-wider select-none shrink-0" title="CR2D: Cancellation request raised but remarks existed and later delivered">
-              CR2D: {filteredCancelledCr2dCount}
-            </span>
-          )}
-        </span>
-        <h4 className="text-2xl font-sans font-bold text-emerald-600 leading-none my-1">
-          {kpis.delivered}
-        </h4>
-        <span className="text-[10px] text-slate-400">
-          completed handovers {filteredCancelledCr2dCount > 0 && `(CR2D: ${filteredCancelledCr2dCount} saved)`}
-        </span>
-      </div>
-
-      {/* Cancelled cases */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:scale-101 hover:shadow-md transition-all">
-        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide flex justify-between items-center">
-          <span>Cancelled</span>
-          <div className="flex gap-1">
-            {filteredCancelledC2dCount > 0 && (
-              <span className="text-[9px] bg-rose-50 text-rose-600 border border-rose-100 rounded px-1.5 py-0.5 font-bold uppercase tracking-wider select-none shrink-0" title="C2D: Cancelled booking but user converted to delivered on another Booking ID">
-                C2D: {filteredCancelledC2dCount}
-              </span>
-            )}
-            {filteredCancelledC2aCount > 0 && (
-              <span className="text-[9px] bg-amber-50 text-amber-700 border border-amber-100 rounded px-1.5 py-0.5 font-bold uppercase tracking-wider select-none shrink-0" title="C2A: Cancelled booking but user has another active token booking">
-                C2A: {filteredCancelledC2aCount}
-              </span>
-            )}
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-20 cursor-default" onClick={onToggle} />
+          
+          <div className="absolute left-0 mt-1.5 w-56 max-h-60 bg-white border border-slate-150 rounded-xl shadow-lg z-30 flex flex-col overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
+            <div className="p-2 border-b border-slate-100 flex items-center justify-between text-[10px] font-bold text-slate-500 bg-slate-50/50">
+              <button 
+                type="button" 
+                onClick={handleSelectAll} 
+                className="hover:text-slate-800 cursor-pointer"
+              >
+                Select All
+              </button>
+              <button 
+                type="button" 
+                onClick={handleClear} 
+                className="hover:text-slate-800 cursor-pointer"
+              >
+                Clear
+              </button>
+            </div>
+            
+            <div className="overflow-y-auto p-1.5 space-y-0.5 max-h-48 text-slate-700 text-xs">
+              {showBlank && (
+                <label className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer font-sans select-none">
+                  <input
+                    type="checkbox"
+                    checked={effectiveSelectedList.includes('Blank')}
+                    onChange={() => handleToggleOption('Blank')}
+                    className="rounded text-brand-orange focus:ring-brand-orange/20 w-3.5 h-3.5"
+                  />
+                  <span>Blank / Empty</span>
+                </label>
+              )}
+              {options.map(opt => (
+                <label key={opt} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer font-sans select-none">
+                  <input
+                    type="checkbox"
+                    checked={effectiveSelectedList.includes(opt.trim())}
+                    onChange={() => handleToggleOption(opt)}
+                    className="rounded text-brand-orange focus:ring-brand-orange/20 w-3.5 h-3.5"
+                  />
+                  <span className="truncate">{optionLabels?.[opt] || opt}</span>
+                </label>
+              ))}
+            </div>
           </div>
-        </span>
-        <h4 className="text-2xl font-sans font-bold text-rose-600 leading-none my-1">
-          {kpis.cancelled}
-        </h4>
-        <span className="text-[10px] text-slate-400">
-          cancellation records { (filteredCancelledC2dCount > 0 || filteredCancelledC2aCount > 0) && `(${[
-            filteredCancelledC2dCount > 0 ? `C2D: ${filteredCancelledC2dCount} recovered` : null,
-            filteredCancelledC2aCount > 0 ? `C2A: ${filteredCancelledC2aCount} active` : null
-          ].filter(Boolean).join(', ')})` }
-        </span>
-      </div>
+        </>
+      )}
     </div>
   );
 }
 </file>
 
-<file path="src/hooks/useAuthBootstrap.ts">
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
-import { CaseRow } from '../types';
-import { AppUser, initAuth } from '../lib/firebaseAuth';
-import { getSheetAccessCacheKeys } from '../lib/sheetAccessCache';
+<file path="src/hooks/useAdminData.ts">
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AuditLog, UserSession } from '../types';
 
-type UseAuthBootstrapArgs = {
-  sheetId: string;
-  sheetName: string;
-  setSheetId: Dispatch<SetStateAction<string>>;
-  setSheetName: Dispatch<SetStateAction<string>>;
-  setRows: Dispatch<SetStateAction<CaseRow[]>>;
-  loadCachedRows: () => Promise<CaseRow[]>;
+type ViewMode = 'dashboard' | 'admin';
+
+type UseAdminDataArgs = {
+  userEmail?: string | null;
+  demoMode: boolean;
+  viewMode: ViewMode;
 };
 
-async function resolveSharedSheetConfig(
-  sheetId: string,
-  sheetName: string,
-  setSheetId: Dispatch<SetStateAction<string>>,
-  setSheetName: Dispatch<SetStateAction<string>>,
-  authedUser?: AppUser | null
-) {
-  let activeSheetId = sheetId;
-  let activeSheetName = sheetName;
+export function useAdminData({ userEmail, demoMode, viewMode }: UseAdminDataArgs) {
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [userSessions, setUserSessions] = useState<UserSession[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState<boolean>(false);
+  const [globalAuditLogs, setGlobalAuditLogs] = useState<AuditLog[]>([]);
+  const [loadingAudits, setLoadingAudits] = useState<boolean>(false);
 
-  try {
-    const { getSharedConfig, saveSharedConfig } = await import('../lib/firebaseAuth');
-    const sharedConfig = await getSharedConfig();
+  const isAdmin = useMemo(() => {
+    const emailLower = String(userEmail || '').toLowerCase().trim();
+    return emailLower === 'mukesh.chaurasiya@cars24.com' || emailLower === 'chourasiyamukesh008@gmail.com';
+  }, [userEmail]);
 
-    if (sharedConfig?.sheetId) {
-      activeSheetId = sharedConfig.sheetId;
-      activeSheetName = sharedConfig.sheetName;
-      setSheetId(sharedConfig.sheetId);
-      setSheetName(sharedConfig.sheetName);
-    } else if (sheetId && authedUser) {
-      try {
-        await saveSharedConfig(sheetId, sheetName, authedUser.email || '');
-      } catch (persistError) {
-        console.warn('Could not auto-sync config on auth restore:', persistError);
-      }
+  const fetchAdminData = useCallback(async () => {
+    if (!isAdmin) return;
+
+    setLoadingSessions(true);
+    setLoadingAudits(true);
+
+    try {
+      const { getUserSessions, getAllAuditLogs } = await import('../lib/supabaseDb');
+
+      const sessionPromise = getUserSessions()
+        .then(setUserSessions)
+        .catch(err => console.warn(err));
+
+      const auditPromise = getAllAuditLogs()
+        .then(setGlobalAuditLogs)
+        .catch(err => console.warn(err));
+
+      await Promise.all([sessionPromise, auditPromise]);
+    } catch (err) {
+      console.warn('Failed to load admin logs:', err);
+    } finally {
+      setLoadingSessions(false);
+      setLoadingAudits(false);
     }
-  } catch (sharedConfigError) {
-    console.warn('Failed to retrieve shared workspace config:', sharedConfigError);
-  }
-
-  return { activeSheetId, activeSheetName };
-}
-
-export function useAuthBootstrap({
-  sheetId,
-  sheetName,
-  setSheetId,
-  setSheetName,
-  setRows,
-  loadCachedRows,
-}: UseAuthBootstrapArgs) {
-  const [user, setUser] = useState<AppUser | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [restoreLoading, setRestoreLoading] = useState<boolean>(false);
-  const [demoMode, setDemoMode] = useState<boolean>(false);
-  const [loginError, setLoginError] = useState<string | null>(null);
+  }, [isAdmin]);
 
   useEffect(() => {
-    const unsubscribe = initAuth(
-      async (authedUser, token) => {
-        setRestoreLoading(true);
-        setLoginError(null);
+    if (!userEmail || demoMode) {
+      setActiveSessionId(null);
+      return;
+    }
 
-        const { activeSheetId, activeSheetName } = await resolveSharedSheetConfig(
-          sheetId,
-          sheetName,
-          setSheetId,
-          setSheetName,
-          authedUser
-        );
+    let sessionId: string | null = null;
+    let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
-        const cacheKeys = getSheetAccessCacheKeys(activeSheetId, authedUser.email);
-        const cachedVerified = localStorage.getItem(cacheKeys.verifiedKey) === 'true';
-        const cachedTime = Number(localStorage.getItem(cacheKeys.timeKey) || 0);
-        const isCacheValid = Date.now() - cachedTime < 7 * 24 * 60 * 60 * 1000;
+    const initSession = async () => {
+      try {
+        const { startUserSession, heartbeatUserSession } = await import('../lib/supabaseDb');
+        sessionId = await startUserSession(userEmail);
+        setActiveSessionId(sessionId);
 
-        if (cachedVerified && isCacheValid) {
-          setUser(authedUser);
-          setAccessToken(token);
-          try {
-            await loadCachedRows();
-          } catch (err) {
-            console.warn('Could not load cached cases after auth restore:', err);
+        heartbeatInterval = setInterval(async () => {
+          if (sessionId) {
+            await heartbeatUserSession(sessionId);
           }
-          setRestoreLoading(false);
-
-          return;
-        }
-
-        if (token) {
-          try {
-            const { verifySheetAccess } = await import('../lib/sheetsService');
-            const hasAccess = await verifySheetAccess(activeSheetId, token);
-
-            if (hasAccess) {
-              localStorage.setItem(cacheKeys.verifiedKey, 'true');
-              localStorage.setItem(cacheKeys.timeKey, String(Date.now()));
-              localStorage.removeItem(cacheKeys.legacyVerifiedKey);
-              localStorage.removeItem(cacheKeys.legacyTimeKey);
-              setUser(authedUser);
-              setAccessToken(token);
-              try {
-                await loadCachedRows();
-              } catch (cacheErr) {
-                console.warn('Could not load cached cases after verification:', cacheErr);
-              }
-            } else {
-              setLoginError('Restricted Access: Your Google account does not have view permission on the configured Google Sheet.');
-              setUser(authedUser);
-              setAccessToken(null);
-              setRows([]);
-              localStorage.removeItem(cacheKeys.verifiedKey);
-              localStorage.removeItem(cacheKeys.timeKey);
-              localStorage.removeItem(cacheKeys.legacyVerifiedKey);
-              localStorage.removeItem(cacheKeys.legacyTimeKey);
-            }
-          } catch (err: any) {
-            console.error('Access verification error:', err);
-            setLoginError(`Verification failed: ${err.message || err}`);
-          }
-        } else {
-          setUser(authedUser);
-          setAccessToken(null);
-          try {
-            await loadCachedRows();
-          } catch (cacheErr) {
-            console.warn('Could not load cached cases for a session without provider token:', cacheErr);
-          }
-        }
-
-        setRestoreLoading(false);
-      },
-      () => {
-        setUser(null);
-        setAccessToken(null);
+        }, 60000);
+      } catch (err) {
+        console.warn('Could not track user session activity:', err);
       }
-    );
+    };
 
-    return () => unsubscribe();
-  }, [loadCachedRows, setRows, sheetId, sheetName, setSheetId, setSheetName]);
+    initSession();
+
+    return () => {
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+      }
+    };
+  }, [userEmail, demoMode]);
+
+  useEffect(() => {
+    if (viewMode === 'admin' && isAdmin) {
+      void fetchAdminData();
+    }
+  }, [viewMode, isAdmin, fetchAdminData]);
 
   return {
-    user,
-    setUser,
-    accessToken,
-    setAccessToken,
-    restoreLoading,
-    setRestoreLoading,
-    demoMode,
-    setDemoMode,
-    loginError,
-    setLoginError,
+    isAdmin,
+    activeSessionId,
+    userSessions,
+    loadingSessions,
+    globalAuditLogs,
+    loadingAudits,
+    fetchAdminData,
+  };
+}
+</file>
+
+<file path="src/hooks/useSheetConfig.ts">
+import { useEffect, useState } from 'react';
+
+const DEFAULT_SHEET_ID = '1ARJ8AzOwNxqdTZA7bd7zPAacabIoBImXqReqzSTrIy4';
+const DEFAULT_SHEET_NAME = 'Sheet1';
+const SHEET_ID_STORAGE_KEY = 'cars24_sheetId';
+const SHEET_NAME_STORAGE_KEY = 'cars24_sheetName';
+
+export function useSheetConfig() {
+  const [sheetId, setSheetId] = useState<string>(() => localStorage.getItem(SHEET_ID_STORAGE_KEY) || DEFAULT_SHEET_ID);
+  const [sheetName, setSheetName] = useState<string>(() => localStorage.getItem(SHEET_NAME_STORAGE_KEY) || DEFAULT_SHEET_NAME);
+  const [showConfigPanel, setShowConfigPanel] = useState<boolean>(false);
+  const [tempSheetId, setTempSheetId] = useState<string>(() => localStorage.getItem(SHEET_ID_STORAGE_KEY) || DEFAULT_SHEET_ID);
+  const [tempSheetName, setTempSheetName] = useState<string>(() => localStorage.getItem(SHEET_NAME_STORAGE_KEY) || DEFAULT_SHEET_NAME);
+
+  useEffect(() => {
+    localStorage.setItem(SHEET_ID_STORAGE_KEY, sheetId);
+  }, [sheetId]);
+
+  useEffect(() => {
+    localStorage.setItem(SHEET_NAME_STORAGE_KEY, sheetName);
+  }, [sheetName]);
+
+  return {
+    sheetId,
+    setSheetId,
+    sheetName,
+    setSheetName,
+    showConfigPanel,
+    setShowConfigPanel,
+    tempSheetId,
+    setTempSheetId,
+    tempSheetName,
+    setTempSheetName,
+  };
+}
+</file>
+
+<file path="src/hooks/useSyncState.ts">
+import { useCallback, useEffect, useState } from 'react';
+
+const LAST_SYNCED_STORAGE_KEY = 'cars24_lastSynced';
+
+function getRelativeTimeString(date: Date | null) {
+  if (!date) return 'Never synced';
+
+  const diffMs = Date.now() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffSecs = Math.floor(diffMs / 1000);
+
+  if (diffSecs < 60) {
+    return 'Just now';
+  }
+
+  if (diffMins < 60) {
+    return `Last synced: ${diffMins}m ago`;
+  }
+
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) {
+    return `Last synced: ${diffHours}h ago`;
+  }
+
+  return `Last synced: ${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+export function useSyncState() {
+  const [lastSynced, setLastSynced] = useState<Date | null>(() => {
+    const value = localStorage.getItem(LAST_SYNCED_STORAGE_KEY);
+    return value ? new Date(value) : null;
+  });
+  const [syncStatusText, setSyncStatusText] = useState<string>('Never synced');
+
+  const updateLastSynced = useCallback((date: Date) => {
+    setLastSynced(date);
+    localStorage.setItem(LAST_SYNCED_STORAGE_KEY, date.toISOString());
+  }, []);
+
+  useEffect(() => {
+    const updateText = () => {
+      setSyncStatusText(getRelativeTimeString(lastSynced));
+    };
+
+    updateText();
+    const interval = setInterval(updateText, 10000);
+    return () => clearInterval(interval);
+  }, [lastSynced]);
+
+  return {
+    syncStatusText,
+    updateLastSynced,
   };
 }
 </file>
@@ -1660,114 +1398,18 @@ body {
 }
 </file>
 
-<file path="src/lib/dateUtils.ts">
-/**
- * Safe date parser that handles multiple date string formats.
- * - Handles DD/MM/YYYY (common in spreadsheet exports / Indian locale)
- * - Handles YYYY-MM-DD (standard ISO date format)
- * - Safely handles times (e.g. HH:MM or HH:MM:SS) if appended.
- */
-const dateCache = new Map<string, number>();
+<file path="src/lib/sheetAccessCache.ts">
+export function getSheetAccessCacheKeys(activeSheetId: string, activeUserEmail?: string | null) {
+  const emailKey = String(activeUserEmail || 'anonymous').trim().toLowerCase();
+  const suffix = `${emailKey}_${activeSheetId}`;
 
-export function parseDateString(dateStr: string): Date | null {
-  if (!dateStr) return null;
-  const str = String(dateStr).trim();
-  if (!str) return null;
-
-  const cached = dateCache.get(str);
-  if (cached !== undefined) {
-    return cached === -1 ? null : new Date(cached);
-  }
-
-  const result = parseDateStringInternal(str);
-  if (result) {
-    dateCache.set(str, result.getTime());
-  } else {
-    dateCache.set(str, -1);
-  }
-  return result;
+  return {
+    verifiedKey: `cars24_sheet_access_verified_${suffix}`,
+    timeKey: `cars24_sheet_access_time_${suffix}`,
+    legacyVerifiedKey: `cars24_sheet_access_verified_${activeSheetId}`,
+    legacyTimeKey: `cars24_sheet_access_time_${activeSheetId}`,
+  };
 }
-
-function parseDateStringInternal(str: string): Date | null {
-
-  // 1. Check for YYYY-MM-DD or YYYY-MM-DD HH:MM:SS (hyphen-separated with 4-digit year first)
-  const yyyymmddRegex = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:\s+|T)?(\d{1,2})?:?(\d{1,2})?:?(\d{1,2})?/;
-  const matchY = str.match(yyyymmddRegex);
-  if (matchY) {
-    const year = parseInt(matchY[1], 10);
-    const month = parseInt(matchY[2], 10) - 1; // 0-indexed month
-    const day = parseInt(matchY[3], 10);
-    const hour = matchY[4] ? parseInt(matchY[4], 10) : 0;
-    const minute = matchY[5] ? parseInt(matchY[5], 10) : 0;
-    const second = matchY[6] ? parseInt(matchY[6], 10) : 0;
-    return new Date(year, month, day, hour, minute, second);
-  }
-
-  // 2. Check for DD/MM/YYYY or DD-MM-YYYY (slash or hyphen separated with 2 or 4 digit year last)
-  const ddmmyyyyRegex = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4}|\d{2})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/;
-  const matchD = str.match(ddmmyyyyRegex);
-  if (matchD) {
-    const day = parseInt(matchD[1], 10);
-    const month = parseInt(matchD[2], 10) - 1; // 0-indexed month
-    let year = parseInt(matchD[3], 10);
-    if (year < 100) {
-      year += year < 50 ? 2000 : 1900; // handle 2-digit years
-    }
-    const hour = matchD[4] ? parseInt(matchD[4], 10) : 0;
-    const minute = matchD[5] ? parseInt(matchD[5], 10) : 0;
-    const second = matchD[6] ? parseInt(matchD[6], 10) : 0;
-    return new Date(year, month, day, hour, minute, second);
-  }
-
-  // 3. Fallback to default JavaScript parsing
-  const parsed = new Date(str);
-  if (!isNaN(parsed.getTime())) {
-    return parsed;
-  }
-  
-  return null;
-}
-</file>
-
-<file path="src/lib/supabaseClient.ts">
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- *
- * Supabase client initialization.
- * Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env.local file
- * or as Vercel Environment Variables.
- *
- * IMPORTANT: flowType is set to 'implicit' so that provider_token
- * (the Google OAuth access token needed for Sheets API calls) is stored
- * in the session and survives page refreshes. PKCE flow (the default)
- * does NOT persist provider_token across reloads.
- */
-
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL as string;
-const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY as string;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn(
-    'Supabase environment variables missing (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY). ' +
-    'Authentication will not work until these are set.'
-  );
-}
-
-export const supabase = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder',
-  {
-    auth: {
-      flowType: 'implicit',          // persists provider_token in session storage
-      persistSession: true,
-      detectSessionInUrl: true,
-      autoRefreshToken: true,
-    },
-  }
-);
 </file>
 
 <file path="src/verify_app.ts">
@@ -2194,6 +1836,565 @@ VITE_SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_KEY"
 SUPABASE_SERVICE_ROLE_KEY="YOUR_SUPABASE_SERVICE_ROLE_KEY"
 GOOGLE_SERVICE_ACCOUNT_EMAIL="service-account@your-project.iam.gserviceaccount.com"
 GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+</file>
+
+<file path="src/components/DashboardKpiCards.tsx">
+import React from 'react';
+import { DashboardKpis } from '../types';
+
+interface DashboardKpiCardsProps {
+  kpis: DashboardKpis;
+  filteredCancelledC2dCount: number;
+  filteredCancelledC2aCount: number;
+  filteredCancelledCr2dCount: number;
+}
+
+export default function DashboardKpiCards({
+  kpis,
+  filteredCancelledC2dCount,
+  filteredCancelledC2aCount,
+  filteredCancelledCr2dCount
+}: DashboardKpiCardsProps) {
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5" id="bento-kpis">
+      {/* Total Cases */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:scale-101 hover:shadow-md transition-all">
+        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Total cases</span>
+        <h4 className="text-2xl font-sans font-bold text-slate-800 leading-none my-1">
+          {kpis.totalCases}
+        </h4>
+        <span className="text-[10px] text-slate-400">filtered operations</span>
+      </div>
+
+      {/* Active Tokens */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:scale-101 hover:shadow-md transition-all">
+        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Active Tokens</span>
+        <h4 className="text-2xl font-sans font-bold text-brand-orange leading-none my-1">
+          {kpis.activeTokens}
+        </h4>
+        <span className="text-[10px] text-slate-400">awaiting deliveries</span>
+      </div>
+
+      {/* Delivered cases */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:scale-101 hover:shadow-md transition-all">
+        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide flex justify-between items-center">
+          <span>Delivered</span>
+          {filteredCancelledCr2dCount > 0 && (
+            <span className="text-[9px] bg-emerald-50 text-emerald-600 border border-emerald-100 rounded px-1.5 py-0.5 font-bold uppercase tracking-wider select-none shrink-0" title="CR2D: Cancellation request raised but remarks existed and later delivered">
+              CR2D: {filteredCancelledCr2dCount}
+            </span>
+          )}
+        </span>
+        <h4 className="text-2xl font-sans font-bold text-emerald-600 leading-none my-1">
+          {kpis.delivered}
+        </h4>
+        <span className="text-[10px] text-slate-400">
+          completed handovers {filteredCancelledCr2dCount > 0 && `(CR2D: ${filteredCancelledCr2dCount} saved)`}
+        </span>
+      </div>
+
+      {/* Cancelled cases */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:scale-101 hover:shadow-md transition-all">
+        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide flex justify-between items-center">
+          <span>Cancelled</span>
+          <div className="flex gap-1">
+            {filteredCancelledC2dCount > 0 && (
+              <span className="text-[9px] bg-rose-50 text-rose-600 border border-rose-100 rounded px-1.5 py-0.5 font-bold uppercase tracking-wider select-none shrink-0" title="C2D: Cancelled booking but user converted to delivered on another Booking ID">
+                C2D: {filteredCancelledC2dCount}
+              </span>
+            )}
+            {filteredCancelledC2aCount > 0 && (
+              <span className="text-[9px] bg-amber-50 text-amber-700 border border-amber-100 rounded px-1.5 py-0.5 font-bold uppercase tracking-wider select-none shrink-0" title="C2A: Cancelled booking but user has another active token booking">
+                C2A: {filteredCancelledC2aCount}
+              </span>
+            )}
+          </div>
+        </span>
+        <h4 className="text-2xl font-sans font-bold text-rose-600 leading-none my-1">
+          {kpis.cancelled}
+        </h4>
+        <span className="text-[10px] text-slate-400">
+          cancellation records { (filteredCancelledC2dCount > 0 || filteredCancelledC2aCount > 0) && `(${[
+            filteredCancelledC2dCount > 0 ? `C2D: ${filteredCancelledC2dCount} recovered` : null,
+            filteredCancelledC2aCount > 0 ? `C2A: ${filteredCancelledC2aCount} active` : null
+          ].filter(Boolean).join(', ')})` }
+        </span>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="src/hooks/useAuthBootstrap.ts">
+import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { CaseRow } from '../types';
+import { AppUser, initAuth } from '../lib/firebaseAuth';
+import { getSheetAccessCacheKeys } from '../lib/sheetAccessCache';
+
+type UseAuthBootstrapArgs = {
+  sheetId: string;
+  sheetName: string;
+  setSheetId: Dispatch<SetStateAction<string>>;
+  setSheetName: Dispatch<SetStateAction<string>>;
+  setRows: Dispatch<SetStateAction<CaseRow[]>>;
+  loadCachedRows: () => Promise<CaseRow[]>;
+};
+
+async function resolveSharedSheetConfig(
+  sheetId: string,
+  sheetName: string,
+  setSheetId: Dispatch<SetStateAction<string>>,
+  setSheetName: Dispatch<SetStateAction<string>>,
+  authedUser?: AppUser | null
+) {
+  let activeSheetId = sheetId;
+  let activeSheetName = sheetName;
+
+  try {
+    const { getSharedConfig, saveSharedConfig } = await import('../lib/firebaseAuth');
+    const sharedConfig = await getSharedConfig();
+
+    if (sharedConfig?.sheetId) {
+      activeSheetId = sharedConfig.sheetId;
+      activeSheetName = sharedConfig.sheetName;
+      setSheetId(sharedConfig.sheetId);
+      setSheetName(sharedConfig.sheetName);
+    } else if (sheetId && authedUser) {
+      try {
+        await saveSharedConfig(sheetId, sheetName, authedUser.email || '');
+      } catch (persistError) {
+        console.warn('Could not auto-sync config on auth restore:', persistError);
+      }
+    }
+  } catch (sharedConfigError) {
+    console.warn('Failed to retrieve shared workspace config:', sharedConfigError);
+  }
+
+  return { activeSheetId, activeSheetName };
+}
+
+export function useAuthBootstrap({
+  sheetId,
+  sheetName,
+  setSheetId,
+  setSheetName,
+  setRows,
+  loadCachedRows,
+}: UseAuthBootstrapArgs) {
+  const [user, setUser] = useState<AppUser | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [restoreLoading, setRestoreLoading] = useState<boolean>(false);
+  const [demoMode, setDemoMode] = useState<boolean>(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = initAuth(
+      async (authedUser, token) => {
+        setRestoreLoading(true);
+        setLoginError(null);
+
+        const { activeSheetId, activeSheetName } = await resolveSharedSheetConfig(
+          sheetId,
+          sheetName,
+          setSheetId,
+          setSheetName,
+          authedUser
+        );
+
+        const cacheKeys = getSheetAccessCacheKeys(activeSheetId, authedUser.email);
+        const cachedVerified = localStorage.getItem(cacheKeys.verifiedKey) === 'true';
+        const cachedTime = Number(localStorage.getItem(cacheKeys.timeKey) || 0);
+        const isCacheValid = Date.now() - cachedTime < 7 * 24 * 60 * 60 * 1000;
+
+        if (cachedVerified && isCacheValid) {
+          setUser(authedUser);
+          setAccessToken(token);
+          try {
+            await loadCachedRows();
+          } catch (err) {
+            console.warn('Could not load cached cases after auth restore:', err);
+          }
+          setRestoreLoading(false);
+
+          return;
+        }
+
+        if (token) {
+          try {
+            const { verifySheetAccess } = await import('../lib/sheetsService');
+            const hasAccess = await verifySheetAccess(activeSheetId, token);
+
+            if (hasAccess) {
+              localStorage.setItem(cacheKeys.verifiedKey, 'true');
+              localStorage.setItem(cacheKeys.timeKey, String(Date.now()));
+              localStorage.removeItem(cacheKeys.legacyVerifiedKey);
+              localStorage.removeItem(cacheKeys.legacyTimeKey);
+              setUser(authedUser);
+              setAccessToken(token);
+              try {
+                await loadCachedRows();
+              } catch (cacheErr) {
+                console.warn('Could not load cached cases after verification:', cacheErr);
+              }
+            } else {
+              setLoginError('Restricted Access: Your Google account does not have view permission on the configured Google Sheet.');
+              setUser(authedUser);
+              setAccessToken(null);
+              setRows([]);
+              localStorage.removeItem(cacheKeys.verifiedKey);
+              localStorage.removeItem(cacheKeys.timeKey);
+              localStorage.removeItem(cacheKeys.legacyVerifiedKey);
+              localStorage.removeItem(cacheKeys.legacyTimeKey);
+            }
+          } catch (err: any) {
+            console.error('Access verification error:', err);
+            setLoginError(`Verification failed: ${err.message || err}`);
+          }
+        } else {
+          setUser(authedUser);
+          setAccessToken(null);
+          try {
+            await loadCachedRows();
+          } catch (cacheErr) {
+            console.warn('Could not load cached cases for a session without provider token:', cacheErr);
+          }
+        }
+
+        setRestoreLoading(false);
+      },
+      () => {
+        setUser(null);
+        setAccessToken(null);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [loadCachedRows, setRows, sheetId, sheetName, setSheetId, setSheetName]);
+
+  return {
+    user,
+    setUser,
+    accessToken,
+    setAccessToken,
+    restoreLoading,
+    setRestoreLoading,
+    demoMode,
+    setDemoMode,
+    loginError,
+    setLoginError,
+  };
+}
+</file>
+
+<file path="src/lib/dateUtils.ts">
+/**
+ * Safe date parser that handles multiple date string formats.
+ * - Handles DD/MM/YYYY (common in spreadsheet exports / Indian locale)
+ * - Handles YYYY-MM-DD (standard ISO date format)
+ * - Safely handles times (e.g. HH:MM or HH:MM:SS) if appended.
+ */
+const dateCache = new Map<string, number>();
+
+export function parseDateString(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const str = String(dateStr).trim();
+  if (!str) return null;
+
+  const cached = dateCache.get(str);
+  if (cached !== undefined) {
+    return cached === -1 ? null : new Date(cached);
+  }
+
+  const result = parseDateStringInternal(str);
+  if (result) {
+    dateCache.set(str, result.getTime());
+  } else {
+    dateCache.set(str, -1);
+  }
+  return result;
+}
+
+function parseDateStringInternal(str: string): Date | null {
+
+  // 1. Check for YYYY-MM-DD or YYYY-MM-DD HH:MM:SS (hyphen-separated with 4-digit year first)
+  const yyyymmddRegex = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:\s+|T)?(\d{1,2})?:?(\d{1,2})?:?(\d{1,2})?/;
+  const matchY = str.match(yyyymmddRegex);
+  if (matchY) {
+    const year = parseInt(matchY[1], 10);
+    const month = parseInt(matchY[2], 10) - 1; // 0-indexed month
+    const day = parseInt(matchY[3], 10);
+    const hour = matchY[4] ? parseInt(matchY[4], 10) : 0;
+    const minute = matchY[5] ? parseInt(matchY[5], 10) : 0;
+    const second = matchY[6] ? parseInt(matchY[6], 10) : 0;
+    return new Date(year, month, day, hour, minute, second);
+  }
+
+  // 2. Check for DD/MM/YYYY or DD-MM-YYYY (slash or hyphen separated with 2 or 4 digit year last)
+  const ddmmyyyyRegex = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4}|\d{2})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/;
+  const matchD = str.match(ddmmyyyyRegex);
+  if (matchD) {
+    const day = parseInt(matchD[1], 10);
+    const month = parseInt(matchD[2], 10) - 1; // 0-indexed month
+    let year = parseInt(matchD[3], 10);
+    if (year < 100) {
+      year += year < 50 ? 2000 : 1900; // handle 2-digit years
+    }
+    const hour = matchD[4] ? parseInt(matchD[4], 10) : 0;
+    const minute = matchD[5] ? parseInt(matchD[5], 10) : 0;
+    const second = matchD[6] ? parseInt(matchD[6], 10) : 0;
+    return new Date(year, month, day, hour, minute, second);
+  }
+
+  // 3. Fallback to default JavaScript parsing
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    return parsed;
+  }
+  
+  return null;
+}
+</file>
+
+<file path="src/lib/firebaseAuth.ts">
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Auth & shared config layer — powered by Supabase.
+ * Drop-in replacement for the previous Firebase implementation.
+ * Exposes the same public interface so App.tsx requires minimal changes.
+ */
+
+import { supabase } from './supabaseClient';
+import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
+
+// ─── Re-export a User shape compatible with the rest of the app ───────────────
+export interface AppUser {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+}
+
+// ─── Shared spreadsheet config stored in Supabase ────────────────────────────
+export interface SharedConfig {
+  userId: string;
+  sheetId: string;
+  sheetName: string;
+  updatedAt: string;
+  updatedBy?: string;
+}
+
+// ─── Internal helpers ─────────────────────────────────────────────────────────
+const TOKEN_CACHE_KEY = 'cars24_google_provider_token';
+
+function cacheProviderToken(token: string | null) {
+  if (token) {
+    localStorage.setItem(TOKEN_CACHE_KEY, token);
+  }
+}
+
+function getProviderToken(session: Session): string | null {
+  // provider_token is available immediately after OAuth but may be null
+  // on session restore (PKCE limitation). Fall back to localStorage cache.
+  return session.provider_token ?? localStorage.getItem(TOKEN_CACHE_KEY);
+}
+
+function sessionToAppUser(session: Session): AppUser {
+  const u = session.user;
+  return {
+    uid: u.id,
+    email: u.email ?? null,
+    displayName: u.user_metadata?.full_name ?? u.user_metadata?.name ?? null,
+    photoURL: u.user_metadata?.avatar_url ?? null,
+  };
+}
+
+// ─── Auth state listener ──────────────────────────────────────────────────────
+/**
+ * Subscribe to Supabase auth state changes.
+ * Calls onAuthSuccess with an AppUser + provider_token on sign-in,
+ * and onAuthFailure on sign-out.
+ * Returns an unsubscribe function.
+ */
+export function initAuth(
+  onAuthSuccess?: (user: AppUser, token: string | null) => void,
+  onAuthFailure?: () => void
+): () => void {
+  // Check current session immediately
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    if (session) {
+      const token = getProviderToken(session);
+      cacheProviderToken(token);
+      if (onAuthSuccess) onAuthSuccess(sessionToAppUser(session), token);
+    } else {
+      if (onAuthFailure) onAuthFailure();
+    }
+  });
+
+  // Subscribe to future changes
+  const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    (_event, session) => {
+      if (session) {
+        const token = getProviderToken(session);
+        cacheProviderToken(token); // persist for session restores
+        if (onAuthSuccess) onAuthSuccess(sessionToAppUser(session), token);
+      } else {
+        if (onAuthFailure) onAuthFailure();
+      }
+    }
+  );
+
+  return () => subscription.unsubscribe();
+}
+
+// ─── Google Sign-In via Supabase OAuth ───────────────────────────────────────
+/**
+ * Trigger Google OAuth popup (redirects to Supabase OAuth flow).
+ * Supabase will redirect back to the app; the auth state listener picks it up.
+ * Returns the user + access token from the current session after redirect.
+ */
+export async function googleSignIn(): Promise<{ user: AppUser; accessToken: string } | null> {
+  const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined;
+
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo,
+      scopes: 'https://www.googleapis.com/auth/spreadsheets',
+      queryParams: {
+        access_type: 'offline',
+        prompt: 'consent',
+      },
+    },
+  });
+
+  if (error) {
+    console.error('Supabase Google sign-in error:', error);
+    throw new Error(error.message);
+  }
+
+  // The page will redirect; we return null here.
+  // After redirect, initAuth picks up the new session automatically.
+  return null;
+}
+
+// ─── Get access token from current session ────────────────────────────────────
+export async function getAccessToken(): Promise<string | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.provider_token ?? null;
+}
+
+// ─── Sign out ─────────────────────────────────────────────────────────────────
+export async function logout(): Promise<void> {
+  localStorage.removeItem(TOKEN_CACHE_KEY);
+  await supabase.auth.signOut();
+}
+
+// ─── Shared spreadsheet config (Supabase table: shared_config) ───────────────
+/**
+ * Reads the globally shared configuration from the Supabase shared_config table.
+ */
+export async function getSharedConfig(): Promise<SharedConfig | null> {
+  try {
+    const { data, error } = await supabase
+      .from('shared_config')
+      .select('*')
+      .eq('id', 'shared')
+      .maybeSingle();
+
+    if (error) {
+      console.warn('Could not read shared config from Supabase:', error.message);
+      return null;
+    }
+
+    if (!data) return null;
+
+    return {
+      userId: 'shared',
+      sheetId: data.sheet_id,
+      sheetName: data.sheet_name,
+      updatedAt: data.updated_at,
+      updatedBy: data.updated_by ?? undefined,
+    };
+  } catch (err) {
+    console.warn('Unexpected error reading shared config:', err);
+    return null;
+  }
+}
+
+/**
+ * Writes the shared configuration to the Supabase shared_config table.
+ */
+export async function saveSharedConfig(
+  sheetId: string,
+  sheetName: string,
+  updatedByEmail?: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('shared_config')
+    .upsert(
+      {
+        id: 'shared',
+        sheet_id: sheetId,
+        sheet_name: sheetName,
+        updated_at: new Date().toISOString(),
+        updated_by: updatedByEmail ?? 'unknown',
+      },
+      { onConflict: 'id' }
+    );
+
+  if (error) {
+    console.error('Failed to write shared config to Supabase:', error.message);
+    throw new Error(error.message);
+  }
+}
+
+// ─── Legacy Firebase exports kept for compatibility ───────────────────────────
+// These are no-ops or aliases so any remaining imports don't break.
+export const auth = null;
+export const db = null;
+</file>
+
+<file path="src/lib/supabaseClient.ts">
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Supabase client initialization.
+ * Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env.local file
+ * or as Vercel Environment Variables.
+ *
+ * IMPORTANT: flowType is set to 'implicit' so that provider_token
+ * (the Google OAuth access token needed for Sheets API calls) is stored
+ * in the session and survives page refreshes. PKCE flow (the default)
+ * does NOT persist provider_token across reloads.
+ */
+
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL as string;
+const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY as string;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.warn(
+    'Supabase environment variables missing (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY). ' +
+    'Authentication will not work until these are set.'
+  );
+}
+
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder',
+  {
+    auth: {
+      flowType: 'implicit',          // persists provider_token in session storage
+      persistSession: true,
+      detectSessionInUrl: true,
+      autoRefreshToken: true,
+    },
+  }
+);
 </file>
 
 <file path=".github/workflows/sync-sheets.yml">
@@ -2672,207 +2873,6 @@ export function applyReturnedLeadStage(row) {
 }
 </file>
 
-<file path="src/lib/firebaseAuth.ts">
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- *
- * Auth & shared config layer — powered by Supabase.
- * Drop-in replacement for the previous Firebase implementation.
- * Exposes the same public interface so App.tsx requires minimal changes.
- */
-
-import { supabase } from './supabaseClient';
-import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
-
-// ─── Re-export a User shape compatible with the rest of the app ───────────────
-export interface AppUser {
-  uid: string;
-  email: string | null;
-  displayName: string | null;
-  photoURL: string | null;
-}
-
-// ─── Shared spreadsheet config stored in Supabase ────────────────────────────
-export interface SharedConfig {
-  userId: string;
-  sheetId: string;
-  sheetName: string;
-  updatedAt: string;
-  updatedBy?: string;
-}
-
-// ─── Internal helpers ─────────────────────────────────────────────────────────
-const TOKEN_CACHE_KEY = 'cars24_google_provider_token';
-
-function cacheProviderToken(token: string | null) {
-  if (token) {
-    localStorage.setItem(TOKEN_CACHE_KEY, token);
-  }
-}
-
-function getProviderToken(session: Session): string | null {
-  // provider_token is available immediately after OAuth but may be null
-  // on session restore (PKCE limitation). Fall back to localStorage cache.
-  return session.provider_token ?? localStorage.getItem(TOKEN_CACHE_KEY);
-}
-
-function sessionToAppUser(session: Session): AppUser {
-  const u = session.user;
-  return {
-    uid: u.id,
-    email: u.email ?? null,
-    displayName: u.user_metadata?.full_name ?? u.user_metadata?.name ?? null,
-    photoURL: u.user_metadata?.avatar_url ?? null,
-  };
-}
-
-// ─── Auth state listener ──────────────────────────────────────────────────────
-/**
- * Subscribe to Supabase auth state changes.
- * Calls onAuthSuccess with an AppUser + provider_token on sign-in,
- * and onAuthFailure on sign-out.
- * Returns an unsubscribe function.
- */
-export function initAuth(
-  onAuthSuccess?: (user: AppUser, token: string | null) => void,
-  onAuthFailure?: () => void
-): () => void {
-  // Check current session immediately
-  supabase.auth.getSession().then(({ data: { session } }) => {
-    if (session) {
-      const token = getProviderToken(session);
-      cacheProviderToken(token);
-      if (onAuthSuccess) onAuthSuccess(sessionToAppUser(session), token);
-    } else {
-      if (onAuthFailure) onAuthFailure();
-    }
-  });
-
-  // Subscribe to future changes
-  const { data: { subscription } } = supabase.auth.onAuthStateChange(
-    (_event, session) => {
-      if (session) {
-        const token = getProviderToken(session);
-        cacheProviderToken(token); // persist for session restores
-        if (onAuthSuccess) onAuthSuccess(sessionToAppUser(session), token);
-      } else {
-        if (onAuthFailure) onAuthFailure();
-      }
-    }
-  );
-
-  return () => subscription.unsubscribe();
-}
-
-// ─── Google Sign-In via Supabase OAuth ───────────────────────────────────────
-/**
- * Trigger Google OAuth popup (redirects to Supabase OAuth flow).
- * Supabase will redirect back to the app; the auth state listener picks it up.
- * Returns the user + access token from the current session after redirect.
- */
-export async function googleSignIn(): Promise<{ user: AppUser; accessToken: string } | null> {
-  const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined;
-
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo,
-      scopes: 'https://www.googleapis.com/auth/spreadsheets',
-      queryParams: {
-        access_type: 'offline',
-        prompt: 'consent',
-      },
-    },
-  });
-
-  if (error) {
-    console.error('Supabase Google sign-in error:', error);
-    throw new Error(error.message);
-  }
-
-  // The page will redirect; we return null here.
-  // After redirect, initAuth picks up the new session automatically.
-  return null;
-}
-
-// ─── Get access token from current session ────────────────────────────────────
-export async function getAccessToken(): Promise<string | null> {
-  const { data: { session } } = await supabase.auth.getSession();
-  return session?.provider_token ?? null;
-}
-
-// ─── Sign out ─────────────────────────────────────────────────────────────────
-export async function logout(): Promise<void> {
-  localStorage.removeItem(TOKEN_CACHE_KEY);
-  await supabase.auth.signOut();
-}
-
-// ─── Shared spreadsheet config (Supabase table: shared_config) ───────────────
-/**
- * Reads the globally shared configuration from the Supabase shared_config table.
- */
-export async function getSharedConfig(): Promise<SharedConfig | null> {
-  try {
-    const { data, error } = await supabase
-      .from('shared_config')
-      .select('*')
-      .eq('id', 'shared')
-      .maybeSingle();
-
-    if (error) {
-      console.warn('Could not read shared config from Supabase:', error.message);
-      return null;
-    }
-
-    if (!data) return null;
-
-    return {
-      userId: 'shared',
-      sheetId: data.sheet_id,
-      sheetName: data.sheet_name,
-      updatedAt: data.updated_at,
-      updatedBy: data.updated_by ?? undefined,
-    };
-  } catch (err) {
-    console.warn('Unexpected error reading shared config:', err);
-    return null;
-  }
-}
-
-/**
- * Writes the shared configuration to the Supabase shared_config table.
- */
-export async function saveSharedConfig(
-  sheetId: string,
-  sheetName: string,
-  updatedByEmail?: string
-): Promise<void> {
-  const { error } = await supabase
-    .from('shared_config')
-    .upsert(
-      {
-        id: 'shared',
-        sheet_id: sheetId,
-        sheet_name: sheetName,
-        updated_at: new Date().toISOString(),
-        updated_by: updatedByEmail ?? 'unknown',
-      },
-      { onConflict: 'id' }
-    );
-
-  if (error) {
-    console.error('Failed to write shared config to Supabase:', error.message);
-    throw new Error(error.message);
-  }
-}
-
-// ─── Legacy Firebase exports kept for compatibility ───────────────────────────
-// These are no-ops or aliases so any remaining imports don't break.
-export const auth = null;
-export const db = null;
-</file>
-
 <file path="src/lib/matrixCalculator.ts">
 /**
  * @license
@@ -3235,6 +3235,125 @@ export function calculateOperationsMatrix(rows: CaseRow[]): {
 
   return { columns, rows: resultRows };
 }
+</file>
+
+<file path="src/verify-offline-mode.ts">
+import * as fs from 'fs';
+import * as path from 'path';
+import { SEED_CASE_ROWS } from './data/mockData';
+
+function runVerification() {
+  console.log('=== STARTING CARS24 OFFLINE DEMO MODE VERIFICATION ===');
+  
+  let success = true;
+
+  // 1. Verify SEED_CASE_ROWS contains realistic data
+  console.log('\n--- Checking Mock Data (SEED_CASE_ROWS) ---');
+  if (Array.isArray(SEED_CASE_ROWS) && SEED_CASE_ROWS.length > 0) {
+    console.log(`[PASS] SEED_CASE_ROWS successfully loaded. Found ${SEED_CASE_ROWS.length} cases.`);
+    const firstRow = SEED_CASE_ROWS[0];
+    console.log(`Sample Case: BookingID: ${firstRow.bookingId}, City: ${firstRow.city}, RM: ${firstRow.allocatedRm}`);
+    if (firstRow.bookingId && firstRow.city && firstRow.leadStage) {
+      console.log('[PASS] Mock row structure matches CaseRow interface.');
+    } else {
+      console.log('[FAIL] Mock row is missing core fields.');
+      success = false;
+    }
+  } else {
+    console.log('[FAIL] SEED_CASE_ROWS is empty or not an array.');
+    success = false;
+  }
+
+  // 2. Read App.tsx to verify accessToken bypass in Demo Mode
+  console.log('\n--- Checking App.tsx for accessToken nullification ---');
+  const appPath = path.join(process.cwd(), 'src', 'App.tsx');
+  try {
+    const appContent = fs.readFileSync(appPath, 'utf8');
+    
+    // Check if the Dashboard component is invoked with a null accessToken in demo mode
+    const hasTokenBypass = appContent.includes('accessToken={demoMode ? null : accessToken}');
+    if (hasTokenBypass) {
+      console.log('[PASS] App.tsx correctly passes null as accessToken when demoMode is active.');
+    } else {
+      console.log('[FAIL] App.tsx does not bypass/nullify accessToken in demoMode.');
+      success = false;
+    }
+  } catch (err) {
+    console.log(`[FAIL] Could not read App.tsx: ${err}`);
+    success = false;
+  }
+
+  // 3. Read useCaseEditor.ts to verify no Sheets API calls are made when accessToken is null
+  console.log('\n--- Checking useCaseEditor.ts for Sheets API bypass ---');
+  const editorPath = path.join(process.cwd(), 'src', 'hooks', 'useCaseEditor.ts');
+  try {
+    const editorContent = fs.readFileSync(editorPath, 'utf8');
+    
+    // Check if handleEditRowClick checks if (!accessToken) or if (accessToken) before calling fetchSingleRowLatest
+    const hasEditRowGuard = (editorContent.includes('!accessToken') || editorContent.includes('if (accessToken)')) && 
+                            editorContent.includes('fetchSingleRowLatest(');
+    if (hasEditRowGuard) {
+      console.log('[PASS] handleEditRowClick guards fetchSingleRowLatest from execution without accessToken.');
+    } else {
+      console.log('[FAIL] handleEditRowClick does not guard fetchSingleRowLatest with accessToken.');
+      success = false;
+    }
+
+    // Check if handleSaveActionables checks if (accessToken) before calling writeActionablesToSheet
+    const hasSaveGuard = editorContent.includes('if (accessToken)') && 
+                         editorContent.includes('writeActionablesToSheet(');
+    if (hasSaveGuard) {
+      console.log('[PASS] handleSaveActionables guards writeActionablesToSheet with "if (accessToken)".');
+    } else {
+      console.log('[FAIL] handleSaveActionables does not guard writeActionablesToSheet with accessToken.');
+      success = false;
+    }
+
+    // Check if local saving/session fallback is handled when error occurs or when offline
+    const hasLocalSaveFallback = editorContent.includes('Your changes are saved locally in this session.') || 
+                                  editorContent.includes('Saved offline') ||
+                                  editorContent.includes('Saved offline to DB');
+    if (hasLocalSaveFallback) {
+      console.log('[PASS] local save/session fallback logic exists and runs gracefully.');
+    } else {
+      console.log('[FAIL] No local save fallback logic found when accessToken is absent.');
+      success = false;
+    }
+  } catch (err) {
+    console.log(`[FAIL] Could not read useCaseEditor.ts: ${err}`);
+    success = false;
+  }
+
+  // 4. Read sheetsService.ts to verify safeguards
+  console.log('\n--- Checking sheetsService.ts for token safeguards ---');
+  const sheetsServicePath = path.join(process.cwd(), 'src', 'lib', 'sheetsService.ts');
+  try {
+    const serviceContent = fs.readFileSync(sheetsServicePath, 'utf8');
+    
+    // Check safeguards in writeActionablesToSheet
+    const hasWriteSafeguard = serviceContent.includes("if (!accessToken) throw new Error('Authorization is required to write to this Google Sheet.');");
+    if (hasWriteSafeguard) {
+      console.log('[PASS] sheetsService.ts throws error if writeActionablesToSheet is called with empty accessToken.');
+    } else {
+      console.log('[FAIL] writeActionablesToSheet does not explicitly validate accessToken presence.');
+      success = false;
+    }
+  } catch (err) {
+    console.log(`[FAIL] Could not read sheetsService.ts: ${err}`);
+    success = false;
+  }
+
+  console.log('\n======================================================');
+  if (success) {
+    console.log('RESULT: ALL OFFLINE DEMO MODE CHECKS PASSED SUCCESSFULLY!');
+    process.exit(0);
+  } else {
+    console.log('RESULT: SOME OFFLINE DEMO MODE CHECKS FAILED.');
+    process.exit(1);
+  }
+}
+
+runVerification();
 </file>
 
 <file path="scripts/sync-sheets.js">
@@ -5185,123 +5304,48 @@ export function useCaseData(
 }
 </file>
 
-<file path="src/verify-offline-mode.ts">
-import * as fs from 'fs';
-import * as path from 'path';
-import { SEED_CASE_ROWS } from './data/mockData';
-
-function runVerification() {
-  console.log('=== STARTING CARS24 OFFLINE DEMO MODE VERIFICATION ===');
-  
-  let success = true;
-
-  // 1. Verify SEED_CASE_ROWS contains realistic data
-  console.log('\n--- Checking Mock Data (SEED_CASE_ROWS) ---');
-  if (Array.isArray(SEED_CASE_ROWS) && SEED_CASE_ROWS.length > 0) {
-    console.log(`[PASS] SEED_CASE_ROWS successfully loaded. Found ${SEED_CASE_ROWS.length} cases.`);
-    const firstRow = SEED_CASE_ROWS[0];
-    console.log(`Sample Case: BookingID: ${firstRow.bookingId}, City: ${firstRow.city}, RM: ${firstRow.allocatedRm}`);
-    if (firstRow.bookingId && firstRow.city && firstRow.leadStage) {
-      console.log('[PASS] Mock row structure matches CaseRow interface.');
-    } else {
-      console.log('[FAIL] Mock row is missing core fields.');
-      success = false;
-    }
-  } else {
-    console.log('[FAIL] SEED_CASE_ROWS is empty or not an array.');
-    success = false;
-  }
-
-  // 2. Read App.tsx to verify accessToken bypass in Demo Mode
-  console.log('\n--- Checking App.tsx for accessToken nullification ---');
-  const appPath = path.join(process.cwd(), 'src', 'App.tsx');
-  try {
-    const appContent = fs.readFileSync(appPath, 'utf8');
-    
-    // Check if the Dashboard component is invoked with a null accessToken in demo mode
-    const hasTokenBypass = appContent.includes('accessToken={demoMode ? null : accessToken}');
-    if (hasTokenBypass) {
-      console.log('[PASS] App.tsx correctly passes null as accessToken when demoMode is active.');
-    } else {
-      console.log('[FAIL] App.tsx does not bypass/nullify accessToken in demoMode.');
-      success = false;
-    }
-  } catch (err) {
-    console.log(`[FAIL] Could not read App.tsx: ${err}`);
-    success = false;
-  }
-
-  // 3. Read useCaseEditor.ts to verify no Sheets API calls are made when accessToken is null
-  console.log('\n--- Checking useCaseEditor.ts for Sheets API bypass ---');
-  const editorPath = path.join(process.cwd(), 'src', 'hooks', 'useCaseEditor.ts');
-  try {
-    const editorContent = fs.readFileSync(editorPath, 'utf8');
-    
-    // Check if handleEditRowClick checks if (!accessToken) or if (accessToken) before calling fetchSingleRowLatest
-    const hasEditRowGuard = (editorContent.includes('!accessToken') || editorContent.includes('if (accessToken)')) && 
-                            editorContent.includes('fetchSingleRowLatest(');
-    if (hasEditRowGuard) {
-      console.log('[PASS] handleEditRowClick guards fetchSingleRowLatest from execution without accessToken.');
-    } else {
-      console.log('[FAIL] handleEditRowClick does not guard fetchSingleRowLatest with accessToken.');
-      success = false;
-    }
-
-    // Check if handleSaveActionables checks if (accessToken) before calling writeActionablesToSheet
-    const hasSaveGuard = editorContent.includes('if (accessToken)') && 
-                         editorContent.includes('writeActionablesToSheet(');
-    if (hasSaveGuard) {
-      console.log('[PASS] handleSaveActionables guards writeActionablesToSheet with "if (accessToken)".');
-    } else {
-      console.log('[FAIL] handleSaveActionables does not guard writeActionablesToSheet with accessToken.');
-      success = false;
-    }
-
-    // Check if local saving/session fallback is handled when error occurs or when offline
-    const hasLocalSaveFallback = editorContent.includes('Your changes are saved locally in this session.') || 
-                                  editorContent.includes('Saved offline') ||
-                                  editorContent.includes('Saved offline to DB');
-    if (hasLocalSaveFallback) {
-      console.log('[PASS] local save/session fallback logic exists and runs gracefully.');
-    } else {
-      console.log('[FAIL] No local save fallback logic found when accessToken is absent.');
-      success = false;
-    }
-  } catch (err) {
-    console.log(`[FAIL] Could not read useCaseEditor.ts: ${err}`);
-    success = false;
-  }
-
-  // 4. Read sheetsService.ts to verify safeguards
-  console.log('\n--- Checking sheetsService.ts for token safeguards ---');
-  const sheetsServicePath = path.join(process.cwd(), 'src', 'lib', 'sheetsService.ts');
-  try {
-    const serviceContent = fs.readFileSync(sheetsServicePath, 'utf8');
-    
-    // Check safeguards in writeActionablesToSheet
-    const hasWriteSafeguard = serviceContent.includes("if (!accessToken) throw new Error('Authorization is required to write to this Google Sheet.');");
-    if (hasWriteSafeguard) {
-      console.log('[PASS] sheetsService.ts throws error if writeActionablesToSheet is called with empty accessToken.');
-    } else {
-      console.log('[FAIL] writeActionablesToSheet does not explicitly validate accessToken presence.');
-      success = false;
-    }
-  } catch (err) {
-    console.log(`[FAIL] Could not read sheetsService.ts: ${err}`);
-    success = false;
-  }
-
-  console.log('\n======================================================');
-  if (success) {
-    console.log('RESULT: ALL OFFLINE DEMO MODE CHECKS PASSED SUCCESSFULLY!');
-    process.exit(0);
-  } else {
-    console.log('RESULT: SOME OFFLINE DEMO MODE CHECKS FAILED.');
-    process.exit(1);
+<file path="package.json">
+{
+  "name": "react-example",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port=3000 --host=0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview",
+    "clean": "rm -rf dist server.js",
+    "lint": "tsc --noEmit",
+    "test": "tsx --test src/lib/dashboardQuery.test.ts",
+    "sync:sheets": "node scripts/sync-sheets.js"
+  },
+  "dependencies": {
+    "@google/genai": "^2.4.0",
+    "@supabase/supabase-js": "^2.107.0",
+    "@tailwindcss/vite": "^4.1.14",
+    "@vitejs/plugin-react": "^5.0.4",
+    "cavemen": "^0.0.21",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "firebase": "^12.14.0",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "vite": "^6.2.3"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.14.0",
+    "autoprefixer": "^10.4.21",
+    "esbuild": "^0.25.0",
+    "tailwindcss": "^4.1.14",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.3",
+    "xlsx": "^0.18.5"
   }
 }
-
-runVerification();
 </file>
 
 <file path="src/hooks/useCaseEditor.ts">
@@ -5653,13 +5697,23 @@ function buildLocalFilterOptions(rows: CaseRow[]): DashboardFilterOptions {
 }
 
 function buildFilteredCancelledC2dCount(filteredRows: CaseRow[], allRows: CaseRow[]): number {
-  const deliveredCustomers = new Set<string>();
+  const customerDeliveredTimes = new Map<string, number[]>();
 
   allRows.forEach(row => {
     if (row.leadStage === 'DELIVERED') {
       const key = row.userId || row.uid || row.leadId;
       if (key) {
-        deliveredCustomers.add(key.trim());
+        const cleanedKey = key.trim();
+        const delDateStr = row.actualDeliveryDate || row.tokenDate;
+        if (delDateStr) {
+          const t = parseDateString(delDateStr)?.getTime() || 0;
+          if (t > 0) {
+            if (!customerDeliveredTimes.has(cleanedKey)) {
+              customerDeliveredTimes.set(cleanedKey, []);
+            }
+            customerDeliveredTimes.get(cleanedKey)!.push(t);
+          }
+        }
       }
     }
   });
@@ -5669,8 +5723,16 @@ function buildFilteredCancelledC2dCount(filteredRows: CaseRow[], allRows: CaseRo
     const flags = getDerivedFlags(row);
     if (flags.isCancelled) {
       const key = row.userId || row.uid || row.leadId;
-      if (key && deliveredCustomers.has(key.trim())) {
-        total++;
+      if (key) {
+        const cleanedKey = key.trim();
+        const deliveredTimes = customerDeliveredTimes.get(cleanedKey);
+        if (deliveredTimes && deliveredTimes.length > 0) {
+          const cancelledTime = row.tokenDate ? (parseDateString(row.tokenDate)?.getTime() || 0) : 0;
+          const hasDeliveredAfter = deliveredTimes.some(t => t >= cancelledTime);
+          if (hasDeliveredAfter) {
+            total++;
+          }
+        }
       }
     }
   });
@@ -5679,15 +5741,24 @@ function buildFilteredCancelledC2dCount(filteredRows: CaseRow[], allRows: CaseRo
 }
 
 function buildFilteredCancelledC2aCount(filteredRows: CaseRow[], allRows: CaseRow[]): number {
-  const activeCustomers = new Set<string>();
-
+  const customerBookings = new Map<string, CaseRow[]>();
   allRows.forEach(row => {
-    if (row.leadStage === 'ACTIVE_TOKEN') {
-      const key = row.userId || row.uid || row.leadId;
-      if (key) {
-        activeCustomers.add(key.trim());
+    const key = row.userId || row.uid || row.leadId;
+    if (key) {
+      const cleanedKey = key.trim();
+      if (!customerBookings.has(cleanedKey)) {
+        customerBookings.set(cleanedKey, []);
       }
+      customerBookings.get(cleanedKey)!.push(row);
     }
+  });
+
+  customerBookings.forEach(rows => {
+    rows.sort((a, b) => {
+      const ta = a.tokenDate ? (parseDateString(a.tokenDate)?.getTime() || 0) : 0;
+      const tb = b.tokenDate ? (parseDateString(b.tokenDate)?.getTime() || 0) : 0;
+      return ta - tb;
+    });
   });
 
   let total = 0;
@@ -5695,21 +5766,34 @@ function buildFilteredCancelledC2aCount(filteredRows: CaseRow[], allRows: CaseRo
     const flags = getDerivedFlags(row);
     if (flags.isCancelled) {
       const key = row.userId || row.uid || row.leadId;
-      if (key && activeCustomers.has(key.trim())) {
-        const cancelledTime = row.tokenDate ? (parseDateString(row.tokenDate)?.getTime() || 0) : 0;
-        const hasLaterActive = allRows.some(r => {
-          if (r.leadStage === 'ACTIVE_TOKEN') {
-            const rKey = r.userId || r.uid || r.leadId;
-            if (rKey && rKey.trim() === key.trim()) {
-              const activeTime = r.tokenDate ? (parseDateString(r.tokenDate)?.getTime() || 0) : 0;
-              return activeTime >= cancelledTime;
-            }
+      if (key) {
+        const cleanedKey = key.trim();
+        const sortedBookings = customerBookings.get(cleanedKey) || [];
+        const index = sortedBookings.findIndex(b => b.bookingId === row.bookingId);
+        if (index !== -1) {
+          const cancelledTime = row.tokenDate ? (parseDateString(row.tokenDate)?.getTime() || 0) : 0;
+          let prevTime = 0;
+          if (index > 0) {
+            const prevBooking = sortedBookings[index - 1];
+            prevTime = prevBooking.tokenDate ? (parseDateString(prevBooking.tokenDate)?.getTime() || 0) : 0;
           }
-          return false;
-        });
 
-        if (hasLaterActive) {
-          total++;
+          const hasMatchingActive = sortedBookings.some(r => {
+            if (r.leadStage === 'ACTIVE_TOKEN') {
+              const activeTime = r.tokenDate ? (parseDateString(r.tokenDate)?.getTime() || 0) : 0;
+              if (activeTime >= cancelledTime) {
+                return true;
+              }
+              if (index > 0 && activeTime >= prevTime && activeTime <= cancelledTime) {
+                return true;
+              }
+            }
+            return false;
+          });
+
+          if (hasMatchingActive) {
+            total++;
+          }
         }
       }
     }
@@ -5721,7 +5805,7 @@ function buildFilteredCancelledC2aCount(filteredRows: CaseRow[], allRows: CaseRo
 function buildFilteredCancelledCr2dCount(filteredRows: CaseRow[]): number {
   let total = 0;
   filteredRows.forEach(row => {
-    if (row.leadStage === 'DELIVERED' && (Boolean(row.cancelReqDate) || Boolean(row.cancelReason))) {
+    if (row.leadStage === 'DELIVERED' && Boolean(row.cancelReason)) {
       total++;
     }
   });
@@ -6212,50 +6296,6 @@ export function buildLocalDashboardSummary(
 
 export function buildLocalDashboardMatrix(rows: CaseRow[]): DashboardMatrixResult {
   return calculateOperationsMatrix(rows);
-}
-</file>
-
-<file path="package.json">
-{
-  "name": "react-example",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite --port=3000 --host=0.0.0.0",
-    "build": "vite build",
-    "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit",
-    "test": "tsx --test src/lib/dashboardQuery.test.ts",
-    "sync:sheets": "node scripts/sync-sheets.js"
-  },
-  "dependencies": {
-    "@google/genai": "^2.4.0",
-    "@supabase/supabase-js": "^2.107.0",
-    "@tailwindcss/vite": "^4.1.14",
-    "@vitejs/plugin-react": "^5.0.4",
-    "cavemen": "^0.0.21",
-    "dotenv": "^17.2.3",
-    "express": "^4.21.2",
-    "firebase": "^12.14.0",
-    "lucide-react": "^0.546.0",
-    "motion": "^12.23.24",
-    "react": "^19.0.1",
-    "react-dom": "^19.0.1",
-    "vite": "^6.2.3"
-  },
-  "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@types/node": "^22.14.0",
-    "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
-    "tailwindcss": "^4.1.14",
-    "tsx": "^4.21.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.3",
-    "xlsx": "^0.18.5"
-  }
 }
 </file>
 
@@ -10592,18 +10632,53 @@ WITH filtered AS MATERIALIZED (
   FROM public.dashboard_cases c
   WHERE public.dashboard_case_matches_filters(c, input_filters)
 ),
-customer_groups AS (
-  SELECT DISTINCT customer_key
-  FROM public.dashboard_cases
-  WHERE lead_stage = 'DELIVERED'
-    AND customer_key IS NOT NULL
-),
 filtered_cancelled_c2d AS (
   SELECT count(*)::INTEGER AS total
   FROM filtered f
-  INNER JOIN customer_groups cg
-    ON cg.customer_key = f.customer_key
   WHERE (f.lead_stage IN ('CANCELLED', 'RETURNED') OR f.deal_status = 'CANCEL')
+    AND EXISTS (
+      SELECT 1
+      FROM public.dashboard_cases d
+      WHERE d.customer_key = f.customer_key
+        AND d.lead_stage = 'DELIVERED'
+        AND coalesce(d.actual_delivery_date, d.token_date) >= f.token_date
+    )
+),
+filtered_cancelled_c2a AS (
+  SELECT count(*)::INTEGER AS total
+  FROM filtered f
+  WHERE (f.lead_stage IN ('CANCELLED', 'RETURNED') OR f.deal_status = 'CANCEL')
+    AND EXISTS (
+      SELECT 1
+      FROM public.dashboard_cases d
+      WHERE d.customer_key = f.customer_key
+        AND d.lead_stage = 'ACTIVE_TOKEN'
+        AND (
+          d.token_date >= f.token_date
+          OR (
+            EXISTS (
+              SELECT 1
+              FROM public.dashboard_cases prev
+              WHERE prev.customer_key = f.customer_key
+                AND prev.token_date < f.token_date
+            )
+            AND d.token_date >= (
+              SELECT max(prev.token_date)
+              FROM public.dashboard_cases prev
+              WHERE prev.customer_key = f.customer_key
+                AND prev.token_date < f.token_date
+            )
+            AND d.token_date <= f.token_date
+          )
+        )
+    )
+),
+filtered_cancelled_cr2d AS (
+  SELECT count(*)::INTEGER AS total
+  FROM filtered f
+  WHERE f.lead_stage = 'DELIVERED'
+    AND f.cancel_reason IS NOT NULL
+    AND f.cancel_reason <> ''
 ),
 task_counts AS (
   SELECT
@@ -10882,7 +10957,9 @@ SELECT jsonb_build_object(
       ) grouped
     ), '{}'::jsonb)
   ),
-  'filteredCancelledC2dCount', coalesce((SELECT total FROM filtered_cancelled_c2d), 0)
+  'filteredCancelledC2dCount', coalesce((SELECT total FROM filtered_cancelled_c2d), 0),
+  'filteredCancelledC2aCount', coalesce((SELECT total FROM filtered_cancelled_c2a), 0),
+  'filteredCancelledCr2dCount', coalesce((SELECT total FROM filtered_cancelled_cr2d), 0)
 );
 $$;
 
@@ -12534,6 +12611,8 @@ import {
   DEFAULT_FILTERS,
 } from '../lib/dashboardFilters';
 
+import { parseDateString } from '../lib/dateUtils';
+
 const DATE_OPTIONS = [
   {
     label: "Core Case Dates",
@@ -12659,6 +12738,7 @@ export default function Dashboard({
   const [pageSize, setPageSize] = useState(15);
   const [activeTab, setActiveTab] = useState<'ops' | 'performance' | 'loss' | 'ledger'>('ops');
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   // CSV Export Modal states
   const [showCsvModal, setShowCsvModal] = useState(false);
@@ -12993,6 +13073,14 @@ export default function Dashboard({
       grouped[key].push(row);
     });
 
+    Object.keys(grouped).forEach(key => {
+      grouped[key].sort((a, b) => {
+        const ta = a.tokenDate ? (parseDateString(a.tokenDate)?.getTime() || 0) : 0;
+        const tb = b.tokenDate ? (parseDateString(b.tokenDate)?.getTime() || 0) : 0;
+        return ta - tb;
+      });
+    });
+
     const c2dBookingIds = new Set<string>();
     const c2aBookingIds = new Set<string>();
     const cr2dBookingIds = new Set<string>();
@@ -13001,18 +13089,19 @@ export default function Dashboard({
       const flags = getDerivedFlags(row);
       const customerId = row.userId || row.uid || row.leadId;
 
-      if (row.leadStage === 'DELIVERED' && (Boolean(row.cancelReqDate) || Boolean(row.cancelReason))) {
+      if (row.leadStage === 'DELIVERED' && Boolean(row.cancelReason)) {
         cr2dBookingIds.add(row.bookingId);
       }
 
       if (flags.isCancelled && customerId) {
         const key = customerId.trim();
         const customerRows = grouped[key] || [];
-        const cancelledTime = row.tokenDate ? (new Date(row.tokenDate).getTime() || 0) : 0;
+        const cancelledTime = row.tokenDate ? (parseDateString(row.tokenDate)?.getTime() || 0) : 0;
 
         const hasDeliveredAfter = customerRows.some(r => {
           if (r.leadStage === 'DELIVERED') {
-            const deliveredTime = r.tokenDate ? (new Date(r.tokenDate).getTime() || 0) : 0;
+            const delDateStr = r.actualDeliveryDate || r.tokenDate;
+            const deliveredTime = delDateStr ? (parseDateString(delDateStr)?.getTime() || 0) : 0;
             return deliveredTime >= cancelledTime;
           }
           return false;
@@ -13022,16 +13111,30 @@ export default function Dashboard({
           c2dBookingIds.add(row.bookingId);
         }
 
-        const hasActiveAfter = customerRows.some(r => {
-          if (r.leadStage === 'ACTIVE_TOKEN') {
-            const activeTime = r.tokenDate ? (new Date(r.tokenDate).getTime() || 0) : 0;
-            return activeTime >= cancelledTime;
+        const index = customerRows.findIndex(b => b.bookingId === row.bookingId);
+        if (index !== -1) {
+          let prevTime = 0;
+          if (index > 0) {
+            const prevBooking = customerRows[index - 1];
+            prevTime = prevBooking.tokenDate ? (parseDateString(prevBooking.tokenDate)?.getTime() || 0) : 0;
           }
-          return false;
-        });
 
-        if (hasActiveAfter) {
-          c2aBookingIds.add(row.bookingId);
+          const hasMatchingActive = customerRows.some(r => {
+            if (r.leadStage === 'ACTIVE_TOKEN') {
+              const activeTime = r.tokenDate ? (parseDateString(r.tokenDate)?.getTime() || 0) : 0;
+              if (activeTime >= cancelledTime) {
+                return true;
+              }
+              if (index > 0 && activeTime >= prevTime && activeTime <= cancelledTime) {
+                return true;
+              }
+            }
+            return false;
+          });
+
+          if (hasMatchingActive) {
+            c2aBookingIds.add(row.bookingId);
+          }
         }
       }
     });
@@ -13488,155 +13591,8 @@ export default function Dashboard({
           )}
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-          {/* City */}
-          <MultiSelectDropdown
-            label="City"
-            options={dynamicFilterOptions.cities}
-            selectedString={filters.city}
-            onChange={val => setFilters(p => ({ ...p, city: val, hubName: 'All' }))}
-            placeholder="All Cities"
-            isActive={isCityActive}
-            isOpen={openDropdown === 'city'}
-            onToggle={() => setOpenDropdown(p => p === 'city' ? null : 'city')}
-          />
-
-          {/* Hub */}
-          <MultiSelectDropdown
-            label="Hub Name"
-            options={cityFilteredHubs}
-            selectedString={filters.hubName}
-            onChange={val => setFilters(p => ({ ...p, hubName: val }))}
-            placeholder="All Hubs"
-            isActive={isHubActive}
-            isOpen={openDropdown === 'hubName'}
-            onToggle={() => setOpenDropdown(p => p === 'hubName' ? null : 'hubName')}
-          />
-
-          {/* TokenType */}
-          <MultiSelectDropdown
-            label="Token Type"
-            options={dynamicFilterOptions.tokenTypes}
-            selectedString={filters.tokenType}
-            onChange={val => setFilters(p => ({ ...p, tokenType: val }))}
-            placeholder="All Tokens"
-            isActive={isTokenTypeActive}
-            isOpen={openDropdown === 'tokenType'}
-            onToggle={() => setOpenDropdown(p => p === 'tokenType' ? null : 'tokenType')}
-          />
-
-          {/* RM Name */}
-          <MultiSelectDropdown
-            label="Allocated RM"
-            options={dynamicFilterOptions.rms}
-            selectedString={filters.rmName}
-            onChange={val => setFilters(p => ({ ...p, rmName: val }))}
-            placeholder="All Allocated RMs"
-            showBlank={true}
-            isActive={isRmActive}
-            isOpen={openDropdown === 'rmName'}
-            onToggle={() => setOpenDropdown(p => p === 'rmName' ? null : 'rmName')}
-          />
-
-          {/* DC Name */}
-          <MultiSelectDropdown
-            label="Assigned DC"
-            options={dynamicFilterOptions.dcs}
-            selectedString={filters.dcName}
-            onChange={val => setFilters(p => ({ ...p, dcName: val }))}
-            placeholder="All DCs"
-            showBlank={true}
-            isActive={isDcActive}
-            isOpen={openDropdown === 'dcName'}
-            onToggle={() => setOpenDropdown(p => p === 'dcName' ? null : 'dcName')}
-          />
-
-          {/* Payment Type */}
-          <MultiSelectDropdown
-            label="Payment Type"
-            options={dynamicFilterOptions.paymentTypes}
-            selectedString={filters.paymentType}
-            onChange={val => setFilters(p => ({ ...p, paymentType: val }))}
-            placeholder="All Payments"
-            showBlank={true}
-            isActive={isPaymentActive}
-            isOpen={openDropdown === 'paymentType'}
-            onToggle={() => setOpenDropdown(p => p === 'paymentType' ? null : 'paymentType')}
-          />
-
-          {/* Lead Stage */}
-          <MultiSelectDropdown
-            label="Lead Stage"
-            options={dynamicFilterOptions.leadStages}
-            selectedString={filters.leadStage}
-            onChange={val => setFilters(p => ({ ...p, leadStage: val }))}
-            placeholder="All Stages"
-            isActive={isLeadStageActive}
-            isOpen={openDropdown === 'leadStage'}
-            onToggle={() => setOpenDropdown(p => p === 'leadStage' ? null : 'leadStage')}
-          />
-
-          {/* Funnel Stage */}
-          <MultiSelectDropdown
-            label="Funnel / Milestone Stage"
-            options={dynamicFilterOptions.funnelStages}
-            selectedString={filters.funnelStage}
-            onChange={val => setFilters(p => ({ ...p, funnelStage: val }))}
-            placeholder="All Stages/Milestones"
-            isActive={isFunnelStageActive}
-            isOpen={openDropdown === 'funnelStage'}
-            onToggle={() => setOpenDropdown(p => p === 'funnelStage' ? null : 'funnelStage')}
-          />
-
-          {/* Sheet Final Status */}
-          <MultiSelectDropdown
-            label="Sheet Status"
-            options={dynamicFilterOptions.sheetFinalStatuses}
-            selectedString={filters.sheetFinalStatus}
-            onChange={val => setFilters(p => ({ ...p, sheetFinalStatus: val }))}
-            placeholder="All Sheet Statuses"
-            showBlank={true}
-            isActive={isSheetStatusActive}
-            isOpen={openDropdown === 'sheetFinalStatus'}
-            onToggle={() => setOpenDropdown(p => p === 'sheetFinalStatus' ? null : 'sheetFinalStatus')}
-          />
-
-          {/* Form Final Status */}
-          <MultiSelectDropdown
-            label="Form Status"
-            options={dynamicFilterOptions.formFinalStatuses}
-            selectedString={filters.formFinalStatus}
-            onChange={val => setFilters(p => ({ ...p, formFinalStatus: val }))}
-            placeholder="All Form Statuses"
-            showBlank={true}
-            isActive={isFormStatusActive}
-            isOpen={openDropdown === 'formFinalStatus'}
-            onToggle={() => setOpenDropdown(p => p === 'formFinalStatus' ? null : 'formFinalStatus')}
-          />
-
-          {/* Gmail Pendency Status */}
-          <MultiSelectDropdown
-            label="Gmail Pendency"
-            options={dynamicFilterOptions.gmailPendencyStatuses}
-            selectedString={filters.gmailPendencyStatus}
-            onChange={val => setFilters(p => ({ ...p, gmailPendencyStatus: val }))}
-            placeholder="All Pendency Statuses"
-            isActive={isGmailActive}
-            isOpen={openDropdown === 'gmailPendencyStatus'}
-            onToggle={() => setOpenDropdown(p => p === 'gmailPendencyStatus' ? null : 'gmailPendencyStatus')}
-          />
-
-          <MultiSelectDropdown
-            label="Confidence Trend"
-            options={CONFIDENCE_TREND_OPTIONS}
-            selectedString={filters.confidenceTrend}
-            onChange={val => setFilters(p => ({ ...p, confidenceTrend: val }))}
-            placeholder="All Trends"
-            isActive={isConfidenceTrendActive}
-            isOpen={openDropdown === 'confidenceTrend'}
-            onToggle={() => setOpenDropdown(p => p === 'confidenceTrend' ? null : 'confidenceTrend')}
-          />
-
+        {/* Primary Filter Grid: 6 equal-width columns */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
           {/* On Demand Status */}
           <MultiSelectDropdown
             label="On Demand Status"
@@ -13649,7 +13605,6 @@ export default function Dashboard({
             isOpen={openDropdown === 'onDemandStatus'}
             onToggle={() => setOpenDropdown(p => p === 'onDemandStatus' ? null : 'onDemandStatus')}
           />
-
           {/* Task Bucket */}
           <MultiSelectDropdown
             label="Task Bucket"
@@ -13662,20 +13617,18 @@ export default function Dashboard({
             isOpen={openDropdown === 'taskBucket'}
             onToggle={() => setOpenDropdown(p => p === 'taskBucket' ? null : 'taskBucket')}
           />
-
           {/* Derived Status */}
           <MultiSelectDropdown
             label="Derived Issue"
             options={dynamicFilterOptions.derivedOptions}
             selectedString={filters.derivedStatus}
             onChange={val => setFilters(p => ({ ...p, derivedStatus: val }))}
-            placeholder="Clear Case / No Issue"
+            placeholder="Clear Case / No Iss..."
             isActive={isDerivedActive}
             isOpen={openDropdown === 'derivedStatus'}
             onToggle={() => setOpenDropdown(p => p === 'derivedStatus' ? null : 'derivedStatus')}
             optionLabels={derivedLabels}
           />
-
           {/* Cancellation Reason */}
           <MultiSelectDropdown
             label="Cancellation Reason"
@@ -13688,7 +13641,6 @@ export default function Dashboard({
             isOpen={openDropdown === 'cancelReason'}
             onToggle={() => setOpenDropdown(p => p === 'cancelReason' ? null : 'cancelReason')}
           />
-
           {/* DS Channel */}
           <MultiSelectDropdown
             label="DS Channel"
@@ -13701,7 +13653,6 @@ export default function Dashboard({
             isOpen={openDropdown === 'leadDsChannel'}
             onToggle={() => setOpenDropdown(p => p === 'leadDsChannel' ? null : 'leadDsChannel')}
           />
-
           {/* Min Payment Percentage */}
           <div>
             <label className={getFilterLabelClass(isPaymentPercentageActive)}>Min Payment %</label>
@@ -13720,9 +13671,176 @@ export default function Dashboard({
               <option value="100">100% Fully Paid</option>
             </select>
           </div>
+        </div>
 
-          {/* Date Selector Field */}
-          <div>
+        {/* Collapsible Advanced Filters Grid */}
+        <AnimatePresence>
+          {showAdvancedFilters && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden border-t border-slate-100 mt-4 pt-4"
+            >
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3.5">
+                {/* City */}
+                <MultiSelectDropdown
+                  label="City"
+                  options={dynamicFilterOptions.cities}
+                  selectedString={filters.city}
+                  onChange={val => setFilters(p => ({ ...p, city: val, hubName: 'All' }))}
+                  placeholder="All Cities"
+                  isActive={isCityActive}
+                  isOpen={openDropdown === 'city'}
+                  onToggle={() => setOpenDropdown(p => p === 'city' ? null : 'city')}
+                />
+
+                {/* Hub */}
+                <MultiSelectDropdown
+                  label="Hub Name"
+                  options={cityFilteredHubs}
+                  selectedString={filters.hubName}
+                  onChange={val => setFilters(p => ({ ...p, hubName: val }))}
+                  placeholder="All Hubs"
+                  isActive={isHubActive}
+                  isOpen={openDropdown === 'hubName'}
+                  onToggle={() => setOpenDropdown(p => p === 'hubName' ? null : 'hubName')}
+                />
+
+                {/* TokenType */}
+                <MultiSelectDropdown
+                  label="Token Type"
+                  options={dynamicFilterOptions.tokenTypes}
+                  selectedString={filters.tokenType}
+                  onChange={val => setFilters(p => ({ ...p, tokenType: val }))}
+                  placeholder="All Tokens"
+                  isActive={isTokenTypeActive}
+                  isOpen={openDropdown === 'tokenType'}
+                  onToggle={() => setOpenDropdown(p => p === 'tokenType' ? null : 'tokenType')}
+                />
+
+                {/* RM Name */}
+                <MultiSelectDropdown
+                  label="Allocated RM"
+                  options={dynamicFilterOptions.rms}
+                  selectedString={filters.rmName}
+                  onChange={val => setFilters(p => ({ ...p, rmName: val }))}
+                  placeholder="All Allocated RMs"
+                  showBlank={true}
+                  isActive={isRmActive}
+                  isOpen={openDropdown === 'rmName'}
+                  onToggle={() => setOpenDropdown(p => p === 'rmName' ? null : 'rmName')}
+                />
+
+                {/* DC Name */}
+                <MultiSelectDropdown
+                  label="Assigned DC"
+                  options={dynamicFilterOptions.dcs}
+                  selectedString={filters.dcName}
+                  onChange={val => setFilters(p => ({ ...p, dcName: val }))}
+                  placeholder="All DCs"
+                  showBlank={true}
+                  isActive={isDcActive}
+                  isOpen={openDropdown === 'dcName'}
+                  onToggle={() => setOpenDropdown(p => p === 'dcName' ? null : 'dcName')}
+                />
+
+                {/* Payment Type */}
+                <MultiSelectDropdown
+                  label="Payment Type"
+                  options={dynamicFilterOptions.paymentTypes}
+                  selectedString={filters.paymentType}
+                  onChange={val => setFilters(p => ({ ...p, paymentType: val }))}
+                  placeholder="All Payments"
+                  showBlank={true}
+                  isActive={isPaymentActive}
+                  isOpen={openDropdown === 'paymentType'}
+                  onToggle={() => setOpenDropdown(p => p === 'paymentType' ? null : 'paymentType')}
+                />
+
+                {/* Lead Stage */}
+                <MultiSelectDropdown
+                  label="Lead Stage"
+                  options={dynamicFilterOptions.leadStages}
+                  selectedString={filters.leadStage}
+                  onChange={val => setFilters(p => ({ ...p, leadStage: val }))}
+                  placeholder="All Stages"
+                  isActive={isLeadStageActive}
+                  isOpen={openDropdown === 'leadStage'}
+                  onToggle={() => setOpenDropdown(p => p === 'leadStage' ? null : 'leadStage')}
+                />
+
+                {/* Funnel Stage */}
+                <MultiSelectDropdown
+                  label="Funnel / Milestone Stage"
+                  options={dynamicFilterOptions.funnelStages}
+                  selectedString={filters.funnelStage}
+                  onChange={val => setFilters(p => ({ ...p, funnelStage: val }))}
+                  placeholder="All Stages/Milestones"
+                  isActive={isFunnelStageActive}
+                  isOpen={openDropdown === 'funnelStage'}
+                  onToggle={() => setOpenDropdown(p => p === 'funnelStage' ? null : 'funnelStage')}
+                />
+
+                {/* Sheet Final Status */}
+                <MultiSelectDropdown
+                  label="Sheet Status"
+                  options={dynamicFilterOptions.sheetFinalStatuses}
+                  selectedString={filters.sheetFinalStatus}
+                  onChange={val => setFilters(p => ({ ...p, sheetFinalStatus: val }))}
+                  placeholder="All Sheet Statuses"
+                  showBlank={true}
+                  isActive={isSheetStatusActive}
+                  isOpen={openDropdown === 'sheetFinalStatus'}
+                  onToggle={() => setOpenDropdown(p => p === 'sheetFinalStatus' ? null : 'sheetFinalStatus')}
+                />
+
+                {/* Form Final Status */}
+                <MultiSelectDropdown
+                  label="Form Status"
+                  options={dynamicFilterOptions.formFinalStatuses}
+                  selectedString={filters.formFinalStatus}
+                  onChange={val => setFilters(p => ({ ...p, formFinalStatus: val }))}
+                  placeholder="All Form Statuses"
+                  showBlank={true}
+                  isActive={isFormStatusActive}
+                  isOpen={openDropdown === 'formFinalStatus'}
+                  onToggle={() => setOpenDropdown(p => p === 'formFinalStatus' ? null : 'formFinalStatus')}
+                />
+
+                {/* Gmail Pendency Status */}
+                <MultiSelectDropdown
+                  label="Gmail Pendency"
+                  options={dynamicFilterOptions.gmailPendencyStatuses}
+                  selectedString={filters.gmailPendencyStatus}
+                  onChange={val => setFilters(p => ({ ...p, gmailPendencyStatus: val }))}
+                  placeholder="All Pendency Statuses"
+                  isActive={isGmailActive}
+                  isOpen={openDropdown === 'gmailPendencyStatus'}
+                  onToggle={() => setOpenDropdown(p => p === 'gmailPendencyStatus' ? null : 'gmailPendencyStatus')}
+                />
+
+                {/* Confidence Trend */}
+                <MultiSelectDropdown
+                  label="Confidence Trend"
+                  options={CONFIDENCE_TREND_OPTIONS}
+                  selectedString={filters.confidenceTrend}
+                  onChange={val => setFilters(p => ({ ...p, confidenceTrend: val }))}
+                  placeholder="All Trends"
+                  isActive={isConfidenceTrendActive}
+                  isOpen={openDropdown === 'confidenceTrend'}
+                  onToggle={() => setOpenDropdown(p => p === 'confidenceTrend' ? null : 'confidenceTrend')}
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Bottom Row (Inputs): Date Parameter, Date Range, Fuzzy Search */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 mt-3 pt-3 border-t border-slate-100">
+          {/* Date Parameter */}
+          <div className="md:col-span-3">
             <label className={getFilterLabelClass(isDateFieldActive)}>Date Parameter</label>
             <select
               value={filters.dateField}
@@ -13787,12 +13905,12 @@ export default function Dashboard({
             </select>
           </div>
 
-          {/* Date Bounds */}
-          <div className="col-span-2">
+          {/* Date Range */}
+          <div className="md:col-span-4">
             <div className="flex justify-between items-center mb-1">
               <label className={getFilterLabelClass(isDateRangeActive)}>Date Range</label>
               {isDateFieldActive && (
-                <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 cursor-pointer select-none animate-fade-in">
+                <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={filters.filterBlankDates || false}
@@ -13834,8 +13952,8 @@ export default function Dashboard({
             </div>
           </div>
 
-          {/* Query Search */}
-          <div className="col-span-2">
+          {/* Fuzzy Text Query */}
+          <div className="md:col-span-5">
             <label className={getFilterLabelClass(Boolean(localSearch))}>Fuzzy Text Query</label>
             <div className="relative">
               <input
@@ -13851,146 +13969,166 @@ export default function Dashboard({
               />
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-3" />
               {localSearch && (
-                <button 
+                <button
                   onClick={() => {
                     setLocalSearch('');
                     setFilters(p => ({ ...p, searchQuery: '' }));
                   }}
-                  className="absolute right-2.5 top-3 text-[10px] text-slate-400 hover:text-slate-650 cursor-pointer"
+                  className="absolute right-2.5 top-3 text-[10px] text-slate-400 hover:text-slate-650 cursor-pointer animate-fade-in"
                 >
                   Clear
                 </button>
               )}
             </div>
           </div>
-          {/* Dynamic Date Filters (Any number of filters can be added) */}
-          {filters.dateField !== 'All' && filters.dateFilters && filters.dateFilters.length > 0 && (
-            <div className="col-span-full border-t border-slate-100 pt-4 mt-2">
-              <div className="flex justify-between items-center mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-slate-700">Additional Date Filters</span>
-                  {activeDynamicDateFilters.length > 0 && (
-                    <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                      {activeDynamicDateFilters.length} active
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2.5">
-                {filters.dateFilters.map((df) => {
-                  const isDfActive = df.dateField !== 'All';
-                  const isDfRangeActive = isDfActive && (df.startDate !== '' || df.endDate !== '' || df.filterBlankDates);
-                  return (
-                    <div
-                      key={df.id}
-                      className={`grid grid-cols-1 sm:grid-cols-12 gap-3 items-center p-3 rounded-xl border transition-all duration-200 ${
-                        isDfRangeActive
-                          ? 'border-amber-200 bg-amber-50/10 shadow-sm'
-                          : 'border-slate-150 bg-slate-50/40'
-                      }`}
-                    >
-                      {/* Date Parameter Select */}
-                      <div className="sm:col-span-4">
-                        <select
-                          value={df.dateField}
-                          onChange={(e) => updateDateFilter(df.id, { dateField: e.target.value })}
-                          className={`w-full text-xs p-1.5 border rounded-lg transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 cursor-pointer ${
-                            isDfActive
-                              ? 'border-amber-300 font-semibold text-amber-900 bg-amber-50/10'
-                              : 'border-slate-200 text-slate-650 bg-white'
-                          }`}
-                        >
-                          <option value="All">Select Additional Date Parameter...</option>
-                          {DATE_OPTIONS.map((group) => (
-                            <optgroup key={group.label} label={group.label}>
-                              {group.options.map((opt) => (
-                                <option
-                                  key={opt.value}
-                                  value={opt.value}
-                                  disabled={
-                                    opt.value === filters.dateField ||
-                                    filters.dateFilters?.some(x => x.id !== df.id && x.dateField === opt.value)
-                                  }
-                                >
-                                  {opt.label}
-                                </option>
-                              ))}
-                            </optgroup>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Blank Dates Checkbox */}
-                      <div className="sm:col-span-2 flex items-center justify-start sm:justify-center">
-                        <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            checked={df.filterBlankDates || false}
-                            onChange={(e) => updateDateFilter(df.id, { filterBlankDates: e.target.checked })}
-                            disabled={!isDfActive}
-                            className="rounded border-slate-300 text-amber-500 focus:ring-amber-500 w-3.5 h-3.5 cursor-pointer disabled:cursor-not-allowed"
-                          />
-                          <span>Blank Only</span>
-                        </label>
-                      </div>
-
-                      {/* Date Bounds Inputs */}
-                      <div className="sm:col-span-5 flex items-center gap-1.5">
-                        <input
-                          type="date"
-                          disabled={!isDfActive || df.filterBlankDates}
-                          value={df.startDate}
-                          onChange={(e) => updateDateFilter(df.id, { startDate: e.target.value })}
-                          className={`w-full text-xs p-1.5 border rounded-lg transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 ${
-                            !isDfActive || df.filterBlankDates
-                              ? 'border-slate-100 bg-slate-100/50 text-slate-300 cursor-not-allowed'
-                              : df.startDate
-                                ? 'border-amber-300 bg-amber-50/40 text-amber-950 font-semibold shadow-sm'
-                                : 'border-slate-200 bg-white text-slate-700'
-                          }`}
-                        />
-                        <span className="text-[10px] text-slate-400">to</span>
-                        <input
-                          type="date"
-                          disabled={!isDfActive || df.filterBlankDates}
-                          value={df.endDate}
-                          onChange={(e) => updateDateFilter(df.id, { endDate: e.target.value })}
-                          className={`w-full text-xs p-1.5 border rounded-lg transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 ${
-                            !isDfActive || df.filterBlankDates
-                              ? 'border-slate-100 bg-slate-100/50 text-slate-300 cursor-not-allowed'
-                              : df.endDate
-                                ? 'border-amber-300 bg-amber-50/40 text-amber-950 font-semibold shadow-sm'
-                                : 'border-slate-200 bg-white text-slate-700'
-                          }`}
-                        />
-                      </div>
-
-                      {/* Remove Button */}
-                      <div className="sm:col-span-1 flex justify-end">
-                        {isDfActive && (
-                          <button
-                            type="button"
-                            onClick={() => removeDateFilter(df.id)}
-                            className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all duration-150 cursor-pointer"
-                            title="Remove Filter"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
 
-        <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-slate-100">
+        {/* Additional Dynamic Date Filters (if active) */}
+        {filters.dateField !== 'All' && filters.dateFilters && filters.dateFilters.length > 0 && (
+          <div className="border-t border-slate-100 pt-4 mt-2">
+            <div className="flex justify-between items-center mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-700">Additional Date Filters</span>
+                {activeDynamicDateFilters.length > 0 && (
+                  <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {activeDynamicDateFilters.length} active
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2.5">
+              {filters.dateFilters.map((df) => {
+                const isDfActive = df.dateField !== 'All';
+                const isDfRangeActive = isDfActive && (df.startDate !== '' || df.endDate !== '' || df.filterBlankDates);
+                return (
+                  <div
+                    key={df.id}
+                    className={`grid grid-cols-1 sm:grid-cols-12 gap-3 items-center p-3 rounded-xl border transition-all duration-200 ${
+                      isDfRangeActive
+                        ? 'border-amber-200 bg-amber-50/10 shadow-sm'
+                        : 'border-slate-150 bg-slate-50/40'
+                    }`}
+                  >
+                    <div className="sm:col-span-4">
+                      <select
+                        value={df.dateField}
+                        onChange={(e) => updateDateFilter(df.id, { dateField: e.target.value })}
+                        className={`w-full text-xs p-1.5 border rounded-lg transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 cursor-pointer ${
+                          isDfActive
+                            ? 'border-amber-300 font-semibold text-amber-900 bg-amber-50/10'
+                            : 'border-slate-200 text-slate-650 bg-white'
+                        }`}
+                      >
+                        <option value="All">Select Additional Date Parameter...</option>
+                        <optgroup label="Core Case Dates">
+                          <option value="tokenDate">Token Date</option>
+                          <option value="tokenDateTime">Token Date & Time</option>
+                          <option value="bookingDate">Booking Date</option>
+                          <option value="expectedDeliveryDate">Expected Delivery Date</option>
+                          <option value="expectedDeliveryTime">Expected Delivery Time</option>
+                          <option value="actualDeliveryDate">Actual Delivery Date</option>
+                          <option value="mlEstimatedDeliveryDate">ML Est Delivery Date</option>
+                        </optgroup>
+                        <optgroup label="Payments & OD">
+                          <option value="lastPaymentDate">Last Payment Date</option>
+                          <option value="expectedOdCompletionDate">OD Completion Date</option>
+                          <option value="eddReviewerDate">EDD Date (Reviewer)</option>
+                        </optgroup>
+                        <optgroup label="Cancellations & Updates">
+                          <option value="cancelReqDate">Cancellation Req Date</option>
+                          <option value="cancellationDate">Cancellation Date</option>
+                          <option value="tokenAutoCancellationExtendedDate">Auto Cancel Ext Date</option>
+                          <option value="dealStatusUpdatedAt">Deal Status Update Date</option>
+                          <option value="latestRemarkDate">Latest Remark Date</option>
+                          <option value="updatedAt">System Update Date</option>
+                        </optgroup>
+                        <optgroup label="CRM & Outbound Calls">
+                          <option value="lastCallAt">Last Call Date</option>
+                          <option value="followupAt">Followup Date</option>
+                          <option value="gmailPendencyDate">Gmail Pendency Date</option>
+                        </optgroup>
+                      </select>
+                    </div>
+
+                    <div className="sm:col-span-2 flex items-center justify-end">
+                      <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          disabled={!isDfActive}
+                          checked={df.filterBlankDates || false}
+                          onChange={e => updateDateFilter(df.id, { filterBlankDates: e.target.checked })}
+                          className="rounded border-slate-300 text-amber-500 focus:ring-amber-500 w-3 h-3 cursor-pointer"
+                        />
+                        <span>Blank Only</span>
+                      </label>
+                    </div>
+
+                    <div className="sm:col-span-5 flex items-center gap-1.5">
+                      <input
+                        type="date"
+                        disabled={!isDfActive || df.filterBlankDates}
+                        value={df.startDate}
+                        onChange={(e) => updateDateFilter(df.id, { startDate: e.target.value })}
+                        className={`w-full text-xs p-1.5 border rounded-lg transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 ${
+                          !isDfActive || df.filterBlankDates
+                            ? 'border-slate-100 bg-slate-100/50 text-slate-300 cursor-not-allowed'
+                            : df.startDate
+                              ? 'border-amber-300 bg-amber-50/40 text-amber-950 font-semibold shadow-sm'
+                              : 'border-slate-200 bg-white text-slate-700'
+                        }`}
+                      />
+                      <span className="text-[10px] text-slate-400">to</span>
+                      <input
+                        type="date"
+                        disabled={!isDfActive || df.filterBlankDates}
+                        value={df.endDate}
+                        onChange={(e) => updateDateFilter(df.id, { endDate: e.target.value })}
+                        className={`w-full text-xs p-1.5 border rounded-lg transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 ${
+                          !isDfActive || df.filterBlankDates
+                            ? 'border-slate-100 bg-slate-100/50 text-slate-300 cursor-not-allowed'
+                            : df.endDate
+                              ? 'border-amber-300 bg-amber-50/40 text-amber-950 font-semibold shadow-sm'
+                              : 'border-slate-200 bg-white text-slate-700'
+                        }`}
+                      />
+                    </div>
+
+                    <div className="sm:col-span-1 flex justify-end">
+                      {isDfActive && (
+                        <button
+                          type="button"
+                          onClick={() => removeDateFilter(df.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all duration-150 cursor-pointer"
+                          title="Remove Filter"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Footer Actions Row */}
+        <div className="flex justify-between items-center mt-4 pt-3 border-t border-slate-100 flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setShowAdvancedFilters(prev => !prev)}
+            className="text-xs font-bold text-blue-600 hover:text-blue-800 transition-all flex items-center gap-1.5 select-none cursor-pointer"
+          >
+            <span>{showAdvancedFilters ? 'Hide Advanced Filters' : 'Show Advanced Filters'}</span>
+            <span className="text-[9px] bg-blue-50 text-blue-600 border border-blue-100 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
+              {showAdvancedFilters ? 'dense' : 'expand'}
+            </span>
+          </button>
+
           <button
             onClick={resetFilters}
-            className="p-1.5 px-4 text-xs font-semibold text-slate-500 rounded-xl hover:bg-slate-100 transition-all border border-slate-200 active:scale-95"
+            className="p-1.5 px-4 text-xs font-semibold text-slate-500 rounded-xl hover:bg-slate-100 transition-all border border-slate-200 active:scale-95 cursor-pointer"
           >
             Clear All
           </button>
@@ -14019,7 +14157,7 @@ export default function Dashboard({
           {activeTab === 'ops' && (
             <motion.div
               layoutId="activeTabUnderline"
-              className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-orange"
+              className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-blue"
             />
           )}
         </button>
@@ -14035,7 +14173,7 @@ export default function Dashboard({
           {activeTab === 'performance' && (
             <motion.div
               layoutId="activeTabUnderline"
-              className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-orange"
+              className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-blue"
             />
           )}
         </button>
@@ -14051,7 +14189,7 @@ export default function Dashboard({
           {activeTab === 'loss' && (
             <motion.div
               layoutId="activeTabUnderline"
-              className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-orange"
+              className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-blue"
             />
           )}
         </button>
@@ -14067,7 +14205,7 @@ export default function Dashboard({
           {activeTab === 'ledger' && (
             <motion.div
               layoutId="activeTabUnderline"
-              className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-orange"
+              className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-blue"
             />
           )}
         </button>

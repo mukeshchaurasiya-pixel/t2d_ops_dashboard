@@ -25,6 +25,8 @@ import {
   DEFAULT_FILTERS,
 } from '../lib/dashboardFilters';
 
+import { parseDateString } from '../lib/dateUtils';
+
 const DATE_OPTIONS = [
   {
     label: "Core Case Dates",
@@ -150,6 +152,7 @@ export default function Dashboard({
   const [pageSize, setPageSize] = useState(15);
   const [activeTab, setActiveTab] = useState<'ops' | 'performance' | 'loss' | 'ledger'>('ops');
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   // CSV Export Modal states
   const [showCsvModal, setShowCsvModal] = useState(false);
@@ -484,6 +487,14 @@ export default function Dashboard({
       grouped[key].push(row);
     });
 
+    Object.keys(grouped).forEach(key => {
+      grouped[key].sort((a, b) => {
+        const ta = a.tokenDate ? (parseDateString(a.tokenDate)?.getTime() || 0) : 0;
+        const tb = b.tokenDate ? (parseDateString(b.tokenDate)?.getTime() || 0) : 0;
+        return ta - tb;
+      });
+    });
+
     const c2dBookingIds = new Set<string>();
     const c2aBookingIds = new Set<string>();
     const cr2dBookingIds = new Set<string>();
@@ -492,18 +503,19 @@ export default function Dashboard({
       const flags = getDerivedFlags(row);
       const customerId = row.userId || row.uid || row.leadId;
 
-      if (row.leadStage === 'DELIVERED' && (Boolean(row.cancelReqDate) || Boolean(row.cancelReason))) {
+      if (row.leadStage === 'DELIVERED' && Boolean(row.cancelReason)) {
         cr2dBookingIds.add(row.bookingId);
       }
 
       if (flags.isCancelled && customerId) {
         const key = customerId.trim();
         const customerRows = grouped[key] || [];
-        const cancelledTime = row.tokenDate ? (new Date(row.tokenDate).getTime() || 0) : 0;
+        const cancelledTime = row.tokenDate ? (parseDateString(row.tokenDate)?.getTime() || 0) : 0;
 
         const hasDeliveredAfter = customerRows.some(r => {
           if (r.leadStage === 'DELIVERED') {
-            const deliveredTime = r.tokenDate ? (new Date(r.tokenDate).getTime() || 0) : 0;
+            const delDateStr = r.actualDeliveryDate || r.tokenDate;
+            const deliveredTime = delDateStr ? (parseDateString(delDateStr)?.getTime() || 0) : 0;
             return deliveredTime >= cancelledTime;
           }
           return false;
@@ -513,16 +525,30 @@ export default function Dashboard({
           c2dBookingIds.add(row.bookingId);
         }
 
-        const hasActiveAfter = customerRows.some(r => {
-          if (r.leadStage === 'ACTIVE_TOKEN') {
-            const activeTime = r.tokenDate ? (new Date(r.tokenDate).getTime() || 0) : 0;
-            return activeTime >= cancelledTime;
+        const index = customerRows.findIndex(b => b.bookingId === row.bookingId);
+        if (index !== -1) {
+          let prevTime = 0;
+          if (index > 0) {
+            const prevBooking = customerRows[index - 1];
+            prevTime = prevBooking.tokenDate ? (parseDateString(prevBooking.tokenDate)?.getTime() || 0) : 0;
           }
-          return false;
-        });
 
-        if (hasActiveAfter) {
-          c2aBookingIds.add(row.bookingId);
+          const hasMatchingActive = customerRows.some(r => {
+            if (r.leadStage === 'ACTIVE_TOKEN') {
+              const activeTime = r.tokenDate ? (parseDateString(r.tokenDate)?.getTime() || 0) : 0;
+              if (activeTime >= cancelledTime) {
+                return true;
+              }
+              if (index > 0 && activeTime >= prevTime && activeTime <= cancelledTime) {
+                return true;
+              }
+            }
+            return false;
+          });
+
+          if (hasMatchingActive) {
+            c2aBookingIds.add(row.bookingId);
+          }
         }
       }
     });
@@ -979,155 +1005,8 @@ export default function Dashboard({
           )}
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-          {/* City */}
-          <MultiSelectDropdown
-            label="City"
-            options={dynamicFilterOptions.cities}
-            selectedString={filters.city}
-            onChange={val => setFilters(p => ({ ...p, city: val, hubName: 'All' }))}
-            placeholder="All Cities"
-            isActive={isCityActive}
-            isOpen={openDropdown === 'city'}
-            onToggle={() => setOpenDropdown(p => p === 'city' ? null : 'city')}
-          />
-
-          {/* Hub */}
-          <MultiSelectDropdown
-            label="Hub Name"
-            options={cityFilteredHubs}
-            selectedString={filters.hubName}
-            onChange={val => setFilters(p => ({ ...p, hubName: val }))}
-            placeholder="All Hubs"
-            isActive={isHubActive}
-            isOpen={openDropdown === 'hubName'}
-            onToggle={() => setOpenDropdown(p => p === 'hubName' ? null : 'hubName')}
-          />
-
-          {/* TokenType */}
-          <MultiSelectDropdown
-            label="Token Type"
-            options={dynamicFilterOptions.tokenTypes}
-            selectedString={filters.tokenType}
-            onChange={val => setFilters(p => ({ ...p, tokenType: val }))}
-            placeholder="All Tokens"
-            isActive={isTokenTypeActive}
-            isOpen={openDropdown === 'tokenType'}
-            onToggle={() => setOpenDropdown(p => p === 'tokenType' ? null : 'tokenType')}
-          />
-
-          {/* RM Name */}
-          <MultiSelectDropdown
-            label="Allocated RM"
-            options={dynamicFilterOptions.rms}
-            selectedString={filters.rmName}
-            onChange={val => setFilters(p => ({ ...p, rmName: val }))}
-            placeholder="All Allocated RMs"
-            showBlank={true}
-            isActive={isRmActive}
-            isOpen={openDropdown === 'rmName'}
-            onToggle={() => setOpenDropdown(p => p === 'rmName' ? null : 'rmName')}
-          />
-
-          {/* DC Name */}
-          <MultiSelectDropdown
-            label="Assigned DC"
-            options={dynamicFilterOptions.dcs}
-            selectedString={filters.dcName}
-            onChange={val => setFilters(p => ({ ...p, dcName: val }))}
-            placeholder="All DCs"
-            showBlank={true}
-            isActive={isDcActive}
-            isOpen={openDropdown === 'dcName'}
-            onToggle={() => setOpenDropdown(p => p === 'dcName' ? null : 'dcName')}
-          />
-
-          {/* Payment Type */}
-          <MultiSelectDropdown
-            label="Payment Type"
-            options={dynamicFilterOptions.paymentTypes}
-            selectedString={filters.paymentType}
-            onChange={val => setFilters(p => ({ ...p, paymentType: val }))}
-            placeholder="All Payments"
-            showBlank={true}
-            isActive={isPaymentActive}
-            isOpen={openDropdown === 'paymentType'}
-            onToggle={() => setOpenDropdown(p => p === 'paymentType' ? null : 'paymentType')}
-          />
-
-          {/* Lead Stage */}
-          <MultiSelectDropdown
-            label="Lead Stage"
-            options={dynamicFilterOptions.leadStages}
-            selectedString={filters.leadStage}
-            onChange={val => setFilters(p => ({ ...p, leadStage: val }))}
-            placeholder="All Stages"
-            isActive={isLeadStageActive}
-            isOpen={openDropdown === 'leadStage'}
-            onToggle={() => setOpenDropdown(p => p === 'leadStage' ? null : 'leadStage')}
-          />
-
-          {/* Funnel Stage */}
-          <MultiSelectDropdown
-            label="Funnel / Milestone Stage"
-            options={dynamicFilterOptions.funnelStages}
-            selectedString={filters.funnelStage}
-            onChange={val => setFilters(p => ({ ...p, funnelStage: val }))}
-            placeholder="All Stages/Milestones"
-            isActive={isFunnelStageActive}
-            isOpen={openDropdown === 'funnelStage'}
-            onToggle={() => setOpenDropdown(p => p === 'funnelStage' ? null : 'funnelStage')}
-          />
-
-          {/* Sheet Final Status */}
-          <MultiSelectDropdown
-            label="Sheet Status"
-            options={dynamicFilterOptions.sheetFinalStatuses}
-            selectedString={filters.sheetFinalStatus}
-            onChange={val => setFilters(p => ({ ...p, sheetFinalStatus: val }))}
-            placeholder="All Sheet Statuses"
-            showBlank={true}
-            isActive={isSheetStatusActive}
-            isOpen={openDropdown === 'sheetFinalStatus'}
-            onToggle={() => setOpenDropdown(p => p === 'sheetFinalStatus' ? null : 'sheetFinalStatus')}
-          />
-
-          {/* Form Final Status */}
-          <MultiSelectDropdown
-            label="Form Status"
-            options={dynamicFilterOptions.formFinalStatuses}
-            selectedString={filters.formFinalStatus}
-            onChange={val => setFilters(p => ({ ...p, formFinalStatus: val }))}
-            placeholder="All Form Statuses"
-            showBlank={true}
-            isActive={isFormStatusActive}
-            isOpen={openDropdown === 'formFinalStatus'}
-            onToggle={() => setOpenDropdown(p => p === 'formFinalStatus' ? null : 'formFinalStatus')}
-          />
-
-          {/* Gmail Pendency Status */}
-          <MultiSelectDropdown
-            label="Gmail Pendency"
-            options={dynamicFilterOptions.gmailPendencyStatuses}
-            selectedString={filters.gmailPendencyStatus}
-            onChange={val => setFilters(p => ({ ...p, gmailPendencyStatus: val }))}
-            placeholder="All Pendency Statuses"
-            isActive={isGmailActive}
-            isOpen={openDropdown === 'gmailPendencyStatus'}
-            onToggle={() => setOpenDropdown(p => p === 'gmailPendencyStatus' ? null : 'gmailPendencyStatus')}
-          />
-
-          <MultiSelectDropdown
-            label="Confidence Trend"
-            options={CONFIDENCE_TREND_OPTIONS}
-            selectedString={filters.confidenceTrend}
-            onChange={val => setFilters(p => ({ ...p, confidenceTrend: val }))}
-            placeholder="All Trends"
-            isActive={isConfidenceTrendActive}
-            isOpen={openDropdown === 'confidenceTrend'}
-            onToggle={() => setOpenDropdown(p => p === 'confidenceTrend' ? null : 'confidenceTrend')}
-          />
-
+        {/* Primary Filter Grid: 6 equal-width columns */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
           {/* On Demand Status */}
           <MultiSelectDropdown
             label="On Demand Status"
@@ -1140,7 +1019,6 @@ export default function Dashboard({
             isOpen={openDropdown === 'onDemandStatus'}
             onToggle={() => setOpenDropdown(p => p === 'onDemandStatus' ? null : 'onDemandStatus')}
           />
-
           {/* Task Bucket */}
           <MultiSelectDropdown
             label="Task Bucket"
@@ -1153,20 +1031,18 @@ export default function Dashboard({
             isOpen={openDropdown === 'taskBucket'}
             onToggle={() => setOpenDropdown(p => p === 'taskBucket' ? null : 'taskBucket')}
           />
-
           {/* Derived Status */}
           <MultiSelectDropdown
             label="Derived Issue"
             options={dynamicFilterOptions.derivedOptions}
             selectedString={filters.derivedStatus}
             onChange={val => setFilters(p => ({ ...p, derivedStatus: val }))}
-            placeholder="Clear Case / No Issue"
+            placeholder="Clear Case / No Iss..."
             isActive={isDerivedActive}
             isOpen={openDropdown === 'derivedStatus'}
             onToggle={() => setOpenDropdown(p => p === 'derivedStatus' ? null : 'derivedStatus')}
             optionLabels={derivedLabels}
           />
-
           {/* Cancellation Reason */}
           <MultiSelectDropdown
             label="Cancellation Reason"
@@ -1179,7 +1055,6 @@ export default function Dashboard({
             isOpen={openDropdown === 'cancelReason'}
             onToggle={() => setOpenDropdown(p => p === 'cancelReason' ? null : 'cancelReason')}
           />
-
           {/* DS Channel */}
           <MultiSelectDropdown
             label="DS Channel"
@@ -1192,7 +1067,6 @@ export default function Dashboard({
             isOpen={openDropdown === 'leadDsChannel'}
             onToggle={() => setOpenDropdown(p => p === 'leadDsChannel' ? null : 'leadDsChannel')}
           />
-
           {/* Min Payment Percentage */}
           <div>
             <label className={getFilterLabelClass(isPaymentPercentageActive)}>Min Payment %</label>
@@ -1211,9 +1085,176 @@ export default function Dashboard({
               <option value="100">100% Fully Paid</option>
             </select>
           </div>
+        </div>
 
-          {/* Date Selector Field */}
-          <div>
+        {/* Collapsible Advanced Filters Grid */}
+        <AnimatePresence>
+          {showAdvancedFilters && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden border-t border-slate-100 mt-4 pt-4"
+            >
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3.5">
+                {/* City */}
+                <MultiSelectDropdown
+                  label="City"
+                  options={dynamicFilterOptions.cities}
+                  selectedString={filters.city}
+                  onChange={val => setFilters(p => ({ ...p, city: val, hubName: 'All' }))}
+                  placeholder="All Cities"
+                  isActive={isCityActive}
+                  isOpen={openDropdown === 'city'}
+                  onToggle={() => setOpenDropdown(p => p === 'city' ? null : 'city')}
+                />
+
+                {/* Hub */}
+                <MultiSelectDropdown
+                  label="Hub Name"
+                  options={cityFilteredHubs}
+                  selectedString={filters.hubName}
+                  onChange={val => setFilters(p => ({ ...p, hubName: val }))}
+                  placeholder="All Hubs"
+                  isActive={isHubActive}
+                  isOpen={openDropdown === 'hubName'}
+                  onToggle={() => setOpenDropdown(p => p === 'hubName' ? null : 'hubName')}
+                />
+
+                {/* TokenType */}
+                <MultiSelectDropdown
+                  label="Token Type"
+                  options={dynamicFilterOptions.tokenTypes}
+                  selectedString={filters.tokenType}
+                  onChange={val => setFilters(p => ({ ...p, tokenType: val }))}
+                  placeholder="All Tokens"
+                  isActive={isTokenTypeActive}
+                  isOpen={openDropdown === 'tokenType'}
+                  onToggle={() => setOpenDropdown(p => p === 'tokenType' ? null : 'tokenType')}
+                />
+
+                {/* RM Name */}
+                <MultiSelectDropdown
+                  label="Allocated RM"
+                  options={dynamicFilterOptions.rms}
+                  selectedString={filters.rmName}
+                  onChange={val => setFilters(p => ({ ...p, rmName: val }))}
+                  placeholder="All Allocated RMs"
+                  showBlank={true}
+                  isActive={isRmActive}
+                  isOpen={openDropdown === 'rmName'}
+                  onToggle={() => setOpenDropdown(p => p === 'rmName' ? null : 'rmName')}
+                />
+
+                {/* DC Name */}
+                <MultiSelectDropdown
+                  label="Assigned DC"
+                  options={dynamicFilterOptions.dcs}
+                  selectedString={filters.dcName}
+                  onChange={val => setFilters(p => ({ ...p, dcName: val }))}
+                  placeholder="All DCs"
+                  showBlank={true}
+                  isActive={isDcActive}
+                  isOpen={openDropdown === 'dcName'}
+                  onToggle={() => setOpenDropdown(p => p === 'dcName' ? null : 'dcName')}
+                />
+
+                {/* Payment Type */}
+                <MultiSelectDropdown
+                  label="Payment Type"
+                  options={dynamicFilterOptions.paymentTypes}
+                  selectedString={filters.paymentType}
+                  onChange={val => setFilters(p => ({ ...p, paymentType: val }))}
+                  placeholder="All Payments"
+                  showBlank={true}
+                  isActive={isPaymentActive}
+                  isOpen={openDropdown === 'paymentType'}
+                  onToggle={() => setOpenDropdown(p => p === 'paymentType' ? null : 'paymentType')}
+                />
+
+                {/* Lead Stage */}
+                <MultiSelectDropdown
+                  label="Lead Stage"
+                  options={dynamicFilterOptions.leadStages}
+                  selectedString={filters.leadStage}
+                  onChange={val => setFilters(p => ({ ...p, leadStage: val }))}
+                  placeholder="All Stages"
+                  isActive={isLeadStageActive}
+                  isOpen={openDropdown === 'leadStage'}
+                  onToggle={() => setOpenDropdown(p => p === 'leadStage' ? null : 'leadStage')}
+                />
+
+                {/* Funnel Stage */}
+                <MultiSelectDropdown
+                  label="Funnel / Milestone Stage"
+                  options={dynamicFilterOptions.funnelStages}
+                  selectedString={filters.funnelStage}
+                  onChange={val => setFilters(p => ({ ...p, funnelStage: val }))}
+                  placeholder="All Stages/Milestones"
+                  isActive={isFunnelStageActive}
+                  isOpen={openDropdown === 'funnelStage'}
+                  onToggle={() => setOpenDropdown(p => p === 'funnelStage' ? null : 'funnelStage')}
+                />
+
+                {/* Sheet Final Status */}
+                <MultiSelectDropdown
+                  label="Sheet Status"
+                  options={dynamicFilterOptions.sheetFinalStatuses}
+                  selectedString={filters.sheetFinalStatus}
+                  onChange={val => setFilters(p => ({ ...p, sheetFinalStatus: val }))}
+                  placeholder="All Sheet Statuses"
+                  showBlank={true}
+                  isActive={isSheetStatusActive}
+                  isOpen={openDropdown === 'sheetFinalStatus'}
+                  onToggle={() => setOpenDropdown(p => p === 'sheetFinalStatus' ? null : 'sheetFinalStatus')}
+                />
+
+                {/* Form Final Status */}
+                <MultiSelectDropdown
+                  label="Form Status"
+                  options={dynamicFilterOptions.formFinalStatuses}
+                  selectedString={filters.formFinalStatus}
+                  onChange={val => setFilters(p => ({ ...p, formFinalStatus: val }))}
+                  placeholder="All Form Statuses"
+                  showBlank={true}
+                  isActive={isFormStatusActive}
+                  isOpen={openDropdown === 'formFinalStatus'}
+                  onToggle={() => setOpenDropdown(p => p === 'formFinalStatus' ? null : 'formFinalStatus')}
+                />
+
+                {/* Gmail Pendency Status */}
+                <MultiSelectDropdown
+                  label="Gmail Pendency"
+                  options={dynamicFilterOptions.gmailPendencyStatuses}
+                  selectedString={filters.gmailPendencyStatus}
+                  onChange={val => setFilters(p => ({ ...p, gmailPendencyStatus: val }))}
+                  placeholder="All Pendency Statuses"
+                  isActive={isGmailActive}
+                  isOpen={openDropdown === 'gmailPendencyStatus'}
+                  onToggle={() => setOpenDropdown(p => p === 'gmailPendencyStatus' ? null : 'gmailPendencyStatus')}
+                />
+
+                {/* Confidence Trend */}
+                <MultiSelectDropdown
+                  label="Confidence Trend"
+                  options={CONFIDENCE_TREND_OPTIONS}
+                  selectedString={filters.confidenceTrend}
+                  onChange={val => setFilters(p => ({ ...p, confidenceTrend: val }))}
+                  placeholder="All Trends"
+                  isActive={isConfidenceTrendActive}
+                  isOpen={openDropdown === 'confidenceTrend'}
+                  onToggle={() => setOpenDropdown(p => p === 'confidenceTrend' ? null : 'confidenceTrend')}
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Bottom Row (Inputs): Date Parameter, Date Range, Fuzzy Search */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 mt-3 pt-3 border-t border-slate-100">
+          {/* Date Parameter */}
+          <div className="md:col-span-3">
             <label className={getFilterLabelClass(isDateFieldActive)}>Date Parameter</label>
             <select
               value={filters.dateField}
@@ -1278,12 +1319,12 @@ export default function Dashboard({
             </select>
           </div>
 
-          {/* Date Bounds */}
-          <div className="col-span-2">
+          {/* Date Range */}
+          <div className="md:col-span-4">
             <div className="flex justify-between items-center mb-1">
               <label className={getFilterLabelClass(isDateRangeActive)}>Date Range</label>
               {isDateFieldActive && (
-                <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 cursor-pointer select-none animate-fade-in">
+                <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={filters.filterBlankDates || false}
@@ -1325,8 +1366,8 @@ export default function Dashboard({
             </div>
           </div>
 
-          {/* Query Search */}
-          <div className="col-span-2">
+          {/* Fuzzy Text Query */}
+          <div className="md:col-span-5">
             <label className={getFilterLabelClass(Boolean(localSearch))}>Fuzzy Text Query</label>
             <div className="relative">
               <input
@@ -1342,146 +1383,166 @@ export default function Dashboard({
               />
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-3" />
               {localSearch && (
-                <button 
+                <button
                   onClick={() => {
                     setLocalSearch('');
                     setFilters(p => ({ ...p, searchQuery: '' }));
                   }}
-                  className="absolute right-2.5 top-3 text-[10px] text-slate-400 hover:text-slate-650 cursor-pointer"
+                  className="absolute right-2.5 top-3 text-[10px] text-slate-400 hover:text-slate-650 cursor-pointer animate-fade-in"
                 >
                   Clear
                 </button>
               )}
             </div>
           </div>
-          {/* Dynamic Date Filters (Any number of filters can be added) */}
-          {filters.dateField !== 'All' && filters.dateFilters && filters.dateFilters.length > 0 && (
-            <div className="col-span-full border-t border-slate-100 pt-4 mt-2">
-              <div className="flex justify-between items-center mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-slate-700">Additional Date Filters</span>
-                  {activeDynamicDateFilters.length > 0 && (
-                    <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                      {activeDynamicDateFilters.length} active
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2.5">
-                {filters.dateFilters.map((df) => {
-                  const isDfActive = df.dateField !== 'All';
-                  const isDfRangeActive = isDfActive && (df.startDate !== '' || df.endDate !== '' || df.filterBlankDates);
-                  return (
-                    <div
-                      key={df.id}
-                      className={`grid grid-cols-1 sm:grid-cols-12 gap-3 items-center p-3 rounded-xl border transition-all duration-200 ${
-                        isDfRangeActive
-                          ? 'border-amber-200 bg-amber-50/10 shadow-sm'
-                          : 'border-slate-150 bg-slate-50/40'
-                      }`}
-                    >
-                      {/* Date Parameter Select */}
-                      <div className="sm:col-span-4">
-                        <select
-                          value={df.dateField}
-                          onChange={(e) => updateDateFilter(df.id, { dateField: e.target.value })}
-                          className={`w-full text-xs p-1.5 border rounded-lg transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 cursor-pointer ${
-                            isDfActive
-                              ? 'border-amber-300 font-semibold text-amber-900 bg-amber-50/10'
-                              : 'border-slate-200 text-slate-650 bg-white'
-                          }`}
-                        >
-                          <option value="All">Select Additional Date Parameter...</option>
-                          {DATE_OPTIONS.map((group) => (
-                            <optgroup key={group.label} label={group.label}>
-                              {group.options.map((opt) => (
-                                <option
-                                  key={opt.value}
-                                  value={opt.value}
-                                  disabled={
-                                    opt.value === filters.dateField ||
-                                    filters.dateFilters?.some(x => x.id !== df.id && x.dateField === opt.value)
-                                  }
-                                >
-                                  {opt.label}
-                                </option>
-                              ))}
-                            </optgroup>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Blank Dates Checkbox */}
-                      <div className="sm:col-span-2 flex items-center justify-start sm:justify-center">
-                        <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            checked={df.filterBlankDates || false}
-                            onChange={(e) => updateDateFilter(df.id, { filterBlankDates: e.target.checked })}
-                            disabled={!isDfActive}
-                            className="rounded border-slate-300 text-amber-500 focus:ring-amber-500 w-3.5 h-3.5 cursor-pointer disabled:cursor-not-allowed"
-                          />
-                          <span>Blank Only</span>
-                        </label>
-                      </div>
-
-                      {/* Date Bounds Inputs */}
-                      <div className="sm:col-span-5 flex items-center gap-1.5">
-                        <input
-                          type="date"
-                          disabled={!isDfActive || df.filterBlankDates}
-                          value={df.startDate}
-                          onChange={(e) => updateDateFilter(df.id, { startDate: e.target.value })}
-                          className={`w-full text-xs p-1.5 border rounded-lg transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 ${
-                            !isDfActive || df.filterBlankDates
-                              ? 'border-slate-100 bg-slate-100/50 text-slate-300 cursor-not-allowed'
-                              : df.startDate
-                                ? 'border-amber-300 bg-amber-50/40 text-amber-950 font-semibold shadow-sm'
-                                : 'border-slate-200 bg-white text-slate-700'
-                          }`}
-                        />
-                        <span className="text-[10px] text-slate-400">to</span>
-                        <input
-                          type="date"
-                          disabled={!isDfActive || df.filterBlankDates}
-                          value={df.endDate}
-                          onChange={(e) => updateDateFilter(df.id, { endDate: e.target.value })}
-                          className={`w-full text-xs p-1.5 border rounded-lg transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 ${
-                            !isDfActive || df.filterBlankDates
-                              ? 'border-slate-100 bg-slate-100/50 text-slate-300 cursor-not-allowed'
-                              : df.endDate
-                                ? 'border-amber-300 bg-amber-50/40 text-amber-950 font-semibold shadow-sm'
-                                : 'border-slate-200 bg-white text-slate-700'
-                          }`}
-                        />
-                      </div>
-
-                      {/* Remove Button */}
-                      <div className="sm:col-span-1 flex justify-end">
-                        {isDfActive && (
-                          <button
-                            type="button"
-                            onClick={() => removeDateFilter(df.id)}
-                            className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all duration-150 cursor-pointer"
-                            title="Remove Filter"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
 
-        <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-slate-100">
+        {/* Additional Dynamic Date Filters (if active) */}
+        {filters.dateField !== 'All' && filters.dateFilters && filters.dateFilters.length > 0 && (
+          <div className="border-t border-slate-100 pt-4 mt-2">
+            <div className="flex justify-between items-center mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-700">Additional Date Filters</span>
+                {activeDynamicDateFilters.length > 0 && (
+                  <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {activeDynamicDateFilters.length} active
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2.5">
+              {filters.dateFilters.map((df) => {
+                const isDfActive = df.dateField !== 'All';
+                const isDfRangeActive = isDfActive && (df.startDate !== '' || df.endDate !== '' || df.filterBlankDates);
+                return (
+                  <div
+                    key={df.id}
+                    className={`grid grid-cols-1 sm:grid-cols-12 gap-3 items-center p-3 rounded-xl border transition-all duration-200 ${
+                      isDfRangeActive
+                        ? 'border-amber-200 bg-amber-50/10 shadow-sm'
+                        : 'border-slate-150 bg-slate-50/40'
+                    }`}
+                  >
+                    <div className="sm:col-span-4">
+                      <select
+                        value={df.dateField}
+                        onChange={(e) => updateDateFilter(df.id, { dateField: e.target.value })}
+                        className={`w-full text-xs p-1.5 border rounded-lg transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 cursor-pointer ${
+                          isDfActive
+                            ? 'border-amber-300 font-semibold text-amber-900 bg-amber-50/10'
+                            : 'border-slate-200 text-slate-650 bg-white'
+                        }`}
+                      >
+                        <option value="All">Select Additional Date Parameter...</option>
+                        <optgroup label="Core Case Dates">
+                          <option value="tokenDate">Token Date</option>
+                          <option value="tokenDateTime">Token Date & Time</option>
+                          <option value="bookingDate">Booking Date</option>
+                          <option value="expectedDeliveryDate">Expected Delivery Date</option>
+                          <option value="expectedDeliveryTime">Expected Delivery Time</option>
+                          <option value="actualDeliveryDate">Actual Delivery Date</option>
+                          <option value="mlEstimatedDeliveryDate">ML Est Delivery Date</option>
+                        </optgroup>
+                        <optgroup label="Payments & OD">
+                          <option value="lastPaymentDate">Last Payment Date</option>
+                          <option value="expectedOdCompletionDate">OD Completion Date</option>
+                          <option value="eddReviewerDate">EDD Date (Reviewer)</option>
+                        </optgroup>
+                        <optgroup label="Cancellations & Updates">
+                          <option value="cancelReqDate">Cancellation Req Date</option>
+                          <option value="cancellationDate">Cancellation Date</option>
+                          <option value="tokenAutoCancellationExtendedDate">Auto Cancel Ext Date</option>
+                          <option value="dealStatusUpdatedAt">Deal Status Update Date</option>
+                          <option value="latestRemarkDate">Latest Remark Date</option>
+                          <option value="updatedAt">System Update Date</option>
+                        </optgroup>
+                        <optgroup label="CRM & Outbound Calls">
+                          <option value="lastCallAt">Last Call Date</option>
+                          <option value="followupAt">Followup Date</option>
+                          <option value="gmailPendencyDate">Gmail Pendency Date</option>
+                        </optgroup>
+                      </select>
+                    </div>
+
+                    <div className="sm:col-span-2 flex items-center justify-end">
+                      <label className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          disabled={!isDfActive}
+                          checked={df.filterBlankDates || false}
+                          onChange={e => updateDateFilter(df.id, { filterBlankDates: e.target.checked })}
+                          className="rounded border-slate-300 text-amber-500 focus:ring-amber-500 w-3 h-3 cursor-pointer"
+                        />
+                        <span>Blank Only</span>
+                      </label>
+                    </div>
+
+                    <div className="sm:col-span-5 flex items-center gap-1.5">
+                      <input
+                        type="date"
+                        disabled={!isDfActive || df.filterBlankDates}
+                        value={df.startDate}
+                        onChange={(e) => updateDateFilter(df.id, { startDate: e.target.value })}
+                        className={`w-full text-xs p-1.5 border rounded-lg transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 ${
+                          !isDfActive || df.filterBlankDates
+                            ? 'border-slate-100 bg-slate-100/50 text-slate-300 cursor-not-allowed'
+                            : df.startDate
+                              ? 'border-amber-300 bg-amber-50/40 text-amber-950 font-semibold shadow-sm'
+                              : 'border-slate-200 bg-white text-slate-700'
+                        }`}
+                      />
+                      <span className="text-[10px] text-slate-400">to</span>
+                      <input
+                        type="date"
+                        disabled={!isDfActive || df.filterBlankDates}
+                        value={df.endDate}
+                        onChange={(e) => updateDateFilter(df.id, { endDate: e.target.value })}
+                        className={`w-full text-xs p-1.5 border rounded-lg transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 ${
+                          !isDfActive || df.filterBlankDates
+                            ? 'border-slate-100 bg-slate-100/50 text-slate-300 cursor-not-allowed'
+                            : df.endDate
+                              ? 'border-amber-300 bg-amber-50/40 text-amber-950 font-semibold shadow-sm'
+                              : 'border-slate-200 bg-white text-slate-700'
+                        }`}
+                      />
+                    </div>
+
+                    <div className="sm:col-span-1 flex justify-end">
+                      {isDfActive && (
+                        <button
+                          type="button"
+                          onClick={() => removeDateFilter(df.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all duration-150 cursor-pointer"
+                          title="Remove Filter"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Footer Actions Row */}
+        <div className="flex justify-between items-center mt-4 pt-3 border-t border-slate-100 flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setShowAdvancedFilters(prev => !prev)}
+            className="text-xs font-bold text-blue-600 hover:text-blue-800 transition-all flex items-center gap-1.5 select-none cursor-pointer"
+          >
+            <span>{showAdvancedFilters ? 'Hide Advanced Filters' : 'Show Advanced Filters'}</span>
+            <span className="text-[9px] bg-blue-50 text-blue-600 border border-blue-100 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
+              {showAdvancedFilters ? 'dense' : 'expand'}
+            </span>
+          </button>
+
           <button
             onClick={resetFilters}
-            className="p-1.5 px-4 text-xs font-semibold text-slate-500 rounded-xl hover:bg-slate-100 transition-all border border-slate-200 active:scale-95"
+            className="p-1.5 px-4 text-xs font-semibold text-slate-500 rounded-xl hover:bg-slate-100 transition-all border border-slate-200 active:scale-95 cursor-pointer"
           >
             Clear All
           </button>
@@ -1510,7 +1571,7 @@ export default function Dashboard({
           {activeTab === 'ops' && (
             <motion.div
               layoutId="activeTabUnderline"
-              className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-orange"
+              className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-blue"
             />
           )}
         </button>
@@ -1526,7 +1587,7 @@ export default function Dashboard({
           {activeTab === 'performance' && (
             <motion.div
               layoutId="activeTabUnderline"
-              className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-orange"
+              className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-blue"
             />
           )}
         </button>
@@ -1542,7 +1603,7 @@ export default function Dashboard({
           {activeTab === 'loss' && (
             <motion.div
               layoutId="activeTabUnderline"
-              className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-orange"
+              className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-blue"
             />
           )}
         </button>
@@ -1558,7 +1619,7 @@ export default function Dashboard({
           {activeTab === 'ledger' && (
             <motion.div
               layoutId="activeTabUnderline"
-              className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-orange"
+              className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-blue"
             />
           )}
         </button>

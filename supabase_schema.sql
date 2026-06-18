@@ -1061,18 +1061,53 @@ WITH filtered AS MATERIALIZED (
   FROM public.dashboard_cases c
   WHERE public.dashboard_case_matches_filters(c, input_filters)
 ),
-customer_groups AS (
-  SELECT DISTINCT customer_key
-  FROM public.dashboard_cases
-  WHERE lead_stage = 'DELIVERED'
-    AND customer_key IS NOT NULL
-),
 filtered_cancelled_c2d AS (
   SELECT count(*)::INTEGER AS total
   FROM filtered f
-  INNER JOIN customer_groups cg
-    ON cg.customer_key = f.customer_key
   WHERE (f.lead_stage IN ('CANCELLED', 'RETURNED') OR f.deal_status = 'CANCEL')
+    AND EXISTS (
+      SELECT 1
+      FROM public.dashboard_cases d
+      WHERE d.customer_key = f.customer_key
+        AND d.lead_stage = 'DELIVERED'
+        AND coalesce(d.actual_delivery_date, d.token_date) >= f.token_date
+    )
+),
+filtered_cancelled_c2a AS (
+  SELECT count(*)::INTEGER AS total
+  FROM filtered f
+  WHERE (f.lead_stage IN ('CANCELLED', 'RETURNED') OR f.deal_status = 'CANCEL')
+    AND EXISTS (
+      SELECT 1
+      FROM public.dashboard_cases d
+      WHERE d.customer_key = f.customer_key
+        AND d.lead_stage = 'ACTIVE_TOKEN'
+        AND (
+          d.token_date >= f.token_date
+          OR (
+            EXISTS (
+              SELECT 1
+              FROM public.dashboard_cases prev
+              WHERE prev.customer_key = f.customer_key
+                AND prev.token_date < f.token_date
+            )
+            AND d.token_date >= (
+              SELECT max(prev.token_date)
+              FROM public.dashboard_cases prev
+              WHERE prev.customer_key = f.customer_key
+                AND prev.token_date < f.token_date
+            )
+            AND d.token_date <= f.token_date
+          )
+        )
+    )
+),
+filtered_cancelled_cr2d AS (
+  SELECT count(*)::INTEGER AS total
+  FROM filtered f
+  WHERE f.lead_stage = 'DELIVERED'
+    AND f.cancel_reason IS NOT NULL
+    AND f.cancel_reason <> ''
 ),
 task_counts AS (
   SELECT
@@ -1351,7 +1386,9 @@ SELECT jsonb_build_object(
       ) grouped
     ), '{}'::jsonb)
   ),
-  'filteredCancelledC2dCount', coalesce((SELECT total FROM filtered_cancelled_c2d), 0)
+  'filteredCancelledC2dCount', coalesce((SELECT total FROM filtered_cancelled_c2d), 0),
+  'filteredCancelledC2aCount', coalesce((SELECT total FROM filtered_cancelled_c2a), 0),
+  'filteredCancelledCr2dCount', coalesce((SELECT total FROM filtered_cancelled_cr2d), 0)
 );
 $$;
 

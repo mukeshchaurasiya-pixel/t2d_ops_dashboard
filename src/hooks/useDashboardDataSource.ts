@@ -118,13 +118,23 @@ function buildLocalFilterOptions(rows: CaseRow[]): DashboardFilterOptions {
 }
 
 function buildFilteredCancelledC2dCount(filteredRows: CaseRow[], allRows: CaseRow[]): number {
-  const deliveredCustomers = new Set<string>();
+  const customerDeliveredTimes = new Map<string, number[]>();
 
   allRows.forEach(row => {
     if (row.leadStage === 'DELIVERED') {
       const key = row.userId || row.uid || row.leadId;
       if (key) {
-        deliveredCustomers.add(key.trim());
+        const cleanedKey = key.trim();
+        const delDateStr = row.actualDeliveryDate || row.tokenDate;
+        if (delDateStr) {
+          const t = parseDateString(delDateStr)?.getTime() || 0;
+          if (t > 0) {
+            if (!customerDeliveredTimes.has(cleanedKey)) {
+              customerDeliveredTimes.set(cleanedKey, []);
+            }
+            customerDeliveredTimes.get(cleanedKey)!.push(t);
+          }
+        }
       }
     }
   });
@@ -134,8 +144,16 @@ function buildFilteredCancelledC2dCount(filteredRows: CaseRow[], allRows: CaseRo
     const flags = getDerivedFlags(row);
     if (flags.isCancelled) {
       const key = row.userId || row.uid || row.leadId;
-      if (key && deliveredCustomers.has(key.trim())) {
-        total++;
+      if (key) {
+        const cleanedKey = key.trim();
+        const deliveredTimes = customerDeliveredTimes.get(cleanedKey);
+        if (deliveredTimes && deliveredTimes.length > 0) {
+          const cancelledTime = row.tokenDate ? (parseDateString(row.tokenDate)?.getTime() || 0) : 0;
+          const hasDeliveredAfter = deliveredTimes.some(t => t >= cancelledTime);
+          if (hasDeliveredAfter) {
+            total++;
+          }
+        }
       }
     }
   });
@@ -144,15 +162,24 @@ function buildFilteredCancelledC2dCount(filteredRows: CaseRow[], allRows: CaseRo
 }
 
 function buildFilteredCancelledC2aCount(filteredRows: CaseRow[], allRows: CaseRow[]): number {
-  const activeCustomers = new Set<string>();
-
+  const customerBookings = new Map<string, CaseRow[]>();
   allRows.forEach(row => {
-    if (row.leadStage === 'ACTIVE_TOKEN') {
-      const key = row.userId || row.uid || row.leadId;
-      if (key) {
-        activeCustomers.add(key.trim());
+    const key = row.userId || row.uid || row.leadId;
+    if (key) {
+      const cleanedKey = key.trim();
+      if (!customerBookings.has(cleanedKey)) {
+        customerBookings.set(cleanedKey, []);
       }
+      customerBookings.get(cleanedKey)!.push(row);
     }
+  });
+
+  customerBookings.forEach(rows => {
+    rows.sort((a, b) => {
+      const ta = a.tokenDate ? (parseDateString(a.tokenDate)?.getTime() || 0) : 0;
+      const tb = b.tokenDate ? (parseDateString(b.tokenDate)?.getTime() || 0) : 0;
+      return ta - tb;
+    });
   });
 
   let total = 0;
@@ -160,21 +187,34 @@ function buildFilteredCancelledC2aCount(filteredRows: CaseRow[], allRows: CaseRo
     const flags = getDerivedFlags(row);
     if (flags.isCancelled) {
       const key = row.userId || row.uid || row.leadId;
-      if (key && activeCustomers.has(key.trim())) {
-        const cancelledTime = row.tokenDate ? (parseDateString(row.tokenDate)?.getTime() || 0) : 0;
-        const hasLaterActive = allRows.some(r => {
-          if (r.leadStage === 'ACTIVE_TOKEN') {
-            const rKey = r.userId || r.uid || r.leadId;
-            if (rKey && rKey.trim() === key.trim()) {
-              const activeTime = r.tokenDate ? (parseDateString(r.tokenDate)?.getTime() || 0) : 0;
-              return activeTime >= cancelledTime;
-            }
+      if (key) {
+        const cleanedKey = key.trim();
+        const sortedBookings = customerBookings.get(cleanedKey) || [];
+        const index = sortedBookings.findIndex(b => b.bookingId === row.bookingId);
+        if (index !== -1) {
+          const cancelledTime = row.tokenDate ? (parseDateString(row.tokenDate)?.getTime() || 0) : 0;
+          let prevTime = 0;
+          if (index > 0) {
+            const prevBooking = sortedBookings[index - 1];
+            prevTime = prevBooking.tokenDate ? (parseDateString(prevBooking.tokenDate)?.getTime() || 0) : 0;
           }
-          return false;
-        });
 
-        if (hasLaterActive) {
-          total++;
+          const hasMatchingActive = sortedBookings.some(r => {
+            if (r.leadStage === 'ACTIVE_TOKEN') {
+              const activeTime = r.tokenDate ? (parseDateString(r.tokenDate)?.getTime() || 0) : 0;
+              if (activeTime >= cancelledTime) {
+                return true;
+              }
+              if (index > 0 && activeTime >= prevTime && activeTime <= cancelledTime) {
+                return true;
+              }
+            }
+            return false;
+          });
+
+          if (hasMatchingActive) {
+            total++;
+          }
         }
       }
     }
@@ -186,7 +226,7 @@ function buildFilteredCancelledC2aCount(filteredRows: CaseRow[], allRows: CaseRo
 function buildFilteredCancelledCr2dCount(filteredRows: CaseRow[]): number {
   let total = 0;
   filteredRows.forEach(row => {
-    if (row.leadStage === 'DELIVERED' && (Boolean(row.cancelReqDate) || Boolean(row.cancelReason))) {
+    if (row.leadStage === 'DELIVERED' && Boolean(row.cancelReason)) {
       total++;
     }
   });
