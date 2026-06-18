@@ -202,17 +202,16 @@ export default function Dashboard({
     }
 
     setExportingGoogleSheet(true);
-    setExportFeedback("Creating new tab in Google Sheets...");
+    setExportFeedback("Creating brand new Google Spreadsheet...");
     
     try {
       const { exportFilteredRowsToGoogleSheet } = await import('../lib/sheetsService');
       const result = await exportFilteredRowsToGoogleSheet(
-        sheetId,
         accessToken,
         currentRows,
         additionalCsvCols
       );
-      setExportFeedback(`Successfully exported to new tab: "${result.title}"! Opening...`);
+      setExportFeedback(`Successfully created new sheet: "${result.title}"! Opening...`);
       window.open(result.url, '_blank');
       setTimeout(() => {
         setExportFeedback(null);

@@ -341,24 +341,21 @@ export async function verifySheetAccess(sheetId: string, accessToken: string): P
 }
 
 /**
- * Creates a new tab/sheet in the spreadsheet and writes all provided rows to it.
+ * Creates a brand new Google Spreadsheet and writes all provided rows to its default first sheet.
  */
 export async function exportFilteredRowsToGoogleSheet(
-  sheetId: string,
   accessToken: string,
   rows: CaseRow[],
   additionalColumns: string[]
 ): Promise<{ title: string; url: string }> {
-  if (!sheetId) throw new Error('Spreadsheet ID is required.');
   if (!accessToken) throw new Error('Authorization token is required.');
 
-  const cleanId = getCleanSpreadsheetId(sheetId);
-  const timestampStr = new Date().toISOString().replace('T', ' ').slice(0, 19).replace(/:/g, '-');
-  const newTabTitle = `Export ${timestampStr}`;
+  const timestampStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  const newSheetTitle = `CARS24 Ops Export ${timestampStr}`;
 
-  // 1. Add a new tab to the spreadsheet
-  const batchUrl = `https://sheets.googleapis.com/v4/spreadsheets/${cleanId}:batchUpdate`;
-  const addSheetRes = await fetch(batchUrl, {
+  // 1. Create a brand new Spreadsheet
+  const createUrl = `https://sheets.googleapis.com/v4/spreadsheets`;
+  const createRes = await fetch(createUrl, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -366,26 +363,23 @@ export async function exportFilteredRowsToGoogleSheet(
       'Accept': 'application/json'
     },
     body: JSON.stringify({
-      requests: [
-        {
-          addSheet: {
-            properties: {
-              title: newTabTitle
-            }
-          }
-        }
-      ]
+      properties: {
+        title: newSheetTitle
+      }
     })
   });
 
-  if (!addSheetRes.ok) {
-    const errText = await addSheetRes.text();
-    throw new Error(`Failed to create a new tab in Google Sheets: ${errText}`);
+  if (!createRes.ok) {
+    const errText = await createRes.text();
+    throw new Error(`Failed to create new Google Spreadsheet: ${errText}`);
   }
 
-  const addSheetData = await addSheetRes.json();
-  const newTabSheetId = addSheetData.replies?.[0]?.addSheet?.properties?.sheetId;
-  const url = `https://docs.google.com/spreadsheets/d/${cleanId}/edit${newTabSheetId !== undefined ? `#gid=${newTabSheetId}` : ''}`;
+  const createData = await createRes.json();
+  const newSpreadsheetId = createData.spreadsheetId;
+  const newSpreadsheetUrl = createData.spreadsheetUrl;
+  
+  // Find the first sheet's title (typically "Sheet1")
+  const targetTab = createData.sheets?.[0]?.properties?.title || 'Sheet1';
 
   // 2. Prepare headers and values
   const standardHeader = ["Booking ID", "Loan ID", "Token Date", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"];
@@ -441,8 +435,8 @@ export async function exportFilteredRowsToGoogleSheet(
 
   const allValues = [headerRow, ...dataRows];
 
-  // 3. Write data to the new tab
-  const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${cleanId}/values/${encodeURIComponent(newTabTitle)}!A1?valueInputOption=USER_ENTERED`;
+  // 3. Write data to the first sheet of the new spreadsheet
+  const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${newSpreadsheetId}/values/${encodeURIComponent(targetTab)}!A1?valueInputOption=USER_ENTERED`;
   const writeRes = await fetch(writeUrl, {
     method: 'PUT',
     headers: {
@@ -451,7 +445,7 @@ export async function exportFilteredRowsToGoogleSheet(
       'Accept': 'application/json'
     },
     body: JSON.stringify({
-      range: `${newTabTitle}!A1`,
+      range: `${targetTab}!A1`,
       majorDimension: 'ROWS',
       values: allValues
     })
@@ -459,11 +453,11 @@ export async function exportFilteredRowsToGoogleSheet(
 
   if (!writeRes.ok) {
     const errText = await writeRes.text();
-    throw new Error(`Failed to write values to Google Sheet: ${errText}`);
+    throw new Error(`Failed to write values to new Google Spreadsheet: ${errText}`);
   }
 
   return {
-    title: newTabTitle,
-    url
+    title: newSheetTitle,
+    url: newSpreadsheetUrl
   };
 }
