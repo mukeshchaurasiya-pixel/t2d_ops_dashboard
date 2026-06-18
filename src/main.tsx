@@ -18,7 +18,9 @@ if (window.opener && window.opener !== window) {
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
           if (session) {
             window.opener.postMessage({ type: 'AUTH_COMPLETE', session }, '*');
-            subscription.unsubscribe();
+            setTimeout(() => {
+              subscription.unsubscribe();
+            }, 0);
             window.close();
           }
         });

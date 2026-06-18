@@ -24,6 +24,14 @@
 - `scripts/sync-sheets.js`: optional private-sheet sync worker
 - `supabase_schema.sql`: DB schema and RLS
 
+## Milestones for OAuth & Sync Fix (Follow-up)
+| # | Name | Scope | Dependencies | Status |
+|---|------|-------|-------------|--------|
+| M5 | OAuth & Sync Diagnosis | Spawn 3 explorers to analyze popup close, credential exchange & auto-sync | None | DONE |
+| M6 | OAuth & Sync Implementation | Apply changes for popup/redirect auth flow, sync triggers, and multi-tab sync | M5 | DONE |
+| M7 | Verification & Audit | Validate auth popup, multi-tab sync, clean build, and Forensic Audit | M6 | DONE |
+| M8 | Documentation Update | Update README and verify no console/runtime compilation errors | M7 | DONE |
+
 ## Open Engineering Debt
 - `src/App.tsx` and `src/components/Dashboard.tsx` are still too large.
 - The production bundle is still larger than ideal.

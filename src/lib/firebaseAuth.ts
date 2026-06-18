@@ -87,25 +87,8 @@ export function initAuth(
     }
   );
 
-  // Listen to storage changes to sync across tabs
-  const handleStorageChange = (e: StorageEvent) => {
-    if (e.key && e.key.endsWith('-auth-token')) {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session) {
-          const token = getProviderToken(session);
-          cacheProviderToken(token);
-          if (onAuthSuccess) onAuthSuccess(sessionToAppUser(session), token);
-        } else {
-          if (onAuthFailure) onAuthFailure();
-        }
-      });
-    }
-  };
-  window.addEventListener('storage', handleStorageChange);
-
   return () => {
     subscription.unsubscribe();
-    window.removeEventListener('storage', handleStorageChange);
   };
 }
 
@@ -164,6 +147,7 @@ export async function googleSignIn(): Promise<{ user: AppUser; accessToken: stri
         const receivedSession = event.data.session;
         if (receivedSession) {
           try {
+            cacheProviderToken(receivedSession.provider_token);
             await supabase.auth.setSession({
               access_token: receivedSession.access_token,
               refresh_token: receivedSession.refresh_token
@@ -177,7 +161,7 @@ export async function googleSignIn(): Promise<{ user: AppUser; accessToken: stri
         if (session) {
           resolve({
             user: sessionToAppUser(session),
-            accessToken: session.provider_token ?? '',
+            accessToken: getProviderToken(session) ?? '',
           });
         } else {
           reject(new Error("Session not found after auth complete."));
@@ -201,7 +185,7 @@ export async function googleSignIn(): Promise<{ user: AppUser; accessToken: stri
         if (session) {
           resolve({
             user: sessionToAppUser(session),
-            accessToken: session.provider_token ?? '',
+            accessToken: getProviderToken(session) ?? '',
           });
         } else {
           reject(new Error("Login window closed by user."));

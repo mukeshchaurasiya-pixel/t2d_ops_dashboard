@@ -59,23 +59,28 @@ export default function App() {
     loadCachedRows,
   });
 
-  // Automatically sync pending offline changes when Google Sign-In is connected
+  // Automatically sync pending offline changes and pull latest data when Google Sign-In is connected
   useEffect(() => {
     if (accessToken && sheetId) {
-      const runSyncPending = async () => {
+      const runAutoSync = async () => {
         try {
           const syncedCount = await syncPendingChangesToSheets(accessToken, sheetId, sheetName, user?.email);
-          if (syncedCount > 0) {
-            alert(`Sync complete: Automatically uploaded ${syncedCount} pending offline edit(s) to the Google Sheet.`);
+          const { sheetRows } = await syncCasesFromSheets({
+            accessToken,
+            sheetId,
+            sheetName,
+            userEmail: user?.email,
+          });
+          if (syncedCount > 0 || sheetRows.length > 0) {
             bumpDashboardRefresh();
           }
         } catch (err) {
-          console.error("Auto-syncing pending offline changes failed:", err);
+          console.error("Automatic post-auth sync failed:", err);
         }
       };
-      void runSyncPending();
+      void runAutoSync();
     }
-  }, [accessToken, sheetId, sheetName, user?.email, syncPendingChangesToSheets]);
+  }, [accessToken, sheetId, sheetName, user?.email, syncPendingChangesToSheets, syncCasesFromSheets]);
 
   // Routing and View States
   const [viewMode, setViewMode] = useState<'dashboard' | 'admin'>('dashboard');

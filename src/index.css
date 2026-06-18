@@ -4,8 +4,8 @@
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  --color-brand-orange: #F8931F;
-  --color-brand-blue: #0059A3;
+  --color-brand-orange: #ff2903;
+  --color-brand-blue: #4736fe;
 }
 
 body {

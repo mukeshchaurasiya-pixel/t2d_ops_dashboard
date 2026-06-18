@@ -60,8 +60,8 @@ export default function LoginPage({
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans text-slate-100">
       
       {/* Decorative ambient background glows */}
-      <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] rounded-full bg-orange-600/10 blur-[130px] pointer-events-none" />
-      <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-amber-600/10 blur-[130px] pointer-events-none" />
+      <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] rounded-full bg-brand-orange/10 blur-[130px] pointer-events-none" />
+      <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-brand-blue/10 blur-[130px] pointer-events-none" />
 
       <motion.div 
         initial={{ opacity: 0, y: 15 }}
@@ -71,12 +71,12 @@ export default function LoginPage({
       >
         {/* Branding header */}
         <div className="text-center mb-6">
-          <div className="inline-flex p-3 rounded-2xl bg-gradient-to-br from-orange-500 to-amber-600 shadow-lg shadow-orange-500/20 mb-3 flex items-center justify-center gap-2">
+          <div className="inline-flex p-3 rounded-2xl bg-gradient-to-br from-brand-orange to-brand-blue shadow-lg shadow-brand-orange/20 mb-3 flex items-center justify-center gap-2">
             <Home className="w-6 h-6 text-white" />
             <Car className="w-6 h-6 text-white/90" />
           </div>
           <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl">
-            CARS24 <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 via-amber-400 to-amber-500">T2D Journey</span>
+            CARS24 <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-orange via-amber-400 to-brand-orange">T2D Journey</span>
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-md mx-auto">
             Reserve the car, process the loan, visit the hub, and drive home happily.
@@ -85,7 +85,7 @@ export default function LoginPage({
 
         {/* Primary Action Card */}
         <div className="bg-slate-900 border border-slate-800/80 rounded-2xl shadow-2xl p-6 sm:p-8 relative overflow-hidden backdrop-blur-md">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-orange-500 to-amber-500" />
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-brand-orange to-brand-blue" />
           
           <AnimatePresence mode="wait">
             {showOperatorSignIn ? (
@@ -100,7 +100,7 @@ export default function LoginPage({
               >
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                    <Database className="w-3.5 h-3.5 text-orange-500" /> Spreadsheet Sync Settings
+                    <Database className="w-3.5 h-3.5 text-brand-orange" /> Spreadsheet Sync Settings
                   </h3>
                   <button 
                     onClick={() => setShowOperatorSignIn(false)}
@@ -124,7 +124,7 @@ export default function LoginPage({
                         <button
                           type="button"
                           onClick={() => setShowUrlHelp(!showUrlHelp)}
-                          className="text-orange-500 hover:text-orange-400 lowercase font-normal flex items-center gap-0.5"
+                          className="text-brand-orange hover:text-brand-orange/80 lowercase font-normal flex items-center gap-0.5"
                         >
                           <HelpCircle className="w-3 h-3" /> what is this?
                         </button>
@@ -134,7 +134,7 @@ export default function LoginPage({
                         placeholder="e.g. 1ARJ8AzOwNxqdTZA..."
                         value={localInput}
                         onChange={handleInputChange}
-                        className="w-full p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-slate-100 placeholder-slate-650 focus:outline-none focus:border-orange-500 transition-colors"
+                        className="w-full p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-slate-100 placeholder-slate-650 focus:outline-none focus:border-brand-orange transition-colors"
                       />
                     </div>
 
@@ -165,7 +165,7 @@ export default function LoginPage({
                         placeholder="e.g. Sheet1"
                         value={localName}
                         onChange={handleNameChange}
-                        className="w-full p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold text-slate-100 placeholder-slate-650 focus:outline-none focus:border-orange-500 transition-colors"
+                        className="w-full p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold text-slate-100 placeholder-slate-650 focus:outline-none focus:border-brand-orange transition-colors"
                       />
                     </div>
                   </div>
@@ -174,7 +174,7 @@ export default function LoginPage({
                     <button
                       type="submit"
                       disabled={loading}
-                      className="w-full p-3.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-slate-950 font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-orange-500/10 cursor-pointer text-xs uppercase tracking-wider active:scale-[0.98] disabled:opacity-50"
+                      className="w-full p-3.5 rounded-xl bg-gradient-to-r from-brand-orange to-brand-blue hover:from-brand-orange/90 hover:to-brand-blue/90 text-slate-950 font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand-orange/10 cursor-pointer text-xs uppercase tracking-wider active:scale-[0.98] disabled:opacity-50"
                     >
                       {loading ? (
                         <>
@@ -212,7 +212,7 @@ export default function LoginPage({
 
                 <div className="py-3">
                   <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
-                    Sign in with your <span className="text-orange-400 font-semibold">CARS24 Google account</span> to access live T2D operations data.
+                    Sign in with your <span className="text-brand-orange font-semibold">CARS24 Google account</span> to access live T2D operations data.
                   </p>
                 </div>
 
@@ -221,7 +221,7 @@ export default function LoginPage({
                   <button
                     onClick={onSignIn}
                     disabled={loading}
-                    className="w-full p-4 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-slate-950 font-bold transition-all flex items-center justify-center gap-2.5 shadow-lg shadow-orange-500/20 cursor-pointer text-sm active:scale-[0.98] disabled:opacity-50"
+                    className="w-full p-4 rounded-xl bg-gradient-to-r from-brand-orange to-brand-blue hover:from-brand-orange/90 hover:to-brand-blue/90 text-slate-950 font-bold transition-all flex items-center justify-center gap-2.5 shadow-lg shadow-brand-orange/20 cursor-pointer text-sm active:scale-[0.98] disabled:opacity-50"
                   >
                     {loading ? (
                       <>
@@ -260,19 +260,19 @@ export default function LoginPage({
         {/* Feature Cards below */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
           <div className="p-4 bg-slate-900/40 rounded-xl border border-slate-900/60 flex items-start gap-3 backdrop-blur-xs">
-            <div className="p-1 px-1.5 rounded-lg bg-orange-950 text-orange-400 mt-0.5">
+            <div className="p-1 px-1.5 rounded-lg bg-brand-orange/10 text-brand-orange mt-0.5">
               <DollarSign className="w-4 h-4" />
             </div>
             <div>
               <h4 className="text-xs font-bold text-slate-350">Token Booking</h4>
-              <p className="text-[10px] text-slate-450 mt-1 leading-relaxed">
+              <p className="text-[10px] text-slate-455 mt-1 leading-relaxed">
                 Reserve customer's selected car instantly.
               </p>
             </div>
           </div>
 
           <div className="p-4 bg-slate-900/40 rounded-xl border border-slate-900/60 flex items-start gap-3 backdrop-blur-xs">
-            <div className="p-1 px-1.5 rounded-lg bg-orange-950 text-orange-400 mt-0.5">
+            <div className="p-1 px-1.5 rounded-lg bg-brand-orange/10 text-brand-orange mt-0.5">
               <Activity className="w-4 h-4" />
             </div>
             <div>
@@ -284,7 +284,7 @@ export default function LoginPage({
           </div>
 
           <div className="p-4 bg-slate-900/40 rounded-xl border border-slate-900/60 flex items-start gap-3 backdrop-blur-xs">
-            <div className="p-1 px-1.5 rounded-lg bg-orange-950 text-orange-400 mt-0.5">
+            <div className="p-1 px-1.5 rounded-lg bg-brand-orange/10 text-brand-orange mt-0.5">
               <Car className="w-4 h-4" />
             </div>
             <div>
@@ -300,7 +300,7 @@ export default function LoginPage({
         <div className="text-center mt-6">
           <button
             onClick={() => setShowOperatorSignIn(!showOperatorSignIn)}
-            className="text-[11px] text-slate-500 hover:text-orange-400 font-semibold transition-colors flex items-center gap-1.5 mx-auto cursor-pointer"
+            className="text-[11px] text-slate-500 hover:text-brand-orange font-semibold transition-colors flex items-center gap-1.5 mx-auto cursor-pointer"
           >
             <Lock className="w-3.5 h-3.5" />
             {showOperatorSignIn ? "Back to Sign In" : "Configure Google Sheets Sync Database"}

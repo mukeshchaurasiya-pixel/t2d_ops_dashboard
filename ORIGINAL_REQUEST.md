@@ -31,3 +31,25 @@ Create a comprehensive, step-by-step README update and/or deployment guide speci
 
 ### Documentation
 - [ ] The repository includes clear instructions for the user on how to connect their private GitHub repo to Vercel for automatic deployment.
+
+## Follow-up — 2026-06-18T20:21:44Z
+
+The project aims to fix the Google OAuth sign-in / redirect flow in the Cars24 T2D Ops Dashboard so that users can successfully authenticate and synchronize sheet data.
+
+Working directory: C:\Users\41157\Documents\cars24-t2d-ops-dashboard
+
+## Requirements
+
+### R1. Fix Google OAuth sign-in flow
+Diagnose and resolve the issue preventing successful sign-in in the `feature/unified-side-panel` branch (currently throwing "Login window closed by user" or failing to complete credential exchange).
+
+### R2. Enable automatic data synchronization
+Ensure that once sign-in is successful, the dashboard automatically retrieves credentials and runs the sheets sync process.
+
+## Acceptance Criteria
+
+### Authentication Success
+- [ ] Users can click "Sign in with Google" and successfully authenticate.
+- [ ] The app tab automatically receives access credentials post-authentication and synchronizes data.
+- [ ] Multi-tab sync works (authenticating in one tab syncs other open tabs).
+- [ ] No compilation or runtime console errors during the auth flow.

@@ -1,7 +1,8 @@
-import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { Dispatch, SetStateAction, useEffect, useState, useRef } from 'react';
 import { CaseRow } from '../types';
 import { AppUser, initAuth } from '../lib/firebaseAuth';
 import { getSheetAccessCacheKeys } from '../lib/sheetAccessCache';
+import { SEED_CASE_ROWS } from '../data/mockData';
 
 type UseAuthBootstrapArgs = {
   sheetId: string;
@@ -59,11 +60,14 @@ export function useAuthBootstrap({
   const [demoMode, setDemoMode] = useState<boolean>(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
+  const userEmailRef = useRef<string | null>(null);
+
   useEffect(() => {
     const unsubscribe = initAuth(
       async (authedUser, token) => {
         setRestoreLoading(true);
         setLoginError(null);
+        userEmailRef.current = authedUser.email;
 
         const { activeSheetId, activeSheetName } = await resolveSharedSheetConfig(
           sheetId,
@@ -137,6 +141,14 @@ export function useAuthBootstrap({
       () => {
         setUser(null);
         setAccessToken(null);
+        setDemoMode(false);
+        setRows(SEED_CASE_ROWS);
+        const cacheKeys = getSheetAccessCacheKeys(sheetId, userEmailRef.current);
+        localStorage.removeItem(cacheKeys.verifiedKey);
+        localStorage.removeItem(cacheKeys.timeKey);
+        localStorage.removeItem(cacheKeys.legacyVerifiedKey);
+        localStorage.removeItem(cacheKeys.legacyTimeKey);
+        userEmailRef.current = null;
       }
     );
 
