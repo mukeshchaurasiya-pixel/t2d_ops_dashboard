@@ -192,6 +192,40 @@ export default function Dashboard({
     setCurrentPage(1);
   };
 
+  const [exportingGoogleSheet, setExportingGoogleSheet] = useState(false);
+  const [exportFeedback, setExportFeedback] = useState<string | null>(null);
+
+  const handleExportGoogleSheet = async () => {
+    if (!accessToken) {
+      alert("Please sign in with Google to export to Google Sheets.");
+      return;
+    }
+
+    setExportingGoogleSheet(true);
+    setExportFeedback("Creating new tab in Google Sheets...");
+    
+    try {
+      const { exportFilteredRowsToGoogleSheet } = await import('../lib/sheetsService');
+      const newTabTitle = await exportFilteredRowsToGoogleSheet(
+        sheetId,
+        accessToken,
+        currentRows,
+        additionalCsvCols
+      );
+      setExportFeedback(`Successfully exported to new tab: "${newTabTitle}"!`);
+      setTimeout(() => {
+        setExportFeedback(null);
+        setShowCsvModal(false);
+      }, 3000);
+    } catch (err: any) {
+      console.error("Google Sheets export failed:", err);
+      setExportFeedback(`Export failed: ${err.message || err}`);
+      setTimeout(() => setExportFeedback(null), 5000);
+    } finally {
+      setExportingGoogleSheet(false);
+    }
+  };
+
   const handleExportCsv = () => {
     // Basic standard columns
     const standardHeader = ["Booking ID", "Loan ID", "Token Date", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"];
@@ -637,7 +671,7 @@ export default function Dashboard({
               }}
               className="p-1.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all shadow-xs"
             >
-              Export CSV Ledger
+              Export Ledger
             </button>
             <button
               id="btn-export-image"
@@ -1626,12 +1660,12 @@ export default function Dashboard({
           <div className="bg-white rounded-3xl shadow-xl max-w-lg w-full border border-slate-100 overflow-hidden transform scale-98 active:scale-100 transition-all duration-300">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <h3 className="text-base font-bold text-slate-800">Export CSV Ledger</h3>
-                <p className="text-xs text-slate-400 mt-1">Select additional columns to include in your export</p>
+                <h3 className="text-base font-bold text-slate-800">Export Ledger Options</h3>
+                <p className="text-xs text-slate-400 mt-1">Select additional columns to include in your export dataset</p>
               </div>
               <button 
                 onClick={() => setShowCsvModal(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-605 hover:bg-slate-50 transition-colors"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1676,20 +1710,46 @@ export default function Dashboard({
                 })}
               </div>
             </div>
+
+            {exportFeedback && (
+              <div className={`mx-6 my-2 p-3 rounded-xl text-xs font-semibold ${
+                exportFeedback.includes('failed') || exportFeedback.includes('Error')
+                  ? 'bg-rose-50 text-rose-700 border border-rose-100'
+                  : 'bg-emerald-50 text-emerald-800 border border-emerald-100/60'
+              }`}>
+                {exportFeedback}
+              </div>
+            )}
             
-            <div className="p-5 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
-              <button 
-                onClick={() => setShowCsvModal(false)}
-                className="p-2 px-4 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100 border border-slate-200 active:scale-95 transition-all"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleExportCsv}
-                className="p-2 px-5 rounded-xl text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 active:scale-95 transition-all shadow-xs"
-              >
-                Export Ledger
-              </button>
+            <div className="p-5 bg-slate-50 border-t border-slate-100 flex flex-col sm:flex-row justify-end items-center gap-2">
+              {!accessToken && (
+                <span className="text-[10px] text-rose-500 font-semibold sm:mr-auto">
+                  *Google Sign-in required for Sheets export
+                </span>
+              )}
+              <div className="flex gap-2 w-full sm:w-auto justify-end">
+                <button 
+                  onClick={() => setShowCsvModal(false)}
+                  disabled={exportingGoogleSheet}
+                  className="p-2 px-4 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100 border border-slate-200 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleExportCsv}
+                  disabled={exportingGoogleSheet}
+                  className="p-2 px-4 rounded-xl text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 active:scale-95 transition-all shadow-xs disabled:opacity-50"
+                >
+                  Export CSV
+                </button>
+                <button 
+                  onClick={handleExportGoogleSheet}
+                  disabled={!accessToken || exportingGoogleSheet}
+                  className="p-2 px-4 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition-all shadow-xs disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  {exportingGoogleSheet ? 'Exporting...' : 'Export Google Sheet'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

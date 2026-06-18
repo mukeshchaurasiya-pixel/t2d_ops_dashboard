@@ -339,3 +339,124 @@ export async function verifySheetAccess(sheetId: string, accessToken: string): P
     return false;
   }
 }
+
+/**
+ * Creates a new tab/sheet in the spreadsheet and writes all provided rows to it.
+ */
+export async function exportFilteredRowsToGoogleSheet(
+  sheetId: string,
+  accessToken: string,
+  rows: CaseRow[],
+  additionalColumns: string[]
+): Promise<string> {
+  if (!sheetId) throw new Error('Spreadsheet ID is required.');
+  if (!accessToken) throw new Error('Authorization token is required.');
+
+  const cleanId = getCleanSpreadsheetId(sheetId);
+  const timestampStr = new Date().toISOString().replace('T', ' ').slice(0, 19).replace(/:/g, '-');
+  const newTabTitle = `Export ${timestampStr}`;
+
+  // 1. Add a new tab to the spreadsheet
+  const batchUrl = `https://sheets.googleapis.com/v4/spreadsheets/${cleanId}:batchUpdate`;
+  const addSheetRes = await fetch(batchUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify({
+      requests: [
+        {
+          addSheet: {
+            properties: {
+              title: newTabTitle
+            }
+          }
+        }
+      ]
+    })
+  });
+
+  if (!addSheetRes.ok) {
+    const errText = await addSheetRes.text();
+    throw new Error(`Failed to create a new tab in Google Sheets: ${errText}`);
+  }
+
+  // 2. Prepare headers and values
+  const standardHeader = ["Booking ID", "Loan ID", "Token Date", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"];
+  
+  const AVAILABLE_ADDITIONAL_COLS = [
+    { key: 'totalListingDays', label: 'Total Listing Days' },
+    { key: 'city', label: 'City' },
+    { key: 'carRegNo', label: 'Car Registration No' },
+    { key: 'make', label: 'Make' },
+    { key: 'model', label: 'Model' },
+    { key: 'variant', label: 'Variant' },
+    { key: 'hubCode', label: 'Hub Code' },
+    { key: 'cancelReason', label: 'Cancellation Reason' },
+    { key: 'sheetFinalStatus', label: 'Sheet Final Status' },
+    { key: 'formFinalStatus', label: 'Form Final Status' },
+    { key: 'deviationMitigationComment', label: 'Deviation Comments' },
+    { key: 'creditLtv', label: 'Credit LTV' },
+    { key: 'contactNumber', label: 'Contact Number' }
+  ];
+
+  const additionalHeaders = AVAILABLE_ADDITIONAL_COLS
+    .filter(col => additionalColumns.includes(col.key))
+    .map(col => col.label);
+
+  const headerRow = [...standardHeader, ...additionalHeaders];
+
+  const dataRows = rows.map(row => {
+    const standardVals = [
+      row.bookingId || '',
+      row.loanId || '',
+      row.tokenDate || '',
+      row.hubName || '',
+      row.allocatedRm || '',
+      row.tokenType || '',
+      row.paymentType || '',
+      row.leadStage || '',
+      row.taskBucket || '',
+      row.expectedDeliveryDate || '',
+      row.readyToDeliver || '',
+      row.expectedOdCompletionDate || '',
+      row.reviewerRemarks || ''
+    ];
+
+    const additionalVals = AVAILABLE_ADDITIONAL_COLS
+      .filter(col => additionalColumns.includes(col.key))
+      .map(col => {
+        const val = row[col.key as keyof CaseRow];
+        return val !== undefined && val !== null ? String(val) : '';
+      });
+
+    return [...standardVals, ...additionalVals];
+  });
+
+  const allValues = [headerRow, ...dataRows];
+
+  // 3. Write data to the new tab
+  const writeUrl = `https://sheets.googleapis.com/v4/spreadsheets/${cleanId}/values/${encodeURIComponent(newTabTitle)}!A1?valueInputOption=USER_ENTERED`;
+  const writeRes = await fetch(writeUrl, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify({
+      range: `${newTabTitle}!A1`,
+      majorDimension: 'ROWS',
+      values: allValues
+    })
+  });
+
+  if (!writeRes.ok) {
+    const errText = await writeRes.text();
+    throw new Error(`Failed to write values to Google Sheet: ${errText}`);
+  }
+
+  return newTabTitle;
+}
