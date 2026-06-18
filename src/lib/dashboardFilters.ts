@@ -250,12 +250,21 @@ export function buildEddLabels(): EddLabels {
   };
 }
 
+const confidenceTrendCache = new WeakMap<any, 'Decline' | 'Stable' | 'Improving'>();
+
 export function getConfidenceTrendStatus(row: CaseRow): 'Decline' | 'Stable' | 'Improving' {
+  const cached = confidenceTrendCache.get(row);
+  if (cached) return cached;
+
   if (row.confidenceTrendStatus) {
+    confidenceTrendCache.set(row, row.confidenceTrendStatus);
     return row.confidenceTrendStatus;
   }
   const score = parseFloat(row.confidenceScore || '0');
-  if (isNaN(score) || score <= 0) return 'Stable';
+  if (isNaN(score) || score <= 0) {
+    confidenceTrendCache.set(row, 'Stable');
+    return 'Stable';
+  }
 
   // Deterministic fallback based on bookingId
   const hashStr = row.bookingId || '';
@@ -265,9 +274,13 @@ export function getConfidenceTrendStatus(row: CaseRow): 'Decline' | 'Stable' | '
     hash |= 0;
   }
   const mod = Math.abs(hash) % 3;
-  if (mod === 0) return 'Stable';
-  if (mod === 1) return 'Improving';
-  return 'Decline';
+  let status: 'Decline' | 'Stable' | 'Improving' = 'Stable';
+  if (mod === 0) status = 'Stable';
+  else if (mod === 1) status = 'Improving';
+  else status = 'Decline';
+
+  confidenceTrendCache.set(row, status);
+  return status;
 }
 
 export function isRowMatchingFilter(

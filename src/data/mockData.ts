@@ -66,7 +66,12 @@ export function average(values: number[]): number {
   return sum / validValues.length;
 }
 
+const derivedFlagsCache = new WeakMap<any, DerivedFlags>();
+
 export function getDerivedFlags(row: CaseRow): DerivedFlags {
+  const cached = derivedFlagsCache.get(row);
+  if (cached) return cached;
+
   const today = getTodayStart();
   const leadStage = String(row.leadStage || '').trim();
   const dealStatus = String(row.dealStatus || '').trim();
@@ -105,7 +110,7 @@ export function getDerivedFlags(row: CaseRow): DerivedFlags {
     isCustomerConnectPending = true;
   }
 
-  return {
+  const flags: DerivedFlags = {
     isAlertCase: Boolean(row.taskBucket) && isAlertVisible !== 'false',
     isActiveToken: leadStage === 'ACTIVE_TOKEN',
     isDelivered: leadStage === 'DELIVERED',
@@ -121,6 +126,9 @@ export function getDerivedFlags(row: CaseRow): DerivedFlags {
     isOdPending: Boolean(onDemandStatus) && !actualDeliveryDate,
     isBlankPaymentType: !paymentType
   };
+
+  derivedFlagsCache.set(row, flags);
+  return flags;
 }
 
 export function buildKpis(rows: CaseRow[]): DashboardKpis {

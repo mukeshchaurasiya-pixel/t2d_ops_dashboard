@@ -40,19 +40,24 @@ type DashboardDataSourceArgs = {
 };
 
 function sortRows(rows: CaseRow[], sortField: keyof CaseRow | string, sortDirection: 'asc' | 'desc') {
+  const fieldName = String(sortField).toLowerCase();
+  const isDateField = fieldName.includes('date') || fieldName.includes('time') || fieldName.includes('timestamp');
+
+  if (isDateField) {
+    const mapped = rows.map(row => {
+      const val = row[sortField as keyof CaseRow];
+      const date = val ? parseDateString(String(val)) : null;
+      return { row, val: date ? date.getTime() : 0 };
+    });
+    mapped.sort((a, b) => {
+      return sortDirection === 'asc' ? a.val - b.val : b.val - a.val;
+    });
+    return mapped.map(item => item.row);
+  }
+
   return [...rows].sort((a, b) => {
     const valA = a[sortField as keyof CaseRow];
     const valB = b[sortField as keyof CaseRow];
-    const fieldName = String(sortField).toLowerCase();
-    const isDateField = fieldName.includes('date') || fieldName.includes('time') || fieldName.includes('timestamp');
-
-    if (isDateField) {
-      const dateA = valA ? parseDateString(String(valA)) : null;
-      const dateB = valB ? parseDateString(String(valB)) : null;
-      const timeA = dateA ? dateA.getTime() : 0;
-      const timeB = dateB ? dateB.getTime() : 0;
-      return sortDirection === 'asc' ? timeA - timeB : timeB - timeA;
-    }
 
     if (typeof valA === 'number' && typeof valB === 'number') {
       return sortDirection === 'asc' ? valA - valB : valB - valA;
@@ -194,9 +199,83 @@ export function useDashboardDataSource({
   );
   const activeTokenFastPath = !demoMode && isActiveTokenFastPath(query.filters) && activeTokenRows.length > 0;
 
+  // 1. Determine local source rows
+  const localSourceRows = useMemo(() => {
+    if (demoMode) return demoRows;
+    if (activeTokenFastPath) return activeTokenRows;
+    return [];
+  }, [demoMode, demoRows, activeTokenFastPath, activeTokenRows]);
+
+  // 2. Local filtering
+  const localFilteredRows = useMemo(() => {
+    if (localSourceRows.length === 0) return [];
+    const eddLabels = buildEddLabels();
+    return localSourceRows.filter(row => isRowMatchingFilter(row, filters, eddLabels));
+  }, [localSourceRows, filters]);
+
+  // 3. Filtered Cancelled C2D Count
+  const localFilteredCancelledC2dCount = useMemo(() => {
+    if (localFilteredRows.length === 0) return 0;
+    return buildFilteredCancelledC2dCount(localFilteredRows);
+  }, [localFilteredRows]);
+
+  // 4. Local Summary
+  const localSummary = useMemo(() => {
+    if (localSourceRows.length === 0) return EMPTY_DASHBOARD_SUMMARY;
+    return buildLocalDashboardSummary(localFilteredRows, localFilteredCancelledC2dCount);
+  }, [localFilteredRows, localFilteredCancelledC2dCount, localSourceRows.length]);
+
+  // 5. Local Matrix
+  const localMatrix = useMemo(() => {
+    if (localSourceRows.length === 0) return EMPTY_DASHBOARD_MATRIX;
+    return buildLocalDashboardMatrix(localFilteredRows);
+  }, [localFilteredRows, localSourceRows.length]);
+
+  // 6. Local Filter Options
+  const localFilterOptions = useMemo(() => {
+    if (localSourceRows.length === 0) return EMPTY_FILTER_OPTIONS;
+    return buildLocalFilterOptions(localSourceRows);
+  }, [localSourceRows]);
+
+  // 7. Local Sorting
+  const localSortedRows = useMemo(() => {
+    if (localFilteredRows.length === 0) return [];
+    return sortRows(localFilteredRows, sortField, sortDirection);
+  }, [localFilteredRows, sortField, sortDirection]);
+
+  // 8. Local Paged Rows
+  const localPagedRows = useMemo(() => {
+    if (localSortedRows.length === 0) return [];
+    const start = Math.max(0, (page - 1) * pageSize);
+    return localSortedRows.slice(start, start + pageSize);
+  }, [localSortedRows, page, pageSize]);
+
+  // 9. Local Total Count
+  const localTotalCount = useMemo(() => {
+    return localSortedRows.length;
+  }, [localSortedRows]);
+
+  // Sync local changes to state
+  useEffect(() => {
+    if (demoMode || activeTokenFastPath) {
+      setPageRows(localPagedRows);
+      setTotalCount(localTotalCount);
+      setSummary(localSummary);
+      setMatrix(localMatrix);
+      setFilterOptions(localFilterOptions);
+    }
+  }, [
+    demoMode,
+    activeTokenFastPath,
+    localPagedRows,
+    localTotalCount,
+    localSummary,
+    localMatrix,
+    localFilterOptions,
+  ]);
+
   useEffect(() => {
     if (demoMode) {
-      setFilterOptions(buildLocalFilterOptions(demoRows));
       return;
     }
 
@@ -221,30 +300,14 @@ export function useDashboardDataSource({
     return () => {
       cancelled = true;
     };
-  }, [demoMode, refreshKey]);
+  }, [demoMode, refreshKey, reloadNonce]);
 
   const reload = useCallback(() => {
     setReloadNonce(prev => prev + 1);
   }, []);
 
   useEffect(() => {
-    if (demoMode) {
-      const local = buildLocalSnapshot(demoRows, filters, page, pageSize, sortField, sortDirection);
-      setPageRows(local.pageRows);
-      setTotalCount(local.totalCount);
-      setSummary(local.summary);
-      setMatrix(local.matrix);
-      setFilterOptions(local.filterOptions);
-      return;
-    }
-
-    if (activeTokenFastPath) {
-      const local = buildLocalSnapshot(activeTokenRows, filters, page, pageSize, sortField, sortDirection);
-      setPageRows(local.pageRows);
-      setTotalCount(local.totalCount);
-      setSummary(local.summary);
-      setMatrix(local.matrix);
-      setFilterOptions(buildLocalFilterOptions(activeTokenRows));
+    if (demoMode || activeTokenFastPath) {
       return;
     }
 
@@ -282,16 +345,9 @@ export function useDashboardDataSource({
     };
   }, [
     activeTokenFastPath,
-    activeTokenRows,
     demoMode,
-    demoRows,
-    filters,
-    page,
-    pageSize,
     query,
     reloadNonce,
-    sortDirection,
-    sortField,
   ]);
 
   useEffect(() => {

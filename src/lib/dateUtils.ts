@@ -4,10 +4,28 @@
  * - Handles YYYY-MM-DD (standard ISO date format)
  * - Safely handles times (e.g. HH:MM or HH:MM:SS) if appended.
  */
+const dateCache = new Map<string, number>();
+
 export function parseDateString(dateStr: string): Date | null {
   if (!dateStr) return null;
   const str = String(dateStr).trim();
   if (!str) return null;
+
+  const cached = dateCache.get(str);
+  if (cached !== undefined) {
+    return cached === -1 ? null : new Date(cached);
+  }
+
+  const result = parseDateStringInternal(str);
+  if (result) {
+    dateCache.set(str, result.getTime());
+  } else {
+    dateCache.set(str, -1);
+  }
+  return result;
+}
+
+function parseDateStringInternal(str: string): Date | null {
 
   // 1. Check for YYYY-MM-DD or YYYY-MM-DD HH:MM:SS (hyphen-separated with 4-digit year first)
   const yyyymmddRegex = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:\s+|T)?(\d{1,2})?:?(\d{1,2})?:?(\d{1,2})?/;
