@@ -348,7 +348,7 @@ export async function exportFilteredRowsToGoogleSheet(
   accessToken: string,
   rows: CaseRow[],
   additionalColumns: string[]
-): Promise<string> {
+): Promise<{ title: string; url: string }> {
   if (!sheetId) throw new Error('Spreadsheet ID is required.');
   if (!accessToken) throw new Error('Authorization token is required.');
 
@@ -382,6 +382,10 @@ export async function exportFilteredRowsToGoogleSheet(
     const errText = await addSheetRes.text();
     throw new Error(`Failed to create a new tab in Google Sheets: ${errText}`);
   }
+
+  const addSheetData = await addSheetRes.json();
+  const newTabSheetId = addSheetData.replies?.[0]?.addSheet?.properties?.sheetId;
+  const url = `https://docs.google.com/spreadsheets/d/${cleanId}/edit${newTabSheetId !== undefined ? `#gid=${newTabSheetId}` : ''}`;
 
   // 2. Prepare headers and values
   const standardHeader = ["Booking ID", "Loan ID", "Token Date", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"];
@@ -458,5 +462,8 @@ export async function exportFilteredRowsToGoogleSheet(
     throw new Error(`Failed to write values to Google Sheet: ${errText}`);
   }
 
-  return newTabTitle;
+  return {
+    title: newTabTitle,
+    url
+  };
 }

@@ -206,13 +206,14 @@ export default function Dashboard({
     
     try {
       const { exportFilteredRowsToGoogleSheet } = await import('../lib/sheetsService');
-      const newTabTitle = await exportFilteredRowsToGoogleSheet(
+      const result = await exportFilteredRowsToGoogleSheet(
         sheetId,
         accessToken,
         currentRows,
         additionalCsvCols
       );
-      setExportFeedback(`Successfully exported to new tab: "${newTabTitle}"!`);
+      setExportFeedback(`Successfully exported to new tab: "${result.title}"! Opening...`);
+      window.open(result.url, '_blank');
       setTimeout(() => {
         setExportFeedback(null);
         setShowCsvModal(false);
