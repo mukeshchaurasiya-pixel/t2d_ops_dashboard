@@ -294,7 +294,7 @@ export default function App() {
       <header className="bg-slate-900 text-white shadow-md relative overflow-hidden shrink-0">
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-brand-orange to-brand-blue" />
         
-        <div className="max-w-7xl mx-auto px-5 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="w-full max-w-none px-4 md:px-6 lg:px-8 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-gradient-to-br from-brand-orange to-brand-blue text-white shadow-md flex items-center justify-center">
               <Building className="w-5 h-5" />
@@ -437,7 +437,7 @@ export default function App() {
       </header>
 
       {/* Main Container Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-5 flex flex-col gap-6">
+      <main className="flex-1 w-full max-w-none px-4 md:px-6 lg:px-8 py-6 flex flex-col gap-6">
         {viewMode === 'admin' && user && isAdmin ? (
           <motion.div
             initial={{ opacity: 0, y: 15 }}
