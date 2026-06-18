@@ -159,9 +159,20 @@ export async function googleSignIn(): Promise<{ user: AppUser; accessToken: stri
     let checkInterval: any = null;
 
     const handleMessage = async (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
       if (event.data?.type === 'AUTH_COMPLETE') {
         cleanup();
+        const receivedSession = event.data.session;
+        if (receivedSession) {
+          try {
+            await supabase.auth.setSession({
+              access_token: receivedSession.access_token,
+              refresh_token: receivedSession.refresh_token
+            });
+          } catch (setSessionErr) {
+            console.warn("Failed to set session in opener via setSession:", setSessionErr);
+          }
+        }
+
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
           resolve({

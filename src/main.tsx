@@ -11,13 +11,13 @@ if (window.opener && window.opener !== window) {
   import('./lib/supabaseClient').then(({ supabase }) => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
-        window.opener.postMessage({ type: 'AUTH_COMPLETE' }, '*');
+        window.opener.postMessage({ type: 'AUTH_COMPLETE', session }, '*');
         window.close();
       } else {
         // If not loaded yet, listen to auth state changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
           if (session) {
-            window.opener.postMessage({ type: 'AUTH_COMPLETE' }, '*');
+            window.opener.postMessage({ type: 'AUTH_COMPLETE', session }, '*');
             subscription.unsubscribe();
             window.close();
           }
