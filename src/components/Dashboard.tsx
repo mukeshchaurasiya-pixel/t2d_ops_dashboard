@@ -121,50 +121,7 @@ interface DashboardProps {
 }
 
 
-const AVAILABLE_ADDITIONAL_COLS: { key: keyof CaseRow; label: string }[] = [
-  { key: 'totalListingDays', label: 'Total Listing Days' },
-  { key: 'city', label: 'City' },
-  { key: 'carRegNo', label: 'Car Registration No' },
-  { key: 'make', label: 'Make' },
-  { key: 'model', label: 'Model' },
-  { key: 'variant', label: 'Variant' },
-  { key: 'hubCode', label: 'Hub Code' },
-  {key: 'cancelReason', label: 'Cancellation Reason' },
-  { key: 'leadDsChannel', label: 'DS Channel' },
-  { key: 'sheetFinalStatus', label: 'Sheet Final Status' },
-  { key: 'formFinalStatus', label: 'Form Final Status' },
-  { key: 'deviationMitigationComment', label: 'Deviation Comments' },
-  { key: 'creditLtv', label: 'Credit LTV' },
-  { key: 'contactNumber', label: 'Contact Number' },
-  // Date parameter fields requested for export selection
-  { key: 'tokenDateTime', label: 'Token Date & Time' },
-  { key: 'bookingDate', label: 'Booking Date' },
-  { key: 'expectedDeliveryTime', label: 'Expected Delivery Time' },
-  { key: 'actualDeliveryDate', label: 'Actual Delivery Date' },
-  { key: 'eddReviewerDate', label: 'EDD Date (Reviewer)' },
-  { key: 'cancelReqDate', label: 'Cancellation Req Date' },
-  { key: 'cancellationDate', label: 'Cancellation Date' },
-  { key: 'tokenAutoCancellationExtendedDate', label: 'Auto Cancel Ext Date' },
-  { key: 'dealStatusUpdatedAt', label: 'Deal Status Update Date' },
-  { key: 'latestRemarkDate', label: 'Latest Remark Date' },
-  { key: 'updatedAt', label: 'System Update Date' },
-  { key: 'lastCallAt', label: 'Last Call Date' },
-  { key: 'followupAt', label: 'Followup Date' },
-  { key: 'gmailPendencyDate', label: 'Gmail Pendency Date' },
-  { key: 'latestLeadCreationTimestamp', label: 'Lead Creation Date' },
-  { key: 'latestLoginTime', label: 'Login Time' },
-  { key: 'latestCreditAssessedTimestamp', label: 'Credit Assessed Date' },
-  { key: 'latestDiligenceAssessedTimestamp', label: 'Diligence Assessed Date' },
-  { key: 'latestFcuAssessedTimestamp', label: 'FCU Assessed Date' },
-  { key: 'tncGeneratedDate', label: 'TnC Generated Date' },
-  { key: 'tncAcceptedTimestamp', label: 'TnC Accepted Date' },
-  { key: 'fcuSentDate', label: 'FCU Sent Date' },
-  { key: 'sentToRcuTimestamp', label: 'Sent to RCU Date' },
-  { key: 'sentToOpsTimestamp', label: 'Sent to Ops Date' },
-  { key: 'submitToOpsTimestamp', label: 'Submit to Ops Date' },
-  { key: 'opsDisbursalTimestamp', label: 'Ops Disbursal Date' },
-  { key: 'financeDisbursedTimestamp', label: 'Finance Disbursed Date' }
-];
+import { AVAILABLE_ADDITIONAL_COLS } from '../lib/sheetsService';
 
 export default function Dashboard({ 
   rows, 
@@ -185,6 +142,8 @@ export default function Dashboard({
   const [pageSize, setPageSize] = useState(15);
   const [activeTab, setActiveTab] = useState<'ops' | 'performance' | 'loss' | 'ledger'>('ops');
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const isTopRowDropdownOpen = ['onDemandStatus', 'taskBucket', 'derivedStatus', 'cancelReason', 'leadDsChannel'].includes(openDropdown || '');
+  const isBottomRowDropdownOpen = openDropdown !== null && !isTopRowDropdownOpen;
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   // CSV Export Modal states
@@ -1095,7 +1054,7 @@ export default function Dashboard({
         </div>
 
         {/* Primary Filter Grid: 6 equal-width columns */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+        <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 relative ${isTopRowDropdownOpen ? 'z-30' : 'z-10'}`}>
           {/* On Demand Status */}
           <MultiSelectDropdown
             label="On Demand Status"
@@ -1184,7 +1143,11 @@ export default function Dashboard({
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="overflow-hidden border-t border-slate-100 mt-4 pt-4"
+              className="border-t border-slate-100 mt-4 pt-4 relative"
+              style={{
+                overflow: isBottomRowDropdownOpen ? 'visible' : 'hidden',
+                zIndex: isBottomRowDropdownOpen ? 30 : 10
+              }}
             >
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3.5">
                 {/* City */}

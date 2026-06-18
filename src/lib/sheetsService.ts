@@ -340,13 +340,58 @@ export async function verifySheetAccess(sheetId: string, accessToken: string): P
   }
 }
 
+export const AVAILABLE_ADDITIONAL_COLS: { key: keyof CaseRow; label: string }[] = [
+  { key: 'totalListingDays', label: 'Total Listing Days' },
+  { key: 'city', label: 'City' },
+  { key: 'carRegNo', label: 'Car Registration No' },
+  { key: 'make', label: 'Make' },
+  { key: 'model', label: 'Model' },
+  { key: 'variant', label: 'Variant' },
+  { key: 'hubCode', label: 'Hub Code' },
+  { key: 'cancelReason', label: 'Cancellation Reason' },
+  { key: 'leadDsChannel', label: 'DS Channel' },
+  { key: 'sheetFinalStatus', label: 'Sheet Final Status' },
+  { key: 'formFinalStatus', label: 'Form Final Status' },
+  { key: 'deviationMitigationComment', label: 'Deviation Comments' },
+  { key: 'creditLtv', label: 'Credit LTV' },
+  { key: 'contactNumber', label: 'Contact Number' },
+  // Date parameter fields requested for export selection
+  { key: 'tokenDateTime', label: 'Token Date & Time' },
+  { key: 'bookingDate', label: 'Booking Date' },
+  { key: 'expectedDeliveryTime', label: 'Expected Delivery Time' },
+  { key: 'actualDeliveryDate', label: 'Actual Delivery Date' },
+  { key: 'eddReviewerDate', label: 'EDD Date (Reviewer)' },
+  { key: 'cancelReqDate', label: 'Cancellation Req Date' },
+  { key: 'cancellationDate', label: 'Cancellation Date' },
+  { key: 'tokenAutoCancellationExtendedDate', label: 'Auto Cancel Ext Date' },
+  { key: 'dealStatusUpdatedAt', label: 'Deal Status Update Date' },
+  { key: 'latestRemarkDate', label: 'Latest Remark Date' },
+  { key: 'updatedAt', label: 'System Update Date' },
+  { key: 'lastCallAt', label: 'Last Call Date' },
+  { key: 'followupAt', label: 'Followup Date' },
+  { key: 'gmailPendencyDate', label: 'Gmail Pendency Date' },
+  { key: 'latestLeadCreationTimestamp', label: 'Lead Creation Date' },
+  { key: 'latestLoginTime', label: 'Login Time' },
+  { key: 'latestCreditAssessedTimestamp', label: 'Credit Assessed Date' },
+  { key: 'latestDiligenceAssessedTimestamp', label: 'Diligence Assessed Date' },
+  { key: 'latestFcuAssessedTimestamp', label: 'FCU Assessed Date' },
+  { key: 'tncGeneratedDate', label: 'TnC Generated Date' },
+  { key: 'tncAcceptedTimestamp', label: 'TnC Accepted Date' },
+  { key: 'fcuSentDate', label: 'FCU Sent Date' },
+  { key: 'sentToRcuTimestamp', label: 'Sent to RCU Date' },
+  { key: 'sentToOpsTimestamp', label: 'Sent to Ops Date' },
+  { key: 'submitToOpsTimestamp', label: 'Submit to Ops Date' },
+  { key: 'opsDisbursalTimestamp', label: 'Ops Disbursal Date' },
+  { key: 'financeDisbursedTimestamp', label: 'Finance Disbursed Date' }
+];
+
 /**
  * Creates a brand new Google Spreadsheet and writes all provided rows to its default first sheet.
  */
 export async function exportFilteredRowsToGoogleSheet(
   accessToken: string,
   rows: CaseRow[],
-  additionalColumns: string[]
+  additionalColumns: string[] = []
 ): Promise<{ title: string; url: string }> {
   if (!accessToken) throw new Error('Authorization token is required.');
 
@@ -383,51 +428,6 @@ export async function exportFilteredRowsToGoogleSheet(
 
   // 2. Prepare headers and values
   const standardHeader = ["Booking ID", "Loan ID", "Token Date", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"];
-  
-  const AVAILABLE_ADDITIONAL_COLS = [
-    { key: 'totalListingDays', label: 'Total Listing Days' },
-    { key: 'city', label: 'City' },
-    { key: 'carRegNo', label: 'Car Registration No' },
-    { key: 'make', label: 'Make' },
-    { key: 'model', label: 'Model' },
-    { key: 'variant', label: 'Variant' },
-    { key: 'hubCode', label: 'Hub Code' },
-    { key: 'cancelReason', label: 'Cancellation Reason' },
-    { key: 'leadDsChannel', label: 'DS Channel' },
-    { key: 'sheetFinalStatus', label: 'Sheet Final Status' },
-    { key: 'formFinalStatus', label: 'Form Final Status' },
-    { key: 'deviationMitigationComment', label: 'Deviation Comments' },
-    { key: 'creditLtv', label: 'Credit LTV' },
-    { key: 'contactNumber', label: 'Contact Number' },
-    // Date parameter fields requested for export selection
-    { key: 'tokenDateTime', label: 'Token Date & Time' },
-    { key: 'bookingDate', label: 'Booking Date' },
-    { key: 'expectedDeliveryTime', label: 'Expected Delivery Time' },
-    { key: 'actualDeliveryDate', label: 'Actual Delivery Date' },
-    { key: 'eddReviewerDate', label: 'EDD Date (Reviewer)' },
-    { key: 'cancelReqDate', label: 'Cancellation Req Date' },
-    { key: 'cancellationDate', label: 'Cancellation Date' },
-    { key: 'tokenAutoCancellationExtendedDate', label: 'Auto Cancel Ext Date' },
-    { key: 'dealStatusUpdatedAt', label: 'Deal Status Update Date' },
-    { key: 'latestRemarkDate', label: 'Latest Remark Date' },
-    { key: 'updatedAt', label: 'System Update Date' },
-    { key: 'lastCallAt', label: 'Last Call Date' },
-    { key: 'followupAt', label: 'Followup Date' },
-    { key: 'gmailPendencyDate', label: 'Gmail Pendency Date' },
-    { key: 'latestLeadCreationTimestamp', label: 'Lead Creation Date' },
-    { key: 'latestLoginTime', label: 'Login Time' },
-    { key: 'latestCreditAssessedTimestamp', label: 'Credit Assessed Date' },
-    { key: 'latestDiligenceAssessedTimestamp', label: 'Diligence Assessed Date' },
-    { key: 'latestFcuAssessedTimestamp', label: 'FCU Assessed Date' },
-    { key: 'tncGeneratedDate', label: 'TnC Generated Date' },
-    { key: 'tncAcceptedTimestamp', label: 'TnC Accepted Date' },
-    { key: 'fcuSentDate', label: 'FCU Sent Date' },
-    { key: 'sentToRcuTimestamp', label: 'Sent to RCU Date' },
-    { key: 'sentToOpsTimestamp', label: 'Sent to Ops Date' },
-    { key: 'submitToOpsTimestamp', label: 'Submit to Ops Date' },
-    { key: 'opsDisbursalTimestamp', label: 'Ops Disbursal Date' },
-    { key: 'financeDisbursedTimestamp', label: 'Finance Disbursed Date' }
-  ];
 
   const additionalHeaders = AVAILABLE_ADDITIONAL_COLS
     .filter(col => additionalColumns.includes(col.key))
