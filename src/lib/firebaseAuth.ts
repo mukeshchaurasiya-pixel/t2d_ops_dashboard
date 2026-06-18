@@ -181,10 +181,20 @@ export async function googleSignIn(): Promise<{ user: AppUser; accessToken: stri
 
     window.addEventListener('message', handleMessage);
 
-    checkInterval = setInterval(() => {
+    checkInterval = setInterval(async () => {
       if (popup.closed) {
         cleanup();
-        reject(new Error("Login window closed by user."));
+        
+        // Fallback: Check if session was successfully established in localStorage anyway
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          resolve({
+            user: sessionToAppUser(session),
+            accessToken: session.provider_token ?? '',
+          });
+        } else {
+          reject(new Error("Login window closed by user."));
+        }
       }
     }, 1000);
   });
