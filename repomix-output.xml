@@ -753,6 +753,248 @@ signInPromise.then(() => {
 });
 </file>
 
+<file path="src/lib/firebaseAuth.ts">
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Auth & shared config layer — powered by Supabase.
+ * Drop-in replacement for the previous Firebase implementation.
+ * Exposes the same public interface so App.tsx requires minimal changes.
+ */
+
+import { supabase } from './supabaseClient';
+import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
+
+// ─── Re-export a User shape compatible with the rest of the app ───────────────
+export interface AppUser {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+}
+
+// ─── Shared spreadsheet config stored in Supabase ────────────────────────────
+export interface SharedConfig {
+  userId: string;
+  sheetId: string;
+  sheetName: string;
+  updatedAt: string;
+  updatedBy?: string;
+}
+
+// ─── Internal helpers ─────────────────────────────────────────────────────────
+const TOKEN_CACHE_KEY = 'cars24_google_provider_token';
+
+function cacheProviderToken(token: string | null) {
+  if (token) {
+    localStorage.setItem(TOKEN_CACHE_KEY, token);
+  }
+}
+
+function getProviderToken(session: Session): string | null {
+  // provider_token is available immediately after OAuth but may be null
+  // on session restore (PKCE limitation). Fall back to localStorage cache.
+  return session.provider_token ?? localStorage.getItem(TOKEN_CACHE_KEY);
+}
+
+function sessionToAppUser(session: Session): AppUser {
+  const u = session.user;
+  return {
+    uid: u.id,
+    email: u.email ?? null,
+    displayName: u.user_metadata?.full_name ?? u.user_metadata?.name ?? null,
+    photoURL: u.user_metadata?.avatar_url ?? null,
+  };
+}
+
+// ─── Auth state listener ──────────────────────────────────────────────────────
+/**
+ * Subscribe to Supabase auth state changes.
+ * Calls onAuthSuccess with an AppUser + provider_token on sign-in,
+ * and onAuthFailure on sign-out.
+ * Returns an unsubscribe function.
+ */
+export function initAuth(
+  onAuthSuccess?: (user: AppUser, token: string | null) => void,
+  onAuthFailure?: () => void
+): () => void {
+  // Check current session immediately
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    if (session) {
+      const token = getProviderToken(session);
+      cacheProviderToken(token);
+      if (onAuthSuccess) onAuthSuccess(sessionToAppUser(session), token);
+    } else {
+      if (onAuthFailure) onAuthFailure();
+    }
+  });
+
+  // Subscribe to future changes
+  const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    (_event, session) => {
+      if (session) {
+        const token = getProviderToken(session);
+        cacheProviderToken(token); // persist for session restores
+        if (onAuthSuccess) onAuthSuccess(sessionToAppUser(session), token);
+      } else {
+        if (onAuthFailure) onAuthFailure();
+      }
+    }
+  );
+
+  return () => subscription.unsubscribe();
+}
+
+// ─── Google Sign-In via Supabase OAuth ───────────────────────────────────────
+/**
+ * Trigger Google OAuth popup (redirects to Supabase OAuth flow).
+ * Supabase will redirect back to the app; the auth state listener picks it up.
+ * Returns the user + access token from the current session after redirect.
+ */
+export async function googleSignIn(): Promise<{ user: AppUser; accessToken: string } | null> {
+  const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined;
+
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo,
+      scopes: 'https://www.googleapis.com/auth/spreadsheets',
+      queryParams: {
+        access_type: 'offline',
+        prompt: 'consent',
+      },
+    },
+  });
+
+  if (error) {
+    console.error('Supabase Google sign-in error:', error);
+    throw new Error(error.message);
+  }
+
+  // The page will redirect; we return null here.
+  // After redirect, initAuth picks up the new session automatically.
+  return null;
+}
+
+// ─── Get access token from current session ────────────────────────────────────
+export async function getAccessToken(): Promise<string | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.provider_token ?? null;
+}
+
+// ─── Sign out ─────────────────────────────────────────────────────────────────
+export async function logout(): Promise<void> {
+  localStorage.removeItem(TOKEN_CACHE_KEY);
+  await supabase.auth.signOut();
+}
+
+// ─── Shared spreadsheet config (Supabase table: shared_config) ───────────────
+/**
+ * Reads the globally shared configuration from the Supabase shared_config table.
+ */
+export async function getSharedConfig(): Promise<SharedConfig | null> {
+  try {
+    const { data, error } = await supabase
+      .from('shared_config')
+      .select('*')
+      .eq('id', 'shared')
+      .maybeSingle();
+
+    if (error) {
+      console.warn('Could not read shared config from Supabase:', error.message);
+      return null;
+    }
+
+    if (!data) return null;
+
+    return {
+      userId: 'shared',
+      sheetId: data.sheet_id,
+      sheetName: data.sheet_name,
+      updatedAt: data.updated_at,
+      updatedBy: data.updated_by ?? undefined,
+    };
+  } catch (err) {
+    console.warn('Unexpected error reading shared config:', err);
+    return null;
+  }
+}
+
+/**
+ * Writes the shared configuration to the Supabase shared_config table.
+ */
+export async function saveSharedConfig(
+  sheetId: string,
+  sheetName: string,
+  updatedByEmail?: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('shared_config')
+    .upsert(
+      {
+        id: 'shared',
+        sheet_id: sheetId,
+        sheet_name: sheetName,
+        updated_at: new Date().toISOString(),
+        updated_by: updatedByEmail ?? 'unknown',
+      },
+      { onConflict: 'id' }
+    );
+
+  if (error) {
+    console.error('Failed to write shared config to Supabase:', error.message);
+    throw new Error(error.message);
+  }
+}
+
+// ─── Legacy Firebase exports kept for compatibility ───────────────────────────
+// These are no-ops or aliases so any remaining imports don't break.
+export const auth = null;
+export const db = null;
+</file>
+
+<file path="src/lib/supabaseClient.ts">
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Supabase client initialization.
+ * Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env.local file
+ * or as Vercel Environment Variables.
+ *
+ * IMPORTANT: flowType is set to 'implicit' so that provider_token
+ * (the Google OAuth access token needed for Sheets API calls) is stored
+ * in the session and survives page refreshes. PKCE flow (the default)
+ * does NOT persist provider_token across reloads.
+ */
+
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL as string;
+const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY as string;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.warn(
+    'Supabase environment variables missing (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY). ' +
+    'Authentication will not work until these are set.'
+  );
+}
+
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder',
+  {
+    auth: {
+      flowType: 'implicit',          // persists provider_token in session storage
+      persistSession: true,
+      detectSessionInUrl: true,
+      autoRefreshToken: true,
+    },
+  }
+);
+</file>
+
 <file path="src/main.tsx">
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
@@ -1422,207 +1664,6 @@ body {
 }
 </file>
 
-<file path="src/lib/firebaseAuth.ts">
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- *
- * Auth & shared config layer — powered by Supabase.
- * Drop-in replacement for the previous Firebase implementation.
- * Exposes the same public interface so App.tsx requires minimal changes.
- */
-
-import { supabase } from './supabaseClient';
-import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
-
-// ─── Re-export a User shape compatible with the rest of the app ───────────────
-export interface AppUser {
-  uid: string;
-  email: string | null;
-  displayName: string | null;
-  photoURL: string | null;
-}
-
-// ─── Shared spreadsheet config stored in Supabase ────────────────────────────
-export interface SharedConfig {
-  userId: string;
-  sheetId: string;
-  sheetName: string;
-  updatedAt: string;
-  updatedBy?: string;
-}
-
-// ─── Internal helpers ─────────────────────────────────────────────────────────
-const TOKEN_CACHE_KEY = 'cars24_google_provider_token';
-
-function cacheProviderToken(token: string | null) {
-  if (token) {
-    localStorage.setItem(TOKEN_CACHE_KEY, token);
-  }
-}
-
-function getProviderToken(session: Session): string | null {
-  // provider_token is available immediately after OAuth but may be null
-  // on session restore (PKCE limitation). Fall back to localStorage cache.
-  return session.provider_token ?? localStorage.getItem(TOKEN_CACHE_KEY);
-}
-
-function sessionToAppUser(session: Session): AppUser {
-  const u = session.user;
-  return {
-    uid: u.id,
-    email: u.email ?? null,
-    displayName: u.user_metadata?.full_name ?? u.user_metadata?.name ?? null,
-    photoURL: u.user_metadata?.avatar_url ?? null,
-  };
-}
-
-// ─── Auth state listener ──────────────────────────────────────────────────────
-/**
- * Subscribe to Supabase auth state changes.
- * Calls onAuthSuccess with an AppUser + provider_token on sign-in,
- * and onAuthFailure on sign-out.
- * Returns an unsubscribe function.
- */
-export function initAuth(
-  onAuthSuccess?: (user: AppUser, token: string | null) => void,
-  onAuthFailure?: () => void
-): () => void {
-  // Check current session immediately
-  supabase.auth.getSession().then(({ data: { session } }) => {
-    if (session) {
-      const token = getProviderToken(session);
-      cacheProviderToken(token);
-      if (onAuthSuccess) onAuthSuccess(sessionToAppUser(session), token);
-    } else {
-      if (onAuthFailure) onAuthFailure();
-    }
-  });
-
-  // Subscribe to future changes
-  const { data: { subscription } } = supabase.auth.onAuthStateChange(
-    (_event, session) => {
-      if (session) {
-        const token = getProviderToken(session);
-        cacheProviderToken(token); // persist for session restores
-        if (onAuthSuccess) onAuthSuccess(sessionToAppUser(session), token);
-      } else {
-        if (onAuthFailure) onAuthFailure();
-      }
-    }
-  );
-
-  return () => subscription.unsubscribe();
-}
-
-// ─── Google Sign-In via Supabase OAuth ───────────────────────────────────────
-/**
- * Trigger Google OAuth popup (redirects to Supabase OAuth flow).
- * Supabase will redirect back to the app; the auth state listener picks it up.
- * Returns the user + access token from the current session after redirect.
- */
-export async function googleSignIn(): Promise<{ user: AppUser; accessToken: string } | null> {
-  const redirectTo = typeof window !== 'undefined' ? window.location.origin : undefined;
-
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo,
-      scopes: 'https://www.googleapis.com/auth/spreadsheets',
-      queryParams: {
-        access_type: 'offline',
-        prompt: 'consent',
-      },
-    },
-  });
-
-  if (error) {
-    console.error('Supabase Google sign-in error:', error);
-    throw new Error(error.message);
-  }
-
-  // The page will redirect; we return null here.
-  // After redirect, initAuth picks up the new session automatically.
-  return null;
-}
-
-// ─── Get access token from current session ────────────────────────────────────
-export async function getAccessToken(): Promise<string | null> {
-  const { data: { session } } = await supabase.auth.getSession();
-  return session?.provider_token ?? null;
-}
-
-// ─── Sign out ─────────────────────────────────────────────────────────────────
-export async function logout(): Promise<void> {
-  localStorage.removeItem(TOKEN_CACHE_KEY);
-  await supabase.auth.signOut();
-}
-
-// ─── Shared spreadsheet config (Supabase table: shared_config) ───────────────
-/**
- * Reads the globally shared configuration from the Supabase shared_config table.
- */
-export async function getSharedConfig(): Promise<SharedConfig | null> {
-  try {
-    const { data, error } = await supabase
-      .from('shared_config')
-      .select('*')
-      .eq('id', 'shared')
-      .maybeSingle();
-
-    if (error) {
-      console.warn('Could not read shared config from Supabase:', error.message);
-      return null;
-    }
-
-    if (!data) return null;
-
-    return {
-      userId: 'shared',
-      sheetId: data.sheet_id,
-      sheetName: data.sheet_name,
-      updatedAt: data.updated_at,
-      updatedBy: data.updated_by ?? undefined,
-    };
-  } catch (err) {
-    console.warn('Unexpected error reading shared config:', err);
-    return null;
-  }
-}
-
-/**
- * Writes the shared configuration to the Supabase shared_config table.
- */
-export async function saveSharedConfig(
-  sheetId: string,
-  sheetName: string,
-  updatedByEmail?: string
-): Promise<void> {
-  const { error } = await supabase
-    .from('shared_config')
-    .upsert(
-      {
-        id: 'shared',
-        sheet_id: sheetId,
-        sheet_name: sheetName,
-        updated_at: new Date().toISOString(),
-        updated_by: updatedByEmail ?? 'unknown',
-      },
-      { onConflict: 'id' }
-    );
-
-  if (error) {
-    console.error('Failed to write shared config to Supabase:', error.message);
-    throw new Error(error.message);
-  }
-}
-
-// ─── Legacy Firebase exports kept for compatibility ───────────────────────────
-// These are no-ops or aliases so any remaining imports don't break.
-export const auth = null;
-export const db = null;
-</file>
-
 <file path="src/lib/sheetAccessCache.ts">
 export function getSheetAccessCacheKeys(activeSheetId: string, activeUserEmail?: string | null) {
   const emailKey = String(activeUserEmail || 'anonymous').trim().toLowerCase();
@@ -1635,47 +1676,6 @@ export function getSheetAccessCacheKeys(activeSheetId: string, activeUserEmail?:
     legacyTimeKey: `cars24_sheet_access_time_${activeSheetId}`,
   };
 }
-</file>
-
-<file path="src/lib/supabaseClient.ts">
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- *
- * Supabase client initialization.
- * Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env.local file
- * or as Vercel Environment Variables.
- *
- * IMPORTANT: flowType is set to 'implicit' so that provider_token
- * (the Google OAuth access token needed for Sheets API calls) is stored
- * in the session and survives page refreshes. PKCE flow (the default)
- * does NOT persist provider_token across reloads.
- */
-
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL as string;
-const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY as string;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn(
-    'Supabase environment variables missing (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY). ' +
-    'Authentication will not work until these are set.'
-  );
-}
-
-export const supabase = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder',
-  {
-    auth: {
-      flowType: 'implicit',          // persists provider_token in session storage
-      persistSession: true,
-      detectSessionInUrl: true,
-      autoRefreshToken: true,
-    },
-  }
-);
 </file>
 
 <file path="src/verify_app.ts">
@@ -12720,7 +12720,35 @@ const AVAILABLE_ADDITIONAL_COLS: { key: keyof CaseRow; label: string }[] = [
   { key: 'formFinalStatus', label: 'Form Final Status' },
   { key: 'deviationMitigationComment', label: 'Deviation Comments' },
   { key: 'creditLtv', label: 'Credit LTV' },
-  { key: 'contactNumber', label: 'Contact Number' }
+  { key: 'contactNumber', label: 'Contact Number' },
+  // Date parameter fields requested for export selection
+  { key: 'tokenDateTime', label: 'Token Date & Time' },
+  { key: 'bookingDate', label: 'Booking Date' },
+  { key: 'expectedDeliveryTime', label: 'Expected Delivery Time' },
+  { key: 'actualDeliveryDate', label: 'Actual Delivery Date' },
+  { key: 'eddReviewerDate', label: 'EDD Date (Reviewer)' },
+  { key: 'cancelReqDate', label: 'Cancellation Req Date' },
+  { key: 'cancellationDate', label: 'Cancellation Date' },
+  { key: 'tokenAutoCancellationExtendedDate', label: 'Auto Cancel Ext Date' },
+  { key: 'dealStatusUpdatedAt', label: 'Deal Status Update Date' },
+  { key: 'latestRemarkDate', label: 'Latest Remark Date' },
+  { key: 'updatedAt', label: 'System Update Date' },
+  { key: 'lastCallAt', label: 'Last Call Date' },
+  { key: 'followupAt', label: 'Followup Date' },
+  { key: 'gmailPendencyDate', label: 'Gmail Pendency Date' },
+  { key: 'latestLeadCreationTimestamp', label: 'Lead Creation Date' },
+  { key: 'latestLoginTime', label: 'Login Time' },
+  { key: 'latestCreditAssessedTimestamp', label: 'Credit Assessed Date' },
+  { key: 'latestDiligenceAssessedTimestamp', label: 'Diligence Assessed Date' },
+  { key: 'latestFcuAssessedTimestamp', label: 'FCU Assessed Date' },
+  { key: 'tncGeneratedDate', label: 'TnC Generated Date' },
+  { key: 'tncAcceptedTimestamp', label: 'TnC Accepted Date' },
+  { key: 'fcuSentDate', label: 'FCU Sent Date' },
+  { key: 'sentToRcuTimestamp', label: 'Sent to RCU Date' },
+  { key: 'sentToOpsTimestamp', label: 'Sent to Ops Date' },
+  { key: 'submitToOpsTimestamp', label: 'Submit to Ops Date' },
+  { key: 'opsDisbursalTimestamp', label: 'Ops Disbursal Date' },
+  { key: 'financeDisbursedTimestamp', label: 'Finance Disbursed Date' }
 ];
 
 export default function Dashboard({ 

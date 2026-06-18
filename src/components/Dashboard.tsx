@@ -134,7 +134,35 @@ const AVAILABLE_ADDITIONAL_COLS: { key: keyof CaseRow; label: string }[] = [
   { key: 'formFinalStatus', label: 'Form Final Status' },
   { key: 'deviationMitigationComment', label: 'Deviation Comments' },
   { key: 'creditLtv', label: 'Credit LTV' },
-  { key: 'contactNumber', label: 'Contact Number' }
+  { key: 'contactNumber', label: 'Contact Number' },
+  // Date parameter fields requested for export selection
+  { key: 'tokenDateTime', label: 'Token Date & Time' },
+  { key: 'bookingDate', label: 'Booking Date' },
+  { key: 'expectedDeliveryTime', label: 'Expected Delivery Time' },
+  { key: 'actualDeliveryDate', label: 'Actual Delivery Date' },
+  { key: 'eddReviewerDate', label: 'EDD Date (Reviewer)' },
+  { key: 'cancelReqDate', label: 'Cancellation Req Date' },
+  { key: 'cancellationDate', label: 'Cancellation Date' },
+  { key: 'tokenAutoCancellationExtendedDate', label: 'Auto Cancel Ext Date' },
+  { key: 'dealStatusUpdatedAt', label: 'Deal Status Update Date' },
+  { key: 'latestRemarkDate', label: 'Latest Remark Date' },
+  { key: 'updatedAt', label: 'System Update Date' },
+  { key: 'lastCallAt', label: 'Last Call Date' },
+  { key: 'followupAt', label: 'Followup Date' },
+  { key: 'gmailPendencyDate', label: 'Gmail Pendency Date' },
+  { key: 'latestLeadCreationTimestamp', label: 'Lead Creation Date' },
+  { key: 'latestLoginTime', label: 'Login Time' },
+  { key: 'latestCreditAssessedTimestamp', label: 'Credit Assessed Date' },
+  { key: 'latestDiligenceAssessedTimestamp', label: 'Diligence Assessed Date' },
+  { key: 'latestFcuAssessedTimestamp', label: 'FCU Assessed Date' },
+  { key: 'tncGeneratedDate', label: 'TnC Generated Date' },
+  { key: 'tncAcceptedTimestamp', label: 'TnC Accepted Date' },
+  { key: 'fcuSentDate', label: 'FCU Sent Date' },
+  { key: 'sentToRcuTimestamp', label: 'Sent to RCU Date' },
+  { key: 'sentToOpsTimestamp', label: 'Sent to Ops Date' },
+  { key: 'submitToOpsTimestamp', label: 'Submit to Ops Date' },
+  { key: 'opsDisbursalTimestamp', label: 'Ops Disbursal Date' },
+  { key: 'financeDisbursedTimestamp', label: 'Finance Disbursed Date' }
 ];
 
 export default function Dashboard({ 
