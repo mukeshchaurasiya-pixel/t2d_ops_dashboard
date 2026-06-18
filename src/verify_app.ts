@@ -11,6 +11,77 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
+// Intercept require to mock supabaseClient and avoid import.meta.env crash in Node environment
+import Module from 'module';
+const originalRequire = Module.prototype.require;
+let getMockImport: (id: string) => any;
+getMockImport = (id: string): any => {
+  if (id.endsWith('supabaseClient') || id.endsWith('supabaseClient.ts') || id.endsWith('supabaseClient.js')) {
+    return {
+      supabase: {
+        auth: {
+          getSession: async () => ({ data: { session: null }, error: null }),
+          onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+        },
+        from: () => ({
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: null, error: null }),
+            }),
+          }),
+        }),
+      }
+    };
+  }
+  return undefined;
+};
+
+Module.prototype.require = function (id: string) {
+  const mock = getMockImport(id);
+  if (mock !== undefined) return mock;
+  return originalRequire.apply(this, arguments as any);
+};
+process.on('unhandledRejection', (reason) => {
+  console.error('UNHANDLED REJECTION:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err);
+});
+const mockLocalStorage: Record<string, string> = {};
+globalThis.localStorage = {
+  getItem: (key: string) => mockLocalStorage[key] || null,
+  setItem: (key: string, val: string) => { mockLocalStorage[key] = val; },
+  removeItem: (key: string) => { delete mockLocalStorage[key]; },
+  clear: () => { Object.keys(mockLocalStorage).forEach(k => delete mockLocalStorage[k]); },
+} as any;
+globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  const url = typeof input === 'string' ? input : input.toString();
+  if (url.includes('/values/')) {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        values: [
+          ["bookingId", "loanId", "tokenDate", "hubName", "allocatedRm", "tokenType", "paymentType", "leadStage", "taskBucket", "expectedDeliveryDate", "readyToDeliver", "expectedOdCompletionDate", "reviewerRemarks"],
+          ["LIVE-1", "L-001", "2026-06-19", "Delhi", "RM1", "Standard", "Cash", "Token Booked", "", "2026-06-20", "", "", ""]
+        ]
+      })
+    } as any;
+  }
+  if (url.includes('sheets.googleapis.com')) {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ spreadsheetId: '1ARJ8AzOwNxqdTZA7bd7zPAacabIoBImXqReqzSTrIy4' })
+    } as any;
+  }
+  return {
+    ok: false,
+    status: 404,
+  } as any;
+};
+
+
 console.log("=== STARTING APP LOGIC VERIFICATION ===");
 
 const __filename = fileURLToPath(import.meta.url);
@@ -25,7 +96,7 @@ const transpiled = esbuild.transformSync(appCode, {
   loader: 'tsx',
   format: 'cjs',
   target: 'node18',
-  jsx: 'automatic'
+  jsx: 'transform'
 });
 
 // Setup mock scope
@@ -49,6 +120,16 @@ const hooks: any[] = [];
 let rerenderCallback: (() => void) | null = null;
 
 const ReactMock = {
+  createElement(type: any, props: any, ...children: any[]) {
+    const p = props || {};
+    return {
+      type,
+      props: {
+        ...p,
+        children: children.length === 1 ? children[0] : (children.length === 0 ? undefined : children),
+      },
+    };
+  },
   useState(initialValue: any) {
     const idx = currentHookIndex++;
     if (hooks[idx] === undefined) {
@@ -74,6 +155,16 @@ const ReactMock = {
       return val;
     }
     return prev.val;
+  },
+  useCallback(fn: any, deps: any[]) {
+    return ReactMock.useMemo(() => fn, deps);
+  },
+  useRef(initialValue: any) {
+    const idx = currentHookIndex++;
+    if (hooks[idx] === undefined) {
+      hooks[idx] = { current: initialValue };
+    }
+    return hooks[idx];
   },
   useEffect(effect: () => any, deps: any[]) {
     const idx = currentHookIndex++;
@@ -156,27 +247,91 @@ const mockImports: Record<string, any> = {
     }
   },
   './lib/supabaseDb': {
+    getCasesPageFromDb: async () => ({ rows: [{ bookingId: 'LIVE-1', taskBucket: '' }], total: 1 }),
     getCasesFromDb: async () => [{ bookingId: 'LIVE-1', taskBucket: '' }],
-    upsertCasesToDb: async () => {},
+    getUnsyncedCasesFromDb: async () => [],
+    upsertCasesToDb: async () => ({}),
+    updateSingleCaseInDb: async () => {},
     getUserSessions: async () => [],
     getAllAuditLogs: async () => [],
     startUserSession: async (email: string) => 'mock-session-id',
     heartbeatUserSession: async (id: string) => {}
-  }
+  },
 };
 
+getMockImport = (id: string): any => {
+  if (id === 'react') return ReactMock;
+  if (id.endsWith('useAuthBootstrap') || id.endsWith('useAuthBootstrap.ts')) {
+    return loadHookInSandbox(path.join(__dirname, 'hooks', 'useAuthBootstrap.ts'));
+  }
+  if (id.endsWith('useCaseData') || id.endsWith('useCaseData.ts')) {
+    return loadHookInSandbox(path.join(__dirname, 'hooks', 'useCaseData.ts'));
+  }
+  if (id.endsWith('useSyncState') || id.endsWith('useSyncState.ts')) {
+    return loadHookInSandbox(path.join(__dirname, 'hooks', 'useSyncState.ts'));
+  }
+  if (id.endsWith('supabaseClient') || id.endsWith('supabaseClient.ts') || id.endsWith('supabaseClient.js')) {
+    return {
+      supabase: {
+        auth: {
+          getSession: async () => ({ data: { session: null }, error: null }),
+          onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+        },
+        from: () => ({
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({ data: null, error: null }),
+            }),
+          }),
+        }),
+      }
+    };
+  }
+  if (mockImports[id]) return mockImports[id];
+  const resolvedName = id.startsWith('../') 
+    ? './' + id.substring(3) 
+    : id;
+  if (mockImports[resolvedName]) return mockImports[resolvedName];
+  return undefined;
+};
+
+
 // Create eval function with mock environment
-const evalInMockEnv = (code: string) => {
+const evalInMockEnv = (code: string, fileDir: string) => {
   const customRequire = (moduleName: string) => {
     if (mockImports[moduleName]) {
       return mockImports[moduleName];
     }
-    // Handle relative imports by resolving them to mockImports keys
-    const resolvedName = moduleName.startsWith('../') 
-      ? './' + moduleName.substring(3) 
-      : moduleName;
-    if (mockImports[resolvedName]) {
-      return mockImports[resolvedName];
+    if (moduleName.includes('supabaseDb')) {
+      return mockImports['./lib/supabaseDb'];
+    }
+    if (moduleName.includes('supabaseClient')) {
+      return {
+        supabase: {
+          auth: {
+            getSession: async () => ({ data: { session: null }, error: null }),
+            onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+          },
+          from: () => ({
+            select: () => ({
+              eq: () => ({
+                maybeSingle: async () => ({ data: null, error: null }),
+              }),
+            }),
+          }),
+        }
+      };
+    }
+    // Resolve relative path relative to fileDir
+    if (moduleName.startsWith('.')) {
+      const absolutePath = path.resolve(fileDir, moduleName);
+      const resolvedName = moduleName.startsWith('../') 
+        ? './' + moduleName.substring(3) 
+        : moduleName;
+      if (mockImports[resolvedName]) {
+        return mockImports[resolvedName];
+      }
+      return require(absolutePath);
     }
     // Fallback for standard node modules
     return require(moduleName);
@@ -187,11 +342,35 @@ const evalInMockEnv = (code: string) => {
   
   // Custom mock dynamic import function
   const mockImport = async (modulePath: string) => {
-    const resolvedPath = modulePath.startsWith('../') 
-      ? './' + modulePath.substring(3) 
-      : modulePath;
-    if (mockImports[resolvedPath]) {
-      return mockImports[resolvedPath];
+    if (modulePath.startsWith('.')) {
+      const absolutePath = path.resolve(fileDir, modulePath);
+      const resolvedPath = modulePath.startsWith('../') 
+        ? './' + modulePath.substring(3) 
+        : modulePath;
+      if (mockImports[resolvedPath]) {
+        return mockImports[resolvedPath];
+      }
+      if (modulePath.includes('supabaseDb')) {
+        return mockImports['./lib/supabaseDb'];
+      }
+      if (modulePath.includes('supabaseClient')) {
+        return {
+          supabase: {
+            auth: {
+              getSession: async () => ({ data: { session: null }, error: null }),
+              onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+            },
+            from: () => ({
+              select: () => ({
+                eq: () => ({
+                  maybeSingle: async () => ({ data: null, error: null }),
+                }),
+              }),
+            }),
+          }
+        };
+      }
+      return require(absolutePath);
     }
     throw new Error(`Mock import for ${modulePath} not registered`);
   };
@@ -211,8 +390,22 @@ const evalInMockEnv = (code: string) => {
   return module.exports;
 };
 
+const sandboxCache: Record<string, any> = {};
+const loadHookInSandbox = (filePath: string) => {
+  if (sandboxCache[filePath]) return sandboxCache[filePath];
+  const code = fs.readFileSync(filePath, 'utf8');
+  const transpiled = esbuild.transformSync(code, {
+    loader: 'ts',
+    format: 'cjs',
+    target: 'node18',
+  });
+  sandboxCache[filePath] = evalInMockEnv(transpiled.code, path.dirname(filePath));
+  return sandboxCache[filePath];
+};
+
+
 // Run evaluations
-const { default: App } = evalInMockEnv(transpiled.code);
+const { default: App } = evalInMockEnv(transpiled.code, __dirname);
 
 const runRenderCycle = () => {
   currentHookIndex = 0;
@@ -264,6 +457,7 @@ process.nextTick(() => {
     // Wait for the auth handler and fetch to complete
     setTimeout(() => {
       output = runRenderCycle();
+      console.log("Hooks state:", JSON.stringify(hooks, null, 2));
       console.log("Rendered type after successful login:", output?.type);
       
       // Find the dashboard component in the tree
@@ -353,9 +547,9 @@ process.nextTick(() => {
             
             console.log("=== ALL TESTS PASSED SUCCESSFULLY ===");
             process.exit(0);
-          }, 50);
+          }, 350);
         });
       });
-    }, 50);
+    }, 350);
   });
 });
