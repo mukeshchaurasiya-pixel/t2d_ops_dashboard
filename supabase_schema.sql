@@ -1062,22 +1062,17 @@ WITH filtered AS MATERIALIZED (
   WHERE public.dashboard_case_matches_filters(c, input_filters)
 ),
 customer_groups AS (
-  SELECT
-    customer_key,
-    bool_or(lead_stage IN ('CANCELLED', 'RETURNED') OR deal_status = 'CANCEL') AS has_cancelled,
-    bool_or(lead_stage = 'DELIVERED') AS has_delivered
-  FROM filtered
-  WHERE customer_key IS NOT NULL
-  GROUP BY customer_key
+  SELECT DISTINCT customer_key
+  FROM public.dashboard_cases
+  WHERE lead_stage = 'DELIVERED'
+    AND customer_key IS NOT NULL
 ),
 filtered_cancelled_c2d AS (
   SELECT count(*)::INTEGER AS total
   FROM filtered f
   INNER JOIN customer_groups cg
     ON cg.customer_key = f.customer_key
-  WHERE cg.has_cancelled
-    AND cg.has_delivered
-    AND (f.lead_stage IN ('CANCELLED', 'RETURNED') OR f.deal_status = 'CANCEL')
+  WHERE (f.lead_stage IN ('CANCELLED', 'RETURNED') OR f.deal_status = 'CANCEL')
 ),
 task_counts AS (
   SELECT

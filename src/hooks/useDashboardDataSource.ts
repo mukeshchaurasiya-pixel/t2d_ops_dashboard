@@ -117,29 +117,26 @@ function buildLocalFilterOptions(rows: CaseRow[]): DashboardFilterOptions {
   };
 }
 
-function buildFilteredCancelledC2dCount(rows: CaseRow[]): number {
-  const groupedByCustomer = new Map<string, CaseRow[]>();
+function buildFilteredCancelledC2dCount(filteredRows: CaseRow[], allRows: CaseRow[]): number {
+  const deliveredCustomers = new Set<string>();
 
-  rows.forEach(row => {
-    const key = row.userId || row.uid || row.leadId;
-    if (!key) return;
-    const list = groupedByCustomer.get(key) || [];
-    list.push(row);
-    groupedByCustomer.set(key, list);
+  allRows.forEach(row => {
+    if (row.leadStage === 'DELIVERED') {
+      const key = row.userId || row.uid || row.leadId;
+      if (key) {
+        deliveredCustomers.add(key.trim());
+      }
+    }
   });
 
   let total = 0;
-  groupedByCustomer.forEach(customerRows => {
-    const hasCancelled = customerRows.some(row => {
-      const flags = getDerivedFlags(row);
-      return flags.isCancelled;
-    });
-    const hasDelivered = customerRows.some(row => row.leadStage === 'DELIVERED');
-    if (hasCancelled && hasDelivered) {
-      total += customerRows.filter(row => {
-        const flags = getDerivedFlags(row);
-        return flags.isCancelled;
-      }).length;
+  filteredRows.forEach(row => {
+    const flags = getDerivedFlags(row);
+    if (flags.isCancelled) {
+      const key = row.userId || row.uid || row.leadId;
+      if (key && deliveredCustomers.has(key.trim())) {
+        total++;
+      }
     }
   });
 
@@ -160,7 +157,7 @@ function buildLocalSnapshot(
   const totalCount = sorted.length;
   const start = Math.max(0, (page - 1) * pageSize);
   const pagedRows = sorted.slice(start, start + pageSize);
-  const filteredCancelledC2dCount = buildFilteredCancelledC2dCount(sorted);
+  const filteredCancelledC2dCount = buildFilteredCancelledC2dCount(sorted, sourceRows);
 
   return {
     pageRows: pagedRows,
@@ -216,8 +213,8 @@ export function useDashboardDataSource({
   // 3. Filtered Cancelled C2D Count
   const localFilteredCancelledC2dCount = useMemo(() => {
     if (localFilteredRows.length === 0) return 0;
-    return buildFilteredCancelledC2dCount(localFilteredRows);
-  }, [localFilteredRows]);
+    return buildFilteredCancelledC2dCount(localFilteredRows, localSourceRows);
+  }, [localFilteredRows, localSourceRows]);
 
   // 4. Local Summary
   const localSummary = useMemo(() => {
