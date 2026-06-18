@@ -456,6 +456,23 @@ export async function updateSingleCaseInDb(
 }
 
 /**
+ * Fetches all cases from Supabase DB that have a pending sheet sync.
+ */
+export async function getUnsyncedCasesFromDb(): Promise<CaseRow[]> {
+  const { data, error } = await supabase
+    .from('dashboard_cases')
+    .select('row_data')
+    .eq('row_data->>syncPending', 'true');
+
+  if (error) {
+    console.error('Failed to fetch unsynced cases from Supabase DB:', error.message);
+    throw new Error(error.message);
+  }
+
+  return (data || []).map(record => record.row_data as CaseRow);
+}
+
+/**
  * Writes audit log entries for changes to Supabase table.
  */
 export async function writeAuditLogs(

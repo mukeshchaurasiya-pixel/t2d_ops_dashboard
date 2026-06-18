@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { 
   Building, RefreshCcw, LogOut, AlertCircle, FileSpreadsheet, Lock, HelpCircle, Settings, Database, Save, ExternalLink, Clock, ArrowLeft, History, RefreshCw
@@ -38,7 +38,7 @@ export default function App() {
     setTempSheetName,
   } = useSheetConfig();
   const [appTitle, setAppTitle] = useState<string>('CARS24 T2D Ops Dashboard');
-  const { syncing, loadCachedRows, syncCasesFromSheets } = useCaseData(setRows, updateLastSynced);
+  const { syncing, loadCachedRows, syncCasesFromSheets, syncPendingChangesToSheets } = useCaseData(setRows, updateLastSynced);
   const {
     user,
     setUser,
@@ -58,6 +58,24 @@ export default function App() {
     setRows,
     loadCachedRows,
   });
+
+  // Automatically sync pending offline changes when Google Sign-In is connected
+  useEffect(() => {
+    if (accessToken && sheetId) {
+      const runSyncPending = async () => {
+        try {
+          const syncedCount = await syncPendingChangesToSheets(accessToken, sheetId, sheetName, user?.email);
+          if (syncedCount > 0) {
+            alert(`Sync complete: Automatically uploaded ${syncedCount} pending offline edit(s) to the Google Sheet.`);
+            bumpDashboardRefresh();
+          }
+        } catch (err) {
+          console.error("Auto-syncing pending offline changes failed:", err);
+        }
+      };
+      void runSyncPending();
+    }
+  }, [accessToken, sheetId, sheetName, user?.email, syncPendingChangesToSheets]);
 
   // Routing and View States
   const [viewMode, setViewMode] = useState<'dashboard' | 'admin'>('dashboard');

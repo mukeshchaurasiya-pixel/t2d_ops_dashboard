@@ -126,7 +126,7 @@ export function useCaseEditor({
   const handleSaveActionables = useCallback(async () => {
     if (!selectedRow) return;
     if (!user) {
-      alert('Please connect your Google Account to edit actionables.');
+      alert('Please sign in to edit actionables.');
       return;
     }
 
@@ -150,6 +150,7 @@ export function useCaseEditor({
         ...tempRowData,
         reviewerRemarks: combinedRemarks,
         updatedAt: timestampStr,
+        syncPending: !accessToken,
       };
 
       delete (updatedRowBase as CaseEditorDraft).newRemarkAddition;
@@ -170,6 +171,8 @@ export function useCaseEditor({
           reviewerRemarks: updatedRowBase.reviewerRemarks,
           updatedAt: updatedRowBase.updatedAt,
         });
+      } else {
+        alert("Offline Change Saved: Your edits are stored in the database cache. They will sync back to the Google Sheet once any operator connects with Google Sign-In.");
       }
 
       setRows(prevRows => prevRows.map(row => row.bookingId === selectedRow.bookingId ? updatedRowBase : row));

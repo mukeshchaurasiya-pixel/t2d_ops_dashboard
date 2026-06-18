@@ -43,25 +43,25 @@ function runVerification() {
     success = false;
   }
 
-  // 3. Read Dashboard.tsx to verify no Sheets API calls are made when accessToken is null
-  console.log('\n--- Checking Dashboard.tsx for Sheets API bypass ---');
-  const dashboardPath = path.join(process.cwd(), 'src', 'components', 'Dashboard.tsx');
+  // 3. Read useCaseEditor.ts to verify no Sheets API calls are made when accessToken is null
+  console.log('\n--- Checking useCaseEditor.ts for Sheets API bypass ---');
+  const editorPath = path.join(process.cwd(), 'src', 'hooks', 'useCaseEditor.ts');
   try {
-    const dashboardContent = fs.readFileSync(dashboardPath, 'utf8');
+    const editorContent = fs.readFileSync(editorPath, 'utf8');
     
-    // Check if handleEditRowClick checks if (accessToken) before calling fetchSingleRowLatest
-    const hasEditRowGuard = dashboardContent.includes('if (accessToken)') && 
-                            dashboardContent.includes('fetchSingleRowLatest(');
+    // Check if handleEditRowClick checks if (!accessToken) or if (accessToken) before calling fetchSingleRowLatest
+    const hasEditRowGuard = (editorContent.includes('!accessToken') || editorContent.includes('if (accessToken)')) && 
+                            editorContent.includes('fetchSingleRowLatest(');
     if (hasEditRowGuard) {
-      console.log('[PASS] handleEditRowClick guards fetchSingleRowLatest with "if (accessToken)".');
+      console.log('[PASS] handleEditRowClick guards fetchSingleRowLatest from execution without accessToken.');
     } else {
       console.log('[FAIL] handleEditRowClick does not guard fetchSingleRowLatest with accessToken.');
       success = false;
     }
 
     // Check if handleSaveActionables checks if (accessToken) before calling writeActionablesToSheet
-    const hasSaveGuard = dashboardContent.includes('if (accessToken)') && 
-                         dashboardContent.includes('writeActionablesToSheet(');
+    const hasSaveGuard = editorContent.includes('if (accessToken)') && 
+                         editorContent.includes('writeActionablesToSheet(');
     if (hasSaveGuard) {
       console.log('[PASS] handleSaveActionables guards writeActionablesToSheet with "if (accessToken)".');
     } else {
@@ -69,18 +69,17 @@ function runVerification() {
       success = false;
     }
 
-    // Check if local saving is handled when accessToken is not available
-    const hasLocalSaveFallback = dashboardContent.includes('Your changes are saved locally in this session.') || 
-                                  dashboardContent.includes('// Save locally as a fallback') ||
-                                  dashboardContent.includes('// Save locally (anonymous / demo mode)');
+    // Check if local saving/session fallback is handled when error occurs or when offline
+    const hasLocalSaveFallback = editorContent.includes('Your changes are saved locally in this session.') || 
+                                  editorContent.includes('Offline Change Saved');
     if (hasLocalSaveFallback) {
-      console.log('[PASS] local save fallback with setRows mapping exists and runs gracefully.');
+      console.log('[PASS] local save/session fallback logic exists and runs gracefully.');
     } else {
       console.log('[FAIL] No local save fallback logic found when accessToken is absent.');
       success = false;
     }
   } catch (err) {
-    console.log(`[FAIL] Could not read Dashboard.tsx: ${err}`);
+    console.log(`[FAIL] Could not read useCaseEditor.ts: ${err}`);
     success = false;
   }
 

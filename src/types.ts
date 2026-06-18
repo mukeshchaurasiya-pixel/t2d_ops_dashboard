@@ -162,6 +162,7 @@ export interface CaseRow {
   confidenceTrendStatus?: 'Decline' | 'Stable' | 'Improving';
   mlEstimatedDeliveryDate?: string;
   totalListingDays?: number;
+  syncPending?: boolean;
 }
 
 export type CaseEditorDraft = Partial<CaseRow> & {

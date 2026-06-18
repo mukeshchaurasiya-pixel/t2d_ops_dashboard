@@ -83,9 +83,55 @@ export function useCaseData(
     }
   }, [setRows, updateLastSynced]);
 
+  const syncPendingChangesToSheets = useCallback(async (
+    accessToken: string,
+    sheetId: string,
+    sheetName: string,
+    userEmail?: string | null
+  ): Promise<number> => {
+    const { getUnsyncedCasesFromDb, updateSingleCaseInDb } = await import('../lib/supabaseDb');
+    const { writeActionablesToSheet } = await import('../lib/sheetsService');
+
+    const pendingCases = await getUnsyncedCasesFromDb();
+    if (pendingCases.length === 0) return 0;
+
+    let successCount = 0;
+    for (const caseRow of pendingCases) {
+      try {
+        await writeActionablesToSheet(sheetId, sheetName, accessToken, caseRow._rowNumber, {
+          readyToDeliver: caseRow.readyToDeliver,
+          onDemandStatus: caseRow.onDemandStatus,
+          deliveryStatus: caseRow.deliveryStatus,
+          expectedOdCompletionDate: caseRow.expectedOdCompletionDate,
+          eddReviewerDate: caseRow.eddReviewerDate,
+          expectedDeliveryDate: caseRow.expectedDeliveryDate,
+          cancelReqDate: caseRow.cancelReqDate,
+          reviewerRemarks: caseRow.reviewerRemarks,
+          updatedAt: caseRow.updatedAt,
+        });
+
+        // Clear syncPending flag
+        const updatedRow: CaseRow = {
+          ...caseRow,
+          syncPending: false,
+        };
+        await updateSingleCaseInDb(caseRow.bookingId, updatedRow, userEmail || 'system_sync');
+        successCount++;
+      } catch (err) {
+        console.error(`Failed to sync pending case ${caseRow.bookingId} to sheet:`, err);
+      }
+    }
+
+    if (successCount > 0) {
+      await loadCachedRows();
+    }
+    return successCount;
+  }, [loadCachedRows]);
+
   return {
     syncing,
     loadCachedRows,
     syncCasesFromSheets,
+    syncPendingChangesToSheets,
   };
 }
