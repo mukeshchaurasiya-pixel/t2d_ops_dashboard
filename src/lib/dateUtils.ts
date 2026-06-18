@@ -64,3 +64,36 @@ function parseDateStringInternal(str: string): Date | null {
   
   return null;
 }
+
+/**
+ * Convert any date string (like DD/MM/YYYY or YYYY-MM-DD) to YYYY-MM-DD format for HTML date inputs.
+ */
+export function toInputDateFormat(dateStr: string | undefined | null): string {
+  if (!dateStr) return '';
+  const parsed = parseDateString(dateStr);
+  if (!parsed) return '';
+  const yyyy = parsed.getFullYear();
+  const mm = String(parsed.getMonth() + 1).padStart(2, '0');
+  const dd = String(parsed.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/**
+ * Convert a YYYY-MM-DD string from HTML date input back to DD/MM/YYYY for the sheet.
+ */
+export function toSheetDateFormat(dateStr: string | undefined | null): string {
+  if (!dateStr) return '';
+  const str = String(dateStr).trim();
+  if (!str) return '';
+  // Check if it's already in DD/MM/YYYY format
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)) {
+    return str;
+  }
+  const parsed = parseDateString(str);
+  if (!parsed) return '';
+  const dd = String(parsed.getDate()).padStart(2, '0');
+  const mm = String(parsed.getMonth() + 1).padStart(2, '0');
+  const yyyy = parsed.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+

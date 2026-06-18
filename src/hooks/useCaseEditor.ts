@@ -1,6 +1,7 @@
 import { Dispatch, SetStateAction, useCallback, useEffect, useState } from 'react';
 import { AppUser } from '../lib/firebaseAuth';
 import { AuditLog, CaseEditorDraft, CaseRow } from '../types';
+import { toInputDateFormat, toSheetDateFormat } from '../lib/dateUtils';
 
 type UseCaseEditorArgs = {
   accessToken: string | null;
@@ -17,10 +18,10 @@ function buildInitialDraft(row: CaseRow): CaseEditorDraft {
     readyToDeliver: row.readyToDeliver || '',
     onDemandStatus: row.onDemandStatus || '',
     deliveryStatus: row.deliveryStatus || '',
-    expectedOdCompletionDate: row.expectedOdCompletionDate || '',
-    eddReviewerDate: row.eddReviewerDate || '',
-    expectedDeliveryDate: row.expectedDeliveryDate || '',
-    cancelReqDate: row.cancelReqDate || '',
+    expectedOdCompletionDate: toInputDateFormat(row.expectedOdCompletionDate),
+    eddReviewerDate: toInputDateFormat(row.eddReviewerDate),
+    expectedDeliveryDate: toInputDateFormat(row.expectedDeliveryDate),
+    cancelReqDate: toInputDateFormat(row.cancelReqDate),
     reviewerRemarks: row.reviewerRemarks || '',
     latestRemark: row.latestRemark || '',
     latestRemarkBy: row.latestRemarkBy || '',
@@ -98,10 +99,10 @@ export function useCaseEditor({
         readyToDeliver: latestFields.readyToDeliver !== undefined ? (latestFields.readyToDeliver || '') : prev.readyToDeliver,
         onDemandStatus: latestFields.onDemandStatus !== undefined ? (latestFields.onDemandStatus || '') : prev.onDemandStatus,
         deliveryStatus: latestFields.deliveryStatus !== undefined ? (latestFields.deliveryStatus || '') : prev.deliveryStatus,
-        expectedOdCompletionDate: latestFields.expectedOdCompletionDate !== undefined ? (latestFields.expectedOdCompletionDate || '') : prev.expectedOdCompletionDate,
-        eddReviewerDate: latestFields.eddReviewerDate !== undefined ? (latestFields.eddReviewerDate || '') : prev.eddReviewerDate,
-        expectedDeliveryDate: latestFields.expectedDeliveryDate !== undefined ? (latestFields.expectedDeliveryDate || '') : prev.expectedDeliveryDate,
-        cancelReqDate: latestFields.cancelReqDate !== undefined ? (latestFields.cancelReqDate || '') : prev.cancelReqDate,
+        expectedOdCompletionDate: latestFields.expectedOdCompletionDate !== undefined ? toInputDateFormat(latestFields.expectedOdCompletionDate) : prev.expectedOdCompletionDate,
+        eddReviewerDate: latestFields.eddReviewerDate !== undefined ? toInputDateFormat(latestFields.eddReviewerDate) : prev.eddReviewerDate,
+        expectedDeliveryDate: latestFields.expectedDeliveryDate !== undefined ? toInputDateFormat(latestFields.expectedDeliveryDate) : prev.expectedDeliveryDate,
+        cancelReqDate: latestFields.cancelReqDate !== undefined ? toInputDateFormat(latestFields.cancelReqDate) : prev.cancelReqDate,
         reviewerRemarks: latestFields.reviewerRemarks !== undefined ? (latestFields.reviewerRemarks || '') : prev.reviewerRemarks,
         latestRemark: latestFields.latestRemark !== undefined ? (latestFields.latestRemark || '') : prev.latestRemark,
         latestRemarkBy: latestFields.latestRemarkBy !== undefined ? (latestFields.latestRemarkBy || '') : prev.latestRemarkBy,
@@ -135,13 +136,23 @@ export function useCaseEditor({
     const originalRemarks = tempRowData.reviewerRemarks || '';
     const newAddition = tempRowData.newRemarkAddition || '';
 
+    const formattedExpectedOd = toSheetDateFormat(tempRowData.expectedOdCompletionDate);
+    const formattedEddReviewer = toSheetDateFormat(tempRowData.eddReviewerDate);
+    const formattedExpectedDelivery = toSheetDateFormat(tempRowData.expectedDeliveryDate);
+    const formattedCancelReq = toSheetDateFormat(tempRowData.cancelReqDate);
+
     let combinedRemarks = originalRemarks;
     if (newAddition.trim()) {
-      const emailSuffix = user.email ? ` (${user.email.split('@')[0]})` : '';
-      const dateStr = new Date().toISOString().slice(0, 10);
+      const now = new Date();
+      const dd = String(now.getDate()).padStart(2, '0');
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const yyyy = now.getFullYear();
+      const dateStr = `${dd}/${mm}/${yyyy}`;
+      const username = user.email ? user.email.split('@')[0] : 'user';
+      const remarkLine = `\n[${dateStr}] ${username}: ${newAddition.trim()}`;
       combinedRemarks = originalRemarks
-        ? `${originalRemarks}\n\n[${dateStr}${emailSuffix}]: ${newAddition.trim()}`
-        : `[${dateStr}${emailSuffix}]: ${newAddition.trim()}`;
+        ? `${originalRemarks}${remarkLine}`
+        : remarkLine.trim();
     }
 
     setSavingRow(true);
@@ -149,6 +160,10 @@ export function useCaseEditor({
       const updatedRowBase: CaseRow = {
         ...selectedRow,
         ...tempRowData,
+        expectedOdCompletionDate: formattedExpectedOd,
+        eddReviewerDate: formattedEddReviewer,
+        expectedDeliveryDate: formattedExpectedDelivery,
+        cancelReqDate: formattedCancelReq,
         reviewerRemarks: combinedRemarks,
         updatedAt: timestampStr,
         syncPending: !accessToken,
