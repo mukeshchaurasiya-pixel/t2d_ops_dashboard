@@ -52,6 +52,18 @@ function sessionToAppUser(session: Session): AppUser {
   };
 }
 
+async function waitForSession(timeoutMs = 10000, intervalMs = 250): Promise<Session | null> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) return session;
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+
+  return null;
+}
+
 // ─── Auth state listener ──────────────────────────────────────────────────────
 /**
  * Subscribe to Supabase auth state changes.
@@ -157,7 +169,7 @@ export async function googleSignIn(): Promise<{ user: AppUser; accessToken: stri
           }
         }
 
-        const { data: { session } } = await supabase.auth.getSession();
+        const session = await waitForSession();
         if (session) {
           resolve({
             user: sessionToAppUser(session),
@@ -181,7 +193,7 @@ export async function googleSignIn(): Promise<{ user: AppUser; accessToken: stri
         cleanup();
         
         // Fallback: Check if session was successfully established in localStorage anyway
-        const { data: { session } } = await supabase.auth.getSession();
+        const session = await waitForSession();
         if (session) {
           resolve({
             user: sessionToAppUser(session),

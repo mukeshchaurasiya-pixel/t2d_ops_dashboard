@@ -12,7 +12,7 @@ if (window.opener && window.opener !== window) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         window.opener.postMessage({ type: 'AUTH_COMPLETE', session }, '*');
-        window.close();
+        setTimeout(() => window.close(), 0);
       } else {
         // If not loaded yet, listen to auth state changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
