@@ -474,34 +474,67 @@ export default function Dashboard({
   }, [filters.city]);
 
   const c2dStats = useMemo(() => {
-    const sourceRows = demoMode ? rows : activeTokenFastPath ? activeTokenRows : currentRows;
+    const sourceRows = demoMode ? rows : (activeTokenRows.length > 0 ? activeTokenRows : currentRows);
     const grouped: Record<string, CaseRow[]> = {};
     sourceRows.forEach(row => {
       const id = row.userId || row.uid || row.leadId;
       if (!id) return;
-      if (!grouped[id]) grouped[id] = [];
-      grouped[id].push(row);
+      const key = id.trim();
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(row);
     });
 
     const c2dBookingIds = new Set<string>();
-    Object.values(grouped).forEach(customerRows => {
-      const hasCancelled = customerRows.some(row => getDerivedFlags(row).isCancelled);
-      const hasDelivered = customerRows.some(row => row.leadStage === 'DELIVERED');
-      if (hasCancelled && hasDelivered) {
-        customerRows.forEach(row => {
-          if (getDerivedFlags(row).isCancelled) {
-            c2dBookingIds.add(row.bookingId);
+    const c2aBookingIds = new Set<string>();
+    const cr2dBookingIds = new Set<string>();
+
+    sourceRows.forEach(row => {
+      const flags = getDerivedFlags(row);
+      const customerId = row.userId || row.uid || row.leadId;
+
+      if (row.leadStage === 'DELIVERED' && (Boolean(row.cancelReqDate) || Boolean(row.cancelReason))) {
+        cr2dBookingIds.add(row.bookingId);
+      }
+
+      if (flags.isCancelled && customerId) {
+        const key = customerId.trim();
+        const customerRows = grouped[key] || [];
+        const cancelledTime = row.tokenDate ? (new Date(row.tokenDate).getTime() || 0) : 0;
+
+        const hasDeliveredAfter = customerRows.some(r => {
+          if (r.leadStage === 'DELIVERED') {
+            const deliveredTime = r.tokenDate ? (new Date(r.tokenDate).getTime() || 0) : 0;
+            return deliveredTime >= cancelledTime;
           }
+          return false;
         });
+
+        if (hasDeliveredAfter) {
+          c2dBookingIds.add(row.bookingId);
+        }
+
+        const hasActiveAfter = customerRows.some(r => {
+          if (r.leadStage === 'ACTIVE_TOKEN') {
+            const activeTime = r.tokenDate ? (new Date(r.tokenDate).getTime() || 0) : 0;
+            return activeTime >= cancelledTime;
+          }
+          return false;
+        });
+
+        if (hasActiveAfter) {
+          c2aBookingIds.add(row.bookingId);
+        }
       }
     });
 
-    return { c2dBookingIds };
-  }, [activeTokenFastPath, activeTokenRows, currentRows, demoMode, rows]);
+    return { c2dBookingIds, c2aBookingIds, cr2dBookingIds };
+  }, [activeTokenRows, currentRows, demoMode, rows]);
 
   const kpis = summary.kpis;
   const charts = summary.charts;
   const filteredCancelledC2dCount = summary.filteredCancelledC2dCount;
+  const filteredCancelledC2aCount = summary.filteredCancelledC2aCount || 0;
+  const filteredCancelledCr2dCount = summary.filteredCancelledCr2dCount || 0;
 
   const derivedLabels = useMemo(() => createDerivedLabels(filterOptions.tasks), [filterOptions.tasks]);
 
@@ -742,6 +775,22 @@ export default function Dashboard({
                               title="C2D: Cancelled booking but user converted to delivered on another Booking ID"
                             >
                               C2D
+                            </span>
+                          )}
+                          {c2dStats.c2aBookingIds.has(row.bookingId) && (
+                            <span 
+                              className="p-0.5 px-1.5 text-[8px] bg-amber-50 text-amber-700 border border-amber-100 rounded font-extrabold uppercase tracking-wider select-none shrink-0"
+                              title="C2A: Cancelled booking but user has an active token booking"
+                            >
+                              C2A
+                            </span>
+                          )}
+                          {c2dStats.cr2dBookingIds.has(row.bookingId) && (
+                            <span 
+                              className="p-0.5 px-1.5 text-[8px] bg-emerald-50 text-emerald-700 border border-emerald-100 rounded font-extrabold uppercase tracking-wider select-none shrink-0"
+                              title="CR2D: Cancellation raised but remarks exist and later delivered"
+                            >
+                              CR2D
                             </span>
                           )}
                         </div>
@@ -1440,7 +1489,12 @@ export default function Dashboard({
       </div>
 
       {/* 2. Bento Ticker Metrics Grid */}
-      <DashboardKpiCards kpis={kpis} filteredCancelledC2dCount={filteredCancelledC2dCount} />
+      <DashboardKpiCards 
+        kpis={kpis} 
+        filteredCancelledC2dCount={filteredCancelledC2dCount} 
+        filteredCancelledC2aCount={filteredCancelledC2aCount}
+        filteredCancelledCr2dCount={filteredCancelledCr2dCount}
+      />
 
       {/* Tab Navigation Bar */}
       <div className="flex border-b border-slate-200 mt-6 mb-5 gap-2 select-none overflow-x-auto whitespace-nowrap scrollbar-none">

@@ -339,6 +339,8 @@ export interface DashboardSummaryResult {
   kpis: DashboardKpis;
   charts: DashboardCharts;
   filteredCancelledC2dCount: number;
+  filteredCancelledC2aCount?: number;
+  filteredCancelledCr2dCount?: number;
 }
 
 export interface DashboardMatrixResult {

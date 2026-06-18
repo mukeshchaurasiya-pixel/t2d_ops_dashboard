@@ -143,6 +143,56 @@ function buildFilteredCancelledC2dCount(filteredRows: CaseRow[], allRows: CaseRo
   return total;
 }
 
+function buildFilteredCancelledC2aCount(filteredRows: CaseRow[], allRows: CaseRow[]): number {
+  const activeCustomers = new Set<string>();
+
+  allRows.forEach(row => {
+    if (row.leadStage === 'ACTIVE_TOKEN') {
+      const key = row.userId || row.uid || row.leadId;
+      if (key) {
+        activeCustomers.add(key.trim());
+      }
+    }
+  });
+
+  let total = 0;
+  filteredRows.forEach(row => {
+    const flags = getDerivedFlags(row);
+    if (flags.isCancelled) {
+      const key = row.userId || row.uid || row.leadId;
+      if (key && activeCustomers.has(key.trim())) {
+        const cancelledTime = row.tokenDate ? (parseDateString(row.tokenDate)?.getTime() || 0) : 0;
+        const hasLaterActive = allRows.some(r => {
+          if (r.leadStage === 'ACTIVE_TOKEN') {
+            const rKey = r.userId || r.uid || r.leadId;
+            if (rKey && rKey.trim() === key.trim()) {
+              const activeTime = r.tokenDate ? (parseDateString(r.tokenDate)?.getTime() || 0) : 0;
+              return activeTime >= cancelledTime;
+            }
+          }
+          return false;
+        });
+
+        if (hasLaterActive) {
+          total++;
+        }
+      }
+    }
+  });
+
+  return total;
+}
+
+function buildFilteredCancelledCr2dCount(filteredRows: CaseRow[]): number {
+  let total = 0;
+  filteredRows.forEach(row => {
+    if (row.leadStage === 'DELIVERED' && (Boolean(row.cancelReqDate) || Boolean(row.cancelReason))) {
+      total++;
+    }
+  });
+  return total;
+}
+
 function buildLocalSnapshot(
   sourceRows: CaseRow[],
   filters: FilterState,
@@ -158,11 +208,18 @@ function buildLocalSnapshot(
   const start = Math.max(0, (page - 1) * pageSize);
   const pagedRows = sorted.slice(start, start + pageSize);
   const filteredCancelledC2dCount = buildFilteredCancelledC2dCount(sorted, sourceRows);
+  const filteredCancelledC2aCount = buildFilteredCancelledC2aCount(sorted, sourceRows);
+  const filteredCancelledCr2dCount = buildFilteredCancelledCr2dCount(sorted);
 
   return {
     pageRows: pagedRows,
     totalCount,
-    summary: buildLocalDashboardSummary(sorted, filteredCancelledC2dCount),
+    summary: buildLocalDashboardSummary(
+      sorted,
+      filteredCancelledC2dCount,
+      filteredCancelledC2aCount,
+      filteredCancelledCr2dCount
+    ),
     matrix: buildLocalDashboardMatrix(sorted),
     filterOptions: buildLocalFilterOptions(sourceRows),
   };
@@ -216,11 +273,32 @@ export function useDashboardDataSource({
     return buildFilteredCancelledC2dCount(localFilteredRows, localSourceRows);
   }, [localFilteredRows, localSourceRows]);
 
+  const localFilteredCancelledC2aCount = useMemo(() => {
+    if (localFilteredRows.length === 0) return 0;
+    return buildFilteredCancelledC2aCount(localFilteredRows, localSourceRows);
+  }, [localFilteredRows, localSourceRows]);
+
+  const localFilteredCancelledCr2dCount = useMemo(() => {
+    if (localFilteredRows.length === 0) return 0;
+    return buildFilteredCancelledCr2dCount(localFilteredRows);
+  }, [localFilteredRows]);
+
   // 4. Local Summary
   const localSummary = useMemo(() => {
     if (localSourceRows.length === 0) return EMPTY_DASHBOARD_SUMMARY;
-    return buildLocalDashboardSummary(localFilteredRows, localFilteredCancelledC2dCount);
-  }, [localFilteredRows, localFilteredCancelledC2dCount, localSourceRows.length]);
+    return buildLocalDashboardSummary(
+      localFilteredRows,
+      localFilteredCancelledC2dCount,
+      localFilteredCancelledC2aCount,
+      localFilteredCancelledCr2dCount
+    );
+  }, [
+    localFilteredRows,
+    localFilteredCancelledC2dCount,
+    localFilteredCancelledC2aCount,
+    localFilteredCancelledCr2dCount,
+    localSourceRows.length
+  ]);
 
   // 5. Local Matrix
   const localMatrix = useMemo(() => {

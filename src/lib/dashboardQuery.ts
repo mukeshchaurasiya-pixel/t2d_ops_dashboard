@@ -62,6 +62,8 @@ export const EMPTY_DASHBOARD_SUMMARY: DashboardSummaryResult = {
   kpis: EMPTY_KPIS,
   charts: EMPTY_CHARTS,
   filteredCancelledC2dCount: 0,
+  filteredCancelledC2aCount: 0,
+  filteredCancelledCr2dCount: 0,
 };
 
 export const EMPTY_DASHBOARD_MATRIX: DashboardMatrixResult = {
@@ -178,11 +180,18 @@ export function isActiveTokenFastPath(filters: DashboardFilterQuery): boolean {
   );
 }
 
-export function buildLocalDashboardSummary(rows: CaseRow[], filteredCancelledC2dCount: number): DashboardSummaryResult {
+export function buildLocalDashboardSummary(
+  rows: CaseRow[],
+  filteredCancelledC2dCount: number,
+  filteredCancelledC2aCount: number = 0,
+  filteredCancelledCr2dCount: number = 0
+): DashboardSummaryResult {
   return {
     kpis: buildKpis(rows),
     charts: buildCharts(rows),
     filteredCancelledC2dCount,
+    filteredCancelledC2aCount,
+    filteredCancelledCr2dCount,
   };
 }
 
