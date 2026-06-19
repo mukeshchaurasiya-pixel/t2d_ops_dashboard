@@ -64,6 +64,23 @@ export default function App() {
     if (accessToken && sheetId) {
       const runAutoSync = async () => {
         try {
+          const isFreshLogin = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('cars24_fresh_login') === 'true';
+          
+          if (isFreshLogin) {
+            if (typeof sessionStorage !== 'undefined') {
+              sessionStorage.removeItem('cars24_fresh_login');
+            }
+            const lastSyncedStr = localStorage.getItem('cars24_lastSynced');
+            const lastSynced = lastSyncedStr ? new Date(lastSyncedStr) : null;
+            const oneHourAgo = Date.now() - 60 * 60 * 1000;
+            const refreshedInLastHour = lastSynced && lastSynced.getTime() > oneHourAgo;
+
+            if (refreshedInLastHour) {
+              console.log("Skipping data refresh: already refreshed in the last 1 hour.");
+              return;
+            }
+          }
+
           const syncedCount = await syncPendingChangesToSheets(accessToken, sheetId, sheetName, user?.email);
           const { sheetRows } = await syncCasesFromSheets({
             accessToken,

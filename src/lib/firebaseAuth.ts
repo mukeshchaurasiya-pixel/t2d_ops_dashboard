@@ -158,6 +158,9 @@ export async function googleSignIn(): Promise<{ user: AppUser; accessToken: stri
         cleanup();
         const receivedSession = event.data.session;
         if (receivedSession) {
+          if (typeof sessionStorage !== 'undefined') {
+            sessionStorage.setItem('cars24_fresh_login', 'true');
+          }
           try {
             cacheProviderToken(receivedSession.provider_token);
             await supabase.auth.setSession({
@@ -195,6 +198,9 @@ export async function googleSignIn(): Promise<{ user: AppUser; accessToken: stri
         // Fallback: Check if session was successfully established in localStorage anyway
         const session = await waitForSession();
         if (session) {
+          if (typeof sessionStorage !== 'undefined') {
+            sessionStorage.setItem('cars24_fresh_login', 'true');
+          }
           resolve({
             user: sessionToAppUser(session),
             accessToken: getProviderToken(session) ?? '',

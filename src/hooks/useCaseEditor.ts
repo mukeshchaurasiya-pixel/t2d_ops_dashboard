@@ -142,6 +142,9 @@ export function useCaseEditor({
     const formattedCancelReq = toSheetDateFormat(tempRowData.cancelReqDate);
 
     let combinedRemarks = originalRemarks;
+    let latestRemark = tempRowData.latestRemark || selectedRow.latestRemark || '';
+    let latestRemarkBy = tempRowData.latestRemarkBy || selectedRow.latestRemarkBy || '';
+    let latestRemarkDate = tempRowData.latestRemarkDate || selectedRow.latestRemarkDate || '';
     if (newAddition.trim()) {
       const now = new Date();
       const dd = String(now.getDate()).padStart(2, '0');
@@ -153,6 +156,9 @@ export function useCaseEditor({
       combinedRemarks = originalRemarks
         ? `${originalRemarks}${remarkLine}`
         : remarkLine.trim();
+      latestRemark = newAddition.trim();
+      latestRemarkBy = username;
+      latestRemarkDate = dateStr;
     }
 
     setSavingRow(true);
@@ -165,6 +171,9 @@ export function useCaseEditor({
         expectedDeliveryDate: formattedExpectedDelivery,
         cancelReqDate: formattedCancelReq,
         reviewerRemarks: combinedRemarks,
+        latestRemark,
+        latestRemarkBy,
+        latestRemarkDate,
         updatedAt: timestampStr,
         syncPending: !accessToken,
       };
@@ -212,6 +221,9 @@ export function useCaseEditor({
         ...selectedRow,
         ...tempRowData,
         reviewerRemarks: combinedRemarks,
+        latestRemark,
+        latestRemarkBy,
+        latestRemarkDate,
         updatedAt: timestampStr,
       };
       delete (fallbackRow as CaseEditorDraft).newRemarkAddition;

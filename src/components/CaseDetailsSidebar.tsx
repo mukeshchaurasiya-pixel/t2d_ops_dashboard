@@ -3,14 +3,28 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  ExternalLink, RefreshCw, X, ShieldCheck, Clock, Activity, Sparkles, 
-  Database, CheckCircle, PhoneCall, AlertCircle, ShieldAlert, 
-  Copy, Check, ChevronDown, ChevronUp, MessageSquare, FileSpreadsheet
+import {
+  Activity,
+  AlertCircle,
+  Check,
+  CheckCircle,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Copy,
+  Database,
+  FileSpreadsheet,
+  MessageSquare,
+  PhoneCall,
+  RefreshCw,
+  ShieldAlert,
+  ShieldCheck,
+  Sparkles,
+  X,
 } from 'lucide-react';
-import { CaseRow, AuditLog, CaseEditorDraft } from '../types';
+import { AuditLog, CaseEditorDraft, CaseRow } from '../types';
 import { splitTasks } from '../data/mockData';
 
 interface CaseDetailsSidebarProps {
@@ -29,71 +43,204 @@ interface CaseDetailsSidebarProps {
   auditLogs: AuditLog[];
 }
 
-interface ParsedRemark {
+type HumanRemark = {
   date: string;
   author: string;
   text: string;
+  raw: string;
+  timestampMs: number;
+};
+
+type SystemRemark = {
+  variableName: string;
+  newValue: string;
+  author: string;
+  timestamp: string;
+  raw: string;
+};
+
+type ParsedRemarks = {
+  human: HumanRemark[];
+  system: SystemRemark[];
+};
+
+type AuditGroup = {
+  columnName: string;
+  label: string;
+  logs: AuditLog[];
+};
+
+const HUMAN_REMARK_REGEX = /^\[(\d{1,2}\/\d{1,2}\/\d{4})(?:\s+\(([^)]+)\))?\]\s*([^:]+):\s*(.*)$/;
+const SYSTEM_REMARK_REGEX = /^-\s*(.*?)\s-\s(.*?)\s-\s(.*?)\s-\s(\d{2}\/\d{2}\/\d{4}\s\d{2}:\d{2})$/;
+
+function isBlank(value: unknown): boolean {
+  return value === undefined || value === null || String(value).trim() === '';
 }
 
-// Remarks parser according to Regex Engineering Constraint
-function parseRemarks(remarksStr: string): ParsedRemark[] {
-  if (!remarksStr) return [];
-  
-  const lines = remarksStr.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  const results: ParsedRemark[] = [];
+function formatCurrency(value: number | string | undefined | null): string {
+  if (isBlank(value)) return '';
+  const num = Number(value);
+  if (Number.isNaN(num)) return String(value);
+  return `INR ${num.toLocaleString('en-IN')}`;
+}
 
-  for (const line of lines) {
-    // 1. Try to match custom saved format: [DD/MM/YYYY] username: text or [DD/MM/YYYY (user)]: text
-    const ourFormatRegex = /^\[(\d{1,2}\/\d{1,2}\/\d{4})(?:\s+\(([^)]+)\))?\]\s*([^:]+):\s*(.*)$/;
-    const matchOur = line.match(ourFormatRegex);
-    if (matchOur) {
-      const date = matchOur[1];
-      const author = matchOur[3].trim();
-      const text = matchOur[4].trim();
-      results.push({ date, author, text });
-      continue;
-    }
+function parseTimestampMs(dateStr: string): number {
+  const [datePart] = String(dateStr || '').trim().split(' ');
+  const [d, m, y] = datePart.split('/').map(Number);
+  if (!d || !m || !y) return 0;
+  return new Date(y, m - 1, d).getTime();
+}
 
-    const ourFormatRegex2 = /^\[(\d{1,2}\/\d{1,2}\/\d{4})\]\s*([^:]+):\s*(.*)$/;
-    const matchOur2 = line.match(ourFormatRegex2);
-    if (matchOur2) {
-      const date = matchOur2[1];
-      const author = matchOur2[2].trim();
-      const text = matchOur2[3].trim();
-      results.push({ date, author, text });
-      continue;
-    }
+function parseRemarks(remarksStr: string): ParsedRemarks {
+  if (!remarksStr) return { human: [], system: [] };
 
-    // 2. Try to match the hyphenated format: - text - user - DD/MM/YYYY HH:MM
-    const cleanLine = line.startsWith('-') ? line.slice(1).trim() : line;
-    const parts = cleanLine.split(' - ').map(p => p.trim());
-    if (parts.length >= 3) {
-      const lastPart = parts[parts.length - 1];
-      const secondLastPart = parts[parts.length - 2];
-      const dateRegex = /(\d{1,2}\/\d{1,2}\/\d{4})/;
-      const matchDate = lastPart.match(dateRegex);
-      if (matchDate) {
-        const date = matchDate[1];
-        const author = secondLastPart;
-        const text = parts.slice(0, parts.length - 2).join(' - ');
-        results.push({ date, author, text });
-        continue;
+  const human: HumanRemark[] = [];
+  const system: SystemRemark[] = [];
+
+  String(remarksStr)
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .forEach(line => {
+      const humanMatch = line.match(HUMAN_REMARK_REGEX);
+      if (humanMatch) {
+        const date = humanMatch[1];
+        const author = (humanMatch[3] || '').trim();
+        const text = (humanMatch[4] || '').trim();
+        human.push({
+          date,
+          author,
+          text,
+          raw: line,
+          timestampMs: parseTimestampMs(date),
+        });
+        return;
       }
-    }
 
-    // Fallback: Use line itself and extract date if any
-    const fallbackDateRegex = /(\d{1,2}\/\d{1,2}\/\d{4})/;
-    const matchFallbackDate = line.match(fallbackDateRegex);
-    const date = matchFallbackDate ? matchFallbackDate[1] : '';
-    results.push({
-      date: date || 'System Log',
-      author: 'Update',
-      text: line
+      const systemMatch = line.match(SYSTEM_REMARK_REGEX);
+      if (systemMatch) {
+        system.push({
+          variableName: (systemMatch[1] || '').trim(),
+          newValue: (systemMatch[2] || '').trim(),
+          author: (systemMatch[3] || '').trim(),
+          timestamp: (systemMatch[4] || '').trim(),
+          raw: line,
+        });
+        return;
+      }
+
+      const fallbackDateMatch = line.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+      human.push({
+        date: fallbackDateMatch ? fallbackDateMatch[1] : '',
+        author: 'Update',
+        text: line,
+        raw: line,
+        timestampMs: fallbackDateMatch ? parseTimestampMs(fallbackDateMatch[1]) : 0,
+      });
     });
-  }
 
-  // Return the 3 most recent entries in reverse (newest first)
-  return results.slice(-3).reverse();
+  human.sort((a, b) => a.timestampMs - b.timestampMs);
+  return { human, system };
+}
+
+function getHumanRemarkFeed(remarks: HumanRemark[], limit = 3): HumanRemark[] {
+  return remarks.slice(-limit).reverse();
+}
+
+function getLatestHumanRemark(remarks: HumanRemark[]): HumanRemark | null {
+  if (remarks.length === 0) return null;
+  return remarks[remarks.length - 1] ?? null;
+}
+
+function humanizeAuditColumn(columnName: string): string {
+  const mapping: Record<string, string> = {
+    readyToDeliver: 'Ready to Deliver?',
+    cancelReqDate: 'Cancel Request Date',
+    expectedOdCompletionDate: 'Expected OD Completion Date',
+    eddReviewerDate: 'EDD Date (Reviewer)',
+    reviewerRemarks: 'Remarks',
+    onDemandStatus: 'On Demand Status',
+    expectedDeliveryDate: 'Expected Delivery Date',
+    paymentPercentage: 'Payment Percentage',
+    sheetFinalStatus: 'Sheet Final Status',
+    formFinalStatus: 'Form Final Status',
+    confidenceScore: 'Confidence Score',
+    leadStage: 'Lead Stage',
+    dealStatus: 'Deal Status',
+    allocatedRm: 'Allocated RM',
+    assignedDc: 'Assigned DC',
+    deliveryStatus: 'Delivery Status',
+    taskBucket: 'Task Bucket',
+  };
+
+  return mapping[columnName] || columnName;
+}
+
+function groupAuditLogs(auditLogs: AuditLog[]): AuditGroup[] {
+  const groups = new Map<string, AuditLog[]>();
+
+  auditLogs.forEach(log => {
+    const key = log.column_name || 'unknown';
+    const existing = groups.get(key) || [];
+    existing.push(log);
+    groups.set(key, existing);
+  });
+
+  return Array.from(groups.entries()).map(([columnName, logs]) => ({
+    columnName,
+    label: humanizeAuditColumn(columnName),
+    logs,
+  }));
+}
+
+function renderEmptyState(text: string) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-center text-[11px] italic text-slate-400">
+      {text}
+    </div>
+  );
+}
+
+function renderFieldCard(
+  label: string,
+  value: unknown,
+  formatter?: (val: any) => string
+) {
+  if (isBlank(value)) return null;
+  const displayValue = formatter ? formatter(value) : String(value);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <span className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-slate-400">
+        {label}
+      </span>
+      <span className="block break-words text-xs font-semibold text-slate-800">
+        {displayValue}
+      </span>
+    </div>
+  );
+}
+
+function renderGrid(
+  fields: { label: string; value: unknown; formatter?: (val: any) => string }[]
+) {
+  const rendered = fields.map(field => renderFieldCard(field.label, field.value, field.formatter)).filter(Boolean);
+  if (rendered.length === 0) {
+    return renderEmptyState('No data recorded for this section.');
+  }
+  return <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">{rendered}</div>;
+}
+
+function DiffRow({ oldValue, newValue }: { oldValue: string | null; newValue: string | null }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2 font-mono text-[10px]">
+      <div className="truncate text-rose-700" title={oldValue || ''}>
+        - {oldValue || 'Empty'}
+      </div>
+      <div className="truncate font-semibold text-emerald-700" title={newValue || ''}>
+        + {newValue || 'Empty'}
+      </div>
+    </div>
+  );
 }
 
 export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
@@ -109,76 +256,84 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
   savingRow,
   handleSaveActionables,
   loadingAuditLogs,
-  auditLogs
+  auditLogs,
 }) => {
   const [copied, setCopied] = useState(false);
-  const [openAccordion, setOpenAccordion] = useState<Record<string, boolean>>({
-    crm: true,      // Accordion A: CRM & Journey Health (Default: Open)
-    finance: false,  // Accordion B: Finance, Forms & Underwriting (Default: Closed)
-    ops: false,      // Accordion C: Ops & Logistics (Default: Closed)
-    ai: false,       // Accordion D: AI Co-Pilot & ML (Default: Closed)
-    history: false,  // Accordion E: History (Default: Closed)
+  const [openAccordion, setOpenAccordion] = useState<Record<'crm' | 'finance' | 'ops' | 'ai' | 'history', boolean>>({
+    crm: true,
+    finance: false,
+    ops: false,
+    ai: false,
+    history: false,
   });
 
-  // Reset copied status on opening new row
   useEffect(() => {
-    if (isOpen) {
-      setCopied(false);
-    }
+    if (isOpen) setCopied(false);
   }, [isOpen, selectedRow?.bookingId]);
+
+  const parsedRemarks = useMemo(
+    () => parseRemarks(selectedRow?.reviewerRemarks || ''),
+    [selectedRow?.reviewerRemarks]
+  );
+
+  const humanFeed = useMemo(() => getHumanRemarkFeed(parsedRemarks.human, 3), [parsedRemarks.human]);
+  const latestHumanRemark = useMemo(() => getLatestHumanRemark(parsedRemarks.human), [parsedRemarks.human]);
+  const auditGroups = useMemo(() => groupAuditLogs(auditLogs), [auditLogs]);
+  const saveFeedbackLower = saveFeedback?.toLowerCase() || '';
 
   if (!isOpen || !selectedRow) return null;
 
-  const toggleAccordion = (key: string) => {
+  const toggleAccordion = (key: keyof typeof openAccordion) => {
     setOpenAccordion(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const formatCurrencyLocal = (val: number | string | undefined | null) => {
-    if (val === undefined || val === null || val === '') return '';
-    const num = Number(val);
-    if (isNaN(num)) return String(val);
-    return 'INR ' + num.toLocaleString('en-IN');
-  };
+  const contactNo = selectedRow.contactNumber ? String(selectedRow.contactNumber).replace(/[^0-9]/g, '') : '';
+  const waUrl = contactNo ? `https://wa.me/${contactNo}` : '#';
 
-  // Helper for conditional field rendering (Hides label entirely if data is null/blank)
-  const renderField = (label: string, value: any, formatter?: (val: any) => string) => {
-    if (value === undefined || value === null || String(value).trim() === '') return null;
-    const displayVal = formatter ? formatter(value) : String(value);
-    return (
-      <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl hover:bg-slate-100/50 transition-colors">
-        <span className="block text-[9px] uppercase tracking-wider text-slate-400 font-extrabold font-mono mb-0.5">{label}</span>
-        <span className="block text-xs font-bold text-slate-800 break-words">{displayVal}</span>
-      </div>
-    );
-  };
+  const totalCollected = Number(selectedRow.amountCollected || 0);
+  const totalExpected = Number(selectedRow.totalExpectedAmount || 0);
+  const totalPending = Number(selectedRow.amountPending || 0);
+  const progressPct = totalExpected > 0 ? Math.min(100, Math.round((totalCollected / totalExpected) * 100)) : 0;
+  const isFullyCollected = totalPending <= 0 && totalExpected > 0;
 
-  const renderGrid = (fields: { label: string; value: any; formatter?: (val: any) => string }[]) => {
-    const renderedFields = fields.map(f => renderField(f.label, f.value, f.formatter)).filter(Boolean);
-    if (renderedFields.length === 0) {
-      return (
-        <div className="p-3 text-center text-[10px] text-slate-400 italic bg-slate-50 rounded-xl border border-slate-150">
-          No data recorded for this section.
-        </div>
-      );
-    }
-    return <div className="grid grid-cols-2 gap-2.5">{renderedFields}</div>;
-  };
+  const showCancelAlert = !isBlank(selectedRow.cancelReqDate);
+  const cancelReason = !isBlank(selectedRow.cancelReason)
+    ? String(selectedRow.cancelReason).trim()
+    : 'System Auto-Cancelled / No Explicit Reason Logged';
+  const showCreditAlert = !isBlank(selectedRow.creditRejectionReason);
+  const showDiligenceAlert = !isBlank(selectedRow.diligenceRejectionReason);
+  const hasBlockers = showCancelAlert || showCreditAlert || showDiligenceAlert;
 
-  // Stepper Stages for Lead Milestones
-  const stages = [
-    { name: 'Lead Created', value: selectedRow.latestLeadCreationTimestamp },
-    { name: 'Case Logged In', value: selectedRow.latestLoginTime },
-    { name: 'Credit Assessed', value: selectedRow.latestCreditAssessedTimestamp },
-    { name: 'Diligence Assessed', value: selectedRow.latestDiligenceAssessedTimestamp },
-    { name: 'T&C Accepted', value: selectedRow.tncAcceptedTimestamp },
-    { name: 'FCU Checked', value: selectedRow.latestFcuAssessedTimestamp },
-    { name: 'Submitted to Ops', value: selectedRow.submitToOpsTimestamp },
-    { name: 'Finance Disbursed', value: selectedRow.financeDisbursedTimestamp },
+  const latestRemarkCard = !isBlank(selectedRow.latestRemark)
+    ? String(selectedRow.latestRemark).trim()
+    : latestHumanRemark?.text || '';
+  const latestRemarkAuthor = !isBlank(selectedRow.latestRemarkBy)
+    ? String(selectedRow.latestRemarkBy).trim()
+    : latestHumanRemark?.author || '';
+  const latestRemarkDate = !isBlank(selectedRow.latestRemarkDate)
+    ? String(selectedRow.latestRemarkDate).trim()
+    : latestHumanRemark?.date || '';
+
+  const showAiAccordion = !isBlank(selectedRow.confidenceScore);
+  const confidencePct = useMemo(() => {
+    const raw = Number(selectedRow.confidenceScore || 0);
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return raw > 1 ? Math.min(100, Math.round(raw)) : Math.min(100, Math.round(raw * 100));
+  }, [selectedRow.confidenceScore]);
+
+  const milestoneStages = [
+    { label: 'Lead Created', value: selectedRow.latestLeadCreationTimestamp },
+    { label: 'Case Logged In', value: selectedRow.latestLoginTime || selectedRow.sheetLoginTimestamp },
+    { label: 'Credit Assessed', value: selectedRow.latestCreditAssessedTimestamp },
+    { label: 'Diligence Assessed', value: selectedRow.latestDiligenceAssessedTimestamp },
+    { label: 'T&C Accepted', value: selectedRow.tncAcceptedTimestamp },
+    { label: 'FCU Checked', value: selectedRow.latestFcuAssessedTimestamp },
+    { label: 'Submitted to Ops', value: selectedRow.submitToOpsTimestamp },
+    { label: 'Finance Disbursed', value: selectedRow.financeDisbursedTimestamp },
   ];
 
-  const lastActiveIndex = stages.reduce((acc, stage, idx) => stage.value ? idx : acc, -1);
+  const lastActiveIndex = milestoneStages.reduce((acc, stage, idx) => (!isBlank(stage.value) ? idx : acc), -1);
 
-  // Copy Deep Link
   const handleCopyLink = () => {
     const deepLink = `${window.location.origin}/?bookingId=${selectedRow.bookingId}`;
     navigator.clipboard.writeText(deepLink);
@@ -186,193 +341,168 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const contactNo = selectedRow.contactNumber ? String(selectedRow.contactNumber).replace(/[^0-9]/g, '') : '';
-  const waUrl = contactNo ? `https://wa.me/${contactNo}` : '#';
-
-  // Math for Financial Progress Bar
-  const collected = Number(selectedRow.amountCollected || 0);
-  const expected = Number(selectedRow.totalExpectedAmount || 0);
-  const pending = Number(selectedRow.amountPending || 0);
-  const progressPct = expected > 0 ? Math.min(100, Math.round((collected / expected) * 100)) : 0;
-  const isCollectedFull = pending <= 0;
-
-  // Blocker Alerts triggers
-  const showCancelAlert = !!selectedRow.cancelReqDate;
-  const cancelDisplayReason = selectedRow.cancelReason ? String(selectedRow.cancelReason).trim() : 'System Auto-Cancelled / No Reason Provided';
-  const showCreditAlert = !!selectedRow.creditRejectionReason;
-  const showDiligenceAlert = !!selectedRow.diligenceRejectionReason;
-  const hasBlockers = showCancelAlert || showCreditAlert || showDiligenceAlert;
-
-  // Remarks parsing for Feed
-  const parsedRemarksList = parseRemarks(selectedRow.reviewerRemarks || '');
-
-  // AI accordion conditional logic
-  const showAiAccordion = !!selectedRow.confidenceScore;
-  const pctConfidence = selectedRow.confidenceScore ? Math.round(Number(selectedRow.confidenceScore) * 100) : 0;
-
   return (
     <AnimatePresence>
       {isOpen && (
         <>
-          {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-xs"
+            className="fixed inset-0 z-40 bg-slate-950/30 backdrop-blur-[1px]"
           />
 
-          {/* Sidebar Slider Panel */}
           <motion.div
-            initial={{ x: "100%" }}
+            initial={{ x: '100%' }}
             animate={{ x: 0 }}
-            exit={{ x: "100%" }}
-            transition={{ type: "spring", damping: 25, stiffness: 220 }}
-            className="fixed top-0 right-0 h-screen w-full sm:max-w-xl bg-white shadow-2xl border-l border-slate-100 z-50 overflow-hidden flex flex-col font-sans"
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+            className="fixed right-0 top-0 z-50 flex h-screen w-full flex-col overflow-hidden border-l border-slate-200 bg-slate-50 text-slate-800 shadow-2xl sm:max-w-2xl"
           >
-            {/* 1. Sticky Header (Persistent Context) */}
-            <div className="p-4 border-b border-slate-800 bg-slate-950 text-white shrink-0">
-              <div className="flex justify-between items-start">
-                <div className="space-y-1">
+            <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-4 shadow-sm">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0 space-y-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold tracking-wider text-amber-500 uppercase bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700">
                       Unified Booking record
                     </span>
                     {fetchingLatestRow && (
-                      <span className="text-[9px] text-amber-500 font-mono animate-pulse flex items-center gap-1">
-                        <RefreshCw className="w-2.5 h-2.5 animate-spin" /> syncing...
+                      <span className="flex items-center gap-1 text-[9px] font-mono text-amber-600">
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                        syncing
                       </span>
                     )}
                   </div>
-                  <h3 className="text-base font-extrabold tracking-tight text-white font-mono flex items-center gap-2">
-                    <span>{selectedRow.bookingId}</span>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-black tracking-tight text-slate-900">
+                      {selectedRow.bookingId}
+                    </h3>
                     {selectedRow.carRegNo && (
-                      <>
-                        <span className="text-slate-500">|</span>
-                        <span className="text-slate-300 font-medium">{selectedRow.carRegNo}</span>
-                      </>
+                      <span className="text-sm font-semibold text-slate-500">| {selectedRow.carRegNo}</span>
                     )}
-                  </h3>
+                  </div>
+
                   {(selectedRow.make || selectedRow.model || selectedRow.variant) && (
-                    <p className="text-xs text-slate-400 font-medium">
+                    <p className="text-xs font-medium text-slate-500">
                       {[selectedRow.make, selectedRow.model, selectedRow.variant].filter(Boolean).join(' ')}
                     </p>
                   )}
                 </div>
 
-                <div className="flex items-center gap-1.5">
-                  {/* Quick Actions Iconography */}
+                <div className="flex shrink-0 items-center gap-1.5">
                   {contactNo && (
                     <>
-                      <a 
+                      <a
                         href={`tel:${contactNo}`}
-                        className="p-2 rounded-lg bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white transition-all cursor-pointer"
+                        className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
                         title={`Call ${contactNo}`}
                       >
-                        <PhoneCall className="w-3.5 h-3.5" />
+                        <PhoneCall className="h-3.5 w-3.5" />
                       </a>
-                      <a 
+                      <a
                         href={waUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="p-2 rounded-lg bg-slate-850 hover:bg-slate-800 text-emerald-450 hover:text-emerald-400 transition-all cursor-pointer"
+                        className="rounded-lg border border-slate-200 bg-white p-2 text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
                         title="Open WhatsApp chat"
                       >
-                        <MessageSquare className="w-3.5 h-3.5" />
+                        <MessageSquare className="h-3.5 w-3.5" />
                       </a>
                     </>
                   )}
                   <button
+                    type="button"
                     onClick={handleCopyLink}
-                    className="p-2 rounded-lg bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white transition-all cursor-pointer relative"
-                    title="Copy Deep Link to Clipboard"
+                    className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                    title="Copy record link"
                   >
-                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
                   </button>
                   <button
+                    type="button"
                     onClick={onClose}
-                    className="p-2 rounded-lg bg-slate-850 hover:bg-slate-800 text-slate-400 hover:text-white transition-all cursor-pointer ml-1"
+                    className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
                   >
-                    <X className="w-3.5 h-3.5" />
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
               </div>
 
-              {/* Status Badges Row */}
-              <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-slate-900">
-                {selectedRow.leadStage && (
-                  <span className="text-[9px] font-extrabold uppercase px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                    Stage: {selectedRow.leadStage}
+              <div className="mt-3 flex flex-wrap gap-1.5 border-t border-slate-200 pt-3">
+                {!isBlank(selectedRow.leadStage) && (
+                  <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-blue-700">
+                    Lead: {selectedRow.leadStage}
                   </span>
                 )}
-                {selectedRow.tokenType && (
-                  <span className="text-[9px] font-extrabold uppercase px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                {!isBlank(selectedRow.tokenType) && (
+                  <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-700">
                     Token: {selectedRow.tokenType}
                   </span>
                 )}
-                {selectedRow.leadStatus && (
-                  <span className="text-[9px] font-extrabold uppercase px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                    Lead: {selectedRow.leadStatus}
+                {!isBlank(selectedRow.leadStatus) && (
+                  <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-700">
+                    Status: {selectedRow.leadStatus}
                   </span>
                 )}
-                {selectedRow.dealStatus && (
-                  <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded border ${
-                    selectedRow.dealStatus.includes('Cancel')
-                      ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                      : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                  }`}>
+                {!isBlank(selectedRow.dealStatus) && (
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                      /cancel/i.test(String(selectedRow.dealStatus))
+                        ? 'border-rose-200 bg-rose-50 text-rose-700'
+                        : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    }`}
+                  >
                     Deal: {selectedRow.dealStatus}
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Vertical Scrollable Panel Body */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-
-              {/* 2. Critical Blocker Banner (Conditional) */}
+            <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
               {hasBlockers && (
-                <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200/80 text-rose-900 space-y-2.5 animate-fade-in shadow-xs">
-                  <h4 className="text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 text-rose-700">
-                    <ShieldAlert className="w-4 h-4 text-rose-500 animate-pulse" /> Critical Blockers Detected
-                  </h4>
-                  
-                  <div className="space-y-1.5 text-xs">
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 shadow-sm">
+                  <div className="flex items-center gap-2 text-rose-700">
+                    <ShieldAlert className="h-4 w-4" />
+                    <h4 className="text-[10px] font-black uppercase tracking-wider">Critical Blockers Detected</h4>
+                  </div>
+
+                  <div className="mt-3 space-y-2">
                     {showCancelAlert && (
-                      <div className="p-2.5 bg-white border border-rose-200/50 rounded-xl">
-                        <span className="block text-[9px] font-bold text-rose-600 uppercase tracking-wider mb-0.5">
+                      <div className="rounded-xl border border-rose-200 bg-white p-3">
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-rose-600">
                           Cancel Requested On: {selectedRow.cancelReqDate}
-                        </span>
-                        <p className="font-semibold text-rose-900 font-sans">
-                          {cancelDisplayReason}
                         </p>
+                        <p className="mt-1 text-xs font-semibold text-rose-900">{cancelReason}</p>
                       </div>
                     )}
+
                     {showCreditAlert && (
-                      <div className="p-2.5 bg-white border border-rose-200/50 rounded-xl">
-                        <span className="block text-[9px] font-bold text-rose-600 uppercase tracking-wider mb-0.5">
+                      <div className="rounded-xl border border-rose-200 bg-white p-3">
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-rose-600">
                           Credit Rejection Alert
-                        </span>
-                        <p className="font-extrabold text-rose-950 font-sans">
+                        </p>
+                        <p className="mt-1 text-xs font-semibold text-rose-900">
                           {selectedRow.creditRejectionReason}
-                          {selectedRow.creditRejectionSubReason && (
-                            <span className="block text-[10px] font-semibold text-slate-500 mt-0.5">
+                          {!isBlank(selectedRow.creditRejectionSubReason) && (
+                            <span className="mt-1 block text-[10px] font-medium text-slate-500">
                               Sub-reason: {selectedRow.creditRejectionSubReason}
                             </span>
                           )}
                         </p>
                       </div>
                     )}
+
                     {showDiligenceAlert && (
-                      <div className="p-2.5 bg-white border border-rose-200/50 rounded-xl">
-                        <span className="block text-[9px] font-bold text-rose-600 uppercase tracking-wider mb-0.5">
+                      <div className="rounded-xl border border-rose-200 bg-white p-3">
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-rose-600">
                           Diligence Rejection Alert
-                        </span>
-                        <p className="font-extrabold text-rose-950 font-sans">
+                        </p>
+                        <p className="mt-1 text-xs font-semibold text-rose-900">
                           {selectedRow.diligenceRejectionReason}
-                          {selectedRow.diligenceRejectionSubReason && (
-                            <span className="block text-[10px] font-semibold text-slate-500 mt-0.5">
+                          {!isBlank(selectedRow.diligenceRejectionSubReason) && (
+                            <span className="mt-1 block text-[10px] font-medium text-slate-500">
                               Sub-reason: {selectedRow.diligenceRejectionSubReason}
                             </span>
                           )}
@@ -383,99 +513,93 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                 </div>
               )}
 
-              {/* 3. The Action & Execution Zone (Always Expanded) */}
-              <div className="p-4 bg-slate-900 text-slate-100 rounded-2xl border border-slate-800 space-y-4 shadow-xl relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-500 to-amber-600" />
-                <h4 className="text-xs font-bold text-amber-500 uppercase tracking-wider flex items-center gap-1.5 pb-2 border-b border-slate-800">
-                  <ShieldCheck className="w-4 h-4 text-amber-500" /> Action &amp; Execution Zone
-                </h4>
-
-                {/* A. Immediate Bottleneck & Financials */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Task Bucket info */}
-                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/60 flex flex-col justify-between">
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
                     <div>
-                      <span className="block text-[8px] text-slate-450 uppercase font-mono tracking-wider font-extrabold">Immediate Bottleneck</span>
-                      {selectedRow.taskBucket ? (
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {splitTasks(selectedRow.taskBucket).map((t, idx) => (
-                            <span key={idx} className="px-2 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/10 text-amber-500 border border-amber-500/20 uppercase font-mono">
-                              {t}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-[11px] text-slate-500 font-medium italic block mt-1">No immediate task bottleneck.</span>
-                      )}
-                    </div>
-                    {selectedRow.reasonPointer && (
-                      <p className="text-[10px] text-slate-400 leading-relaxed font-sans mt-2 border-t border-slate-900 pt-2 break-words">
-                        <span className="font-semibold text-slate-300">Pointer:</span> {selectedRow.reasonPointer}
+                      <h4 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-800">
+                        <ShieldCheck className="h-4 w-4 text-amber-600" />
+                        Action & Execution Zone
+                      </h4>
+                      <p className="mt-1 text-[10px] text-slate-500">
+                        Only four write-access controls are editable here.
                       </p>
+                    </div>
+
+                    {saveSuccess && (
+                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
+                        Saved
+                      </span>
                     )}
                   </div>
+                </div>
 
-                  {/* Financial Health Progress Bar */}
-                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/60 space-y-2">
-                    <div className="flex justify-between items-center text-[8px] font-extrabold text-slate-450 font-mono tracking-wider">
-                      <span>FINANCIAL HEALTH</span>
-                      <span className={isCollectedFull ? 'text-emerald-450' : 'text-amber-500'}>
-                        {progressPct}% COLLECTED
-                      </span>
+                <div className="space-y-4 p-4">
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <div className="mb-2">
+                        <span className="block text-[8px] font-bold uppercase tracking-wider text-slate-400">
+                          Immediate Bottleneck
+                        </span>
+                        {!isBlank(selectedRow.taskBucket) ? (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {splitTasks(selectedRow.taskBucket).map((task, idx) => (
+                              <span
+                                key={`${task}-${idx}`}
+                                className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700"
+                              >
+                                {task}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-1 text-[11px] italic text-slate-500">No immediate task bottleneck.</p>
+                        )}
+                      </div>
+
+                      {!isBlank(selectedRow.reasonPointer) && (
+                        <div className="rounded-lg border border-slate-200 bg-white p-2.5 text-[10px] text-slate-600">
+                          <span className="font-semibold text-slate-800">Pointer:</span> {selectedRow.reasonPointer}
+                        </div>
+                      )}
                     </div>
-                    <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
-                      <div 
-                        className={`h-full transition-all duration-300 ${isCollectedFull ? 'bg-emerald-500' : 'bg-amber-500'}`} 
-                        style={{ width: `${progressPct}%` }} 
-                      />
-                    </div>
-                    <div className="grid grid-cols-3 gap-1 text-[8.5px] font-mono text-slate-400">
-                      <div>Coll: <span className="font-bold text-slate-200">{formatCurrencyLocal(collected)}</span></div>
-                      <div className="text-center">Pend: <span className={`font-bold ${pending > 0 ? 'text-amber-550' : 'text-emerald-450'}`}>{formatCurrencyLocal(pending)}</span></div>
-                      <div className="text-right">Exp: <span className="font-bold text-slate-200">{formatCurrencyLocal(expected)}</span></div>
+
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <div className="mb-2 flex items-center justify-between text-[8px] font-bold uppercase tracking-wider text-slate-400">
+                        <span>Financial Health</span>
+                        <span>{progressPct}%</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            isFullyCollected ? 'bg-emerald-500' : 'bg-amber-500'
+                          }`}
+                          style={{ width: `${progressPct}%` }}
+                        />
+                      </div>
+                      <div className="mt-2 grid grid-cols-3 gap-2 text-[10px] font-mono text-slate-500">
+                        <div>
+                          Collected: <span className="font-semibold text-slate-800">{formatCurrency(totalCollected)}</span>
+                        </div>
+                        <div className="text-center">
+                          Pending: <span className={`font-semibold ${totalPending > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{formatCurrency(totalPending)}</span>
+                        </div>
+                        <div className="text-right">
+                          Expected: <span className="font-semibold text-slate-800">{formatCurrency(totalExpected)}</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* B. Current Context Feed (Read-Only) */}
-                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800/60 space-y-2.5">
-                  <span className="block text-[8px] text-slate-450 uppercase font-mono tracking-wider font-extrabold">
-                    Latest Sheet Context (3 Most Recent Log Entries)
-                  </span>
-
-                  {fetchingLatestRow ? (
-                    <div className="space-y-1.5 py-1">
-                      <div className="h-6 bg-slate-900 animate-pulse rounded-lg" />
-                      <div className="h-6 bg-slate-900 animate-pulse rounded-lg" />
-                    </div>
-                  ) : parsedRemarksList.length > 0 ? (
-                    <div className="space-y-2">
-                      {parsedRemarksList.map((rem, idx) => (
-                        <div key={idx} className="p-2 bg-slate-900 border border-slate-850 rounded-lg text-[10.5px] leading-relaxed">
-                          <div className="flex items-center justify-between text-[8px] text-slate-450 font-mono mb-0.5">
-                            <span className="font-bold text-amber-500">{rem.author}</span>
-                            <span>[{rem.date}]</span>
-                          </div>
-                          <p className="text-slate-200 font-sans">{rem.text}</p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-[10px] text-slate-500 italic">No formatted historical logs found in this record.</p>
-                  )}
-                </div>
-
-                {/* C. The 4 Editable Operations Inputs (Write-Access) */}
-                <div className="space-y-3 pt-2 border-t border-slate-800">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <div>
-                      <label className="block text-[9px] uppercase tracking-wider font-extrabold text-slate-400 mb-1">
+                      <label className="mb-1 block text-[9px] font-bold uppercase tracking-wider text-slate-500">
                         Ready to Deliver?
                       </label>
                       <select
                         value={tempRowData.readyToDeliver || ''}
-                        onChange={e => setTempRowData((p: any) => ({ ...p, readyToDeliver: e.target.value }))}
-                        className="w-full text-xs p-2 bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-100 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        onChange={e => setTempRowData(prev => ({ ...prev, readyToDeliver: e.target.value }))}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 shadow-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-200"
                       >
                         <option value="">(Blank)</option>
                         <option value="Yes">Yes</option>
@@ -484,168 +608,169 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                     </div>
 
                     <div>
-                      <label className="block text-[9px] uppercase tracking-wider font-extrabold text-slate-400 mb-1">
-                        Expected OD Date
+                      <label className="mb-1 block text-[9px] font-bold uppercase tracking-wider text-slate-500">
+                        Expected OD Completion Date
                       </label>
                       <input
                         type="date"
                         value={tempRowData.expectedOdCompletionDate || ''}
-                        onChange={e => setTempRowData((p: any) => ({ ...p, expectedOdCompletionDate: e.target.value }))}
-                        className="w-full text-xs p-2 bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-100 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono"
+                        onChange={e => setTempRowData(prev => ({ ...prev, expectedOdCompletionDate: e.target.value }))}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 shadow-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-200"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[9px] uppercase tracking-wider font-extrabold text-slate-400 mb-1">
+                      <label className="mb-1 block text-[9px] font-bold uppercase tracking-wider text-slate-500">
                         EDD Date (Reviewer)
                       </label>
                       <input
                         type="date"
                         value={tempRowData.eddReviewerDate || ''}
-                        onChange={e => setTempRowData((p: any) => ({ ...p, eddReviewerDate: e.target.value }))}
-                        className="w-full text-xs p-2 bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-100 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono"
+                        onChange={e => setTempRowData(prev => ({ ...prev, eddReviewerDate: e.target.value }))}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 shadow-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-200"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-[9px] uppercase tracking-wider font-extrabold text-slate-400 mb-1 flex justify-between">
+                    <label className="mb-1 flex items-center justify-between text-[9px] font-bold uppercase tracking-wider text-slate-500">
                       <span>Add Remark (Append Only)</span>
-                      <span className="text-[8px] text-slate-500 font-mono font-normal">will concatenate to remarks timeline</span>
+                      <span className="font-normal normal-case tracking-normal text-slate-400">
+                        appends to remarks timeline
+                      </span>
                     </label>
                     <textarea
-                      rows={2}
+                      rows={3}
                       value={tempRowData.newRemarkAddition || ''}
-                      onChange={e => setTempRowData((p: any) => ({ ...p, newRemarkAddition: e.target.value }))}
-                      placeholder="Type remark text here to append..."
-                      className="w-full text-xs p-2 bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-100 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 placeholder-slate-600"
+                      onChange={e => setTempRowData(prev => ({ ...prev, newRemarkAddition: e.target.value }))}
+                      placeholder="Type a new remark to append..."
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-200"
                     />
                   </div>
 
-                  {/* Save feedback banner */}
                   <AnimatePresence>
                     {saveFeedback && (
                       <motion.div
                         initial={{ opacity: 0, y: -6 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -6 }}
-                        className={`flex items-start gap-2 px-3 py-2 rounded-lg text-[10px] font-bold leading-normal ${
-                          saveFeedback.includes('Failed')
-                            ? 'bg-rose-950/40 border border-rose-900/40 text-rose-300'
-                            : saveFeedback.includes('offline') || saveFeedback.includes('Offline')
-                            ? 'bg-amber-950/40 border border-amber-900/40 text-amber-300'
-                            : 'bg-emerald-950/40 border border-emerald-900/40 text-emerald-300'
+                        className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-[10px] font-semibold ${
+                          saveFeedbackLower.includes('failed')
+                            ? 'border-rose-200 bg-rose-50 text-rose-700'
+                            : saveFeedbackLower.includes('offline')
+                              ? 'border-amber-200 bg-amber-50 text-amber-700'
+                              : 'border-emerald-200 bg-emerald-50 text-emerald-700'
                         }`}
                       >
-                        {saveFeedback.includes('Failed') ? (
-                          <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
-                        ) : saveFeedback.includes('offline') || saveFeedback.includes('Offline') ? (
-                          <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5 animate-pulse" />
+                        {saveFeedbackLower.includes('failed') ? (
+                          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        ) : saveFeedbackLower.includes('offline') ? (
+                          <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                         ) : (
-                          <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                          <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                         )}
                         <div>{saveFeedback}</div>
                       </motion.div>
                     )}
                   </AnimatePresence>
 
-                  {/* Save trigger action */}
                   <button
                     type="button"
                     onClick={handleSaveActionables}
                     disabled={savingRow}
-                    className="w-full p-2.5 rounded-lg text-xs font-bold text-slate-950 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 transition-all active:scale-98 cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-amber-500/10"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 text-xs font-bold text-slate-950 shadow-sm transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {savingRow ? (
                       <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        {isOffline ? "Saving locally to DB cache..." : "Syncing to GSheets Layer..."}
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        {isOffline ? 'Saving locally to DB cache...' : 'Syncing to Sheets...'}
                       </>
                     ) : (
                       <>
-                        <FileSpreadsheet className="w-3.5 h-3.5" />
-                        {isOffline ? "Save Change (Offline)" : "Save & Sync to Spreadsheet"}
+                        <FileSpreadsheet className="h-4 w-4" />
+                        {isOffline ? 'Save Change (Offline)' : 'Save & Sync to Spreadsheet'}
                       </>
                     )}
                   </button>
                 </div>
               </div>
 
-              {/* 4. Lead Milestones Tracker (Visual Funnel) */}
-              <div className="p-4 bg-white border border-slate-100 rounded-2xl space-y-3.5 shadow-xs">
-                <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <Activity className="w-3.5 h-3.5 text-slate-400" /> Lead Milestones Tracker
-                </h4>
-                
-                <div className="overflow-x-auto pb-2 -mx-1 px-1">
-                  <div className="flex items-center min-w-[640px] justify-between relative py-2">
-                    {stages.map((stage, idx) => {
-                      const isActive = idx === lastActiveIndex;
-                      const isCompleted = idx < lastActiveIndex && !!stage.value;
-                      
-                      return (
-                        <div key={stage.name} className="flex-1 flex flex-col items-center relative z-10">
-                          {/* Connecting Line */}
-                          {idx > 0 && (
-                            <div className={`absolute top-4 -left-1/2 right-1/2 h-0.5 -translate-y-1/2 -z-10 ${
-                              idx <= lastActiveIndex ? 'bg-blue-500' : 'bg-slate-200'
-                            }`} />
-                          )}
-                          
-                          {/* Circle Icon */}
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all ${
-                            isActive 
-                              ? 'bg-blue-50 border-blue-500 text-blue-600 ring-4 ring-blue-500/15'
-                              : isCompleted
-                                ? 'bg-emerald-500 border-emerald-500 text-white'
-                                : 'bg-slate-50 border-slate-200 text-slate-400'
-                          }`}>
-                            {isCompleted ? (
-                              <CheckCircle className="w-4 h-4 stroke-[3]" />
-                            ) : (
-                              <span className="text-[10px] font-bold">{idx + 1}</span>
-                            )}
-                          </div>
-                          
-                          {/* Label */}
-                          <span className={`text-[9px] font-bold mt-1.5 text-center leading-tight max-w-[75px] ${
-                            isActive ? 'text-blue-600 font-black' : isCompleted ? 'text-emerald-700' : 'text-slate-400'
-                          }`}>
-                            {stage.name}
-                          </span>
-                          
-                          {/* Subtext Date */}
-                          {stage.value && (
-                            <span className="text-[7.5px] text-slate-450 font-mono mt-0.5">
-                              {stage.value.split(' ')[0]}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                      Latest Sheet Context
+                    </h4>
+                    <p className="mt-1 text-[10px] text-slate-500">
+                      Human remarks only. System field-change strings are excluded.
+                    </p>
                   </div>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-600">
+                    {humanFeed.length} recent
+                  </span>
                 </div>
+
+                {fetchingLatestRow ? (
+                  <div className="space-y-2 py-1">
+                    <div className="h-14 animate-pulse rounded-xl bg-slate-100" />
+                    <div className="h-14 animate-pulse rounded-xl bg-slate-100" />
+                  </div>
+                ) : latestRemarkCard ? (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex items-center justify-between gap-3 text-[10px] font-mono text-slate-500">
+                        <span className="font-bold text-amber-700">
+                          {latestRemarkAuthor || 'Update'}
+                        </span>
+                        <span>{latestRemarkDate ? `[${latestRemarkDate}]` : 'Latest remark'}</span>
+                      </div>
+                      <p className="mt-1 text-sm font-medium text-slate-800">
+                        {latestRemarkCard}
+                      </p>
+                    </div>
+
+                    {humanFeed.length > 0 ? (
+                      <div className="space-y-2">
+                        {humanFeed.map((remark, idx) => (
+                          <div key={`${remark.raw}-${idx}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                            <div className="flex items-center justify-between gap-3 text-[10px] font-mono text-slate-500">
+                              <span className="font-bold text-slate-700">{remark.author}</span>
+                              <span>[{remark.date}]</span>
+                            </div>
+                            <p className="mt-1 text-sm text-slate-700">{remark.text}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      renderEmptyState('No human remarks recorded for this booking.')
+                    )}
+                  </div>
+                ) : (
+                  renderEmptyState('No human remarks recorded for this booking.')
+                )}
               </div>
 
-              {/* 5. Accordion A: CRM & Journey Health (Default: Open) */}
-              <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-xs">
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <button
+                  type="button"
                   onClick={() => toggleAccordion('crm')}
-                  className="w-full p-3.5 bg-slate-50 hover:bg-slate-100 flex justify-between items-center text-xs font-bold text-slate-800 transition-colors select-none cursor-pointer"
+                  className="flex w-full items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-800"
                 >
-                  <span className="flex items-center gap-1.5 uppercase tracking-wide">
-                    <Clock className="w-4 h-4 text-blue-500" /> Accordion A: CRM &amp; Journey Health
+                  <span className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-blue-600" />
+                    CRM & Journey Health
                   </span>
-                  {openAccordion.crm ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  {openAccordion.crm ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                 </button>
                 {openAccordion.crm && (
-                  <div className="p-3.5 bg-white border-t border-slate-100">
+                  <div className="space-y-4 p-4">
                     {renderGrid([
-                      { 
-                        label: 'Attempts / Connected', 
-                        value: selectedRow.totalCallAttempts || selectedRow.totalConnectedCalls 
-                          ? `${selectedRow.totalCallAttempts || 0} / ${selectedRow.totalConnectedCalls || 0}`
-                          : null 
+                      {
+                        label: 'Attempts / Connected',
+                        value:
+                          !isBlank(selectedRow.totalCallAttempts) || !isBlank(selectedRow.totalConnectedCalls)
+                            ? `${selectedRow.totalCallAttempts || 0} / ${selectedRow.totalConnectedCalls || 0}`
+                            : null,
                       },
                       { label: 'Latest Outcome', value: selectedRow.latestCallOutcome },
                       { label: 'Last Call At', value: selectedRow.lastCallAt },
@@ -655,113 +780,119 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                 )}
               </div>
 
-              {/* 6. Accordion B: Finance, Forms & Underwriting (Default: Closed) */}
-              <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-xs">
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <button
+                  type="button"
                   onClick={() => toggleAccordion('finance')}
-                  className="w-full p-3.5 bg-slate-50 hover:bg-slate-100 flex justify-between items-center text-xs font-bold text-slate-800 transition-colors select-none cursor-pointer"
+                  className="flex w-full items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-800"
                 >
-                  <span className="flex items-center gap-1.5 uppercase tracking-wide">
-                    <Database className="w-4 h-4 text-emerald-500" /> Accordion B: Finance &amp; Underwriting
+                  <span className="flex items-center gap-2">
+                    <Database className="h-4 w-4 text-emerald-600" />
+                    Finance & Underwriting
                   </span>
-                  {openAccordion.finance ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  {openAccordion.finance ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                 </button>
                 {openAccordion.finance && (
-                  <div className="p-3.5 bg-white border-t border-slate-100 space-y-4">
+                  <div className="space-y-4 p-4">
                     <div>
-                      <h5 className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-2">Commercials &amp; Loan Details</h5>
+                      <h5 className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        Commercials & Loan Details
+                      </h5>
                       {renderGrid([
                         { label: 'Payment Type', value: selectedRow.paymentType },
                         { label: 'Credit LTV', value: selectedRow.creditLtv },
-                        { label: 'Final ROI', value: selectedRow.finalRoi ? `${selectedRow.finalRoi}%` : null },
-                        { label: 'DS ROI', value: selectedRow.dsRoi ? `${selectedRow.dsRoi}%` : null },
-                        { label: 'Sales Price', value: selectedRow.agreedSalesPrice, formatter: formatCurrencyLocal },
+                        { label: 'Final ROI', value: !isBlank(selectedRow.finalRoi) ? `${selectedRow.finalRoi}%` : null },
+                        { label: 'DS ROI', value: !isBlank(selectedRow.dsRoi) ? `${selectedRow.dsRoi}%` : null },
+                        { label: 'Sales Price', value: selectedRow.agreedSalesPrice, formatter: formatCurrency },
                       ])}
                     </div>
 
                     <div>
-                      <h5 className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-2">Partner Info</h5>
-                      {renderGrid([
-                        { label: 'Sheet Login Partner', value: selectedRow.sheetLoginPartner },
-                        { label: 'Bajaj Segment', value: selectedRow.bajajSegment },
-                      ])}
-                    </div>
-
-                    <div>
-                      <h5 className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-2">Form Assessment</h5>
+                      <h5 className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        Form Assessment
+                      </h5>
                       {renderGrid([
                         { label: 'Form Risk Bucket', value: selectedRow.formRiskBucket },
-                        { label: 'Form Status', value: selectedRow.formFinalStatus },
+                        { label: 'Form Final Status', value: selectedRow.formFinalStatus },
                         { label: 'Form Case Stage', value: selectedRow.formCaseStage },
                         { label: 'Form Detailed Ask', value: selectedRow.formDetailedAsk },
-                        { label: 'Sheet Status', value: selectedRow.sheetFinalStatus },
+                        { label: 'Sheet Final Status', value: selectedRow.sheetFinalStatus },
+                        { label: 'Sheet Login Partner', value: selectedRow.sheetLoginPartner },
                       ])}
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* 7. Accordion C: Ops & Logistics (Default: Closed) */}
-              <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-xs">
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <button
+                  type="button"
                   onClick={() => toggleAccordion('ops')}
-                  className="w-full p-3.5 bg-slate-50 hover:bg-slate-100 flex justify-between items-center text-xs font-bold text-slate-800 transition-colors select-none cursor-pointer"
+                  className="flex w-full items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-800"
                 >
-                  <span className="flex items-center gap-1.5 uppercase tracking-wide">
-                    <Activity className="w-4 h-4 text-amber-500" /> Accordion C: Ops &amp; Logistics
+                  <span className="flex items-center gap-2">
+                    <Activity className="h-4 w-4 text-amber-600" />
+                    Ops & Logistics
                   </span>
-                  {openAccordion.ops ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  {openAccordion.ops ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                 </button>
                 {openAccordion.ops && (
-                  <div className="p-3.5 bg-white border-t border-slate-100 space-y-4">
+                  <div className="space-y-4 p-4">
                     <div>
-                      <h5 className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-2">Location &amp; Facility</h5>
+                      <h5 className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        Location & Facility
+                      </h5>
                       {renderGrid([
                         { label: 'Hub Name', value: selectedRow.hubName },
                         { label: 'City', value: selectedRow.city },
                         { label: 'Sheet Yard Name', value: selectedRow.sheetYardName },
+                        { label: 'Sheet Yard City', value: selectedRow.sheetYardCity },
                       ])}
                     </div>
 
                     <div>
-                      <h5 className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-2">Delivery Parameters</h5>
+                      <h5 className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        Delivery Parameters
+                      </h5>
                       {renderGrid([
                         { label: 'Expected Delivery Date', value: selectedRow.expectedDeliveryDate },
                         { label: 'Actual Delivery Date', value: selectedRow.actualDeliveryDate },
                         { label: 'Delivery Segment', value: selectedRow.deliverySegment },
+                        { label: 'Delivery Status', value: selectedRow.deliveryStatus },
                       ])}
                     </div>
 
                     <div>
-                      <h5 className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-2">Condition Flags</h5>
+                      <h5 className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        Condition Flags
+                      </h5>
                       {renderGrid([
                         { label: 'On Demand Status', value: selectedRow.onDemandStatus },
                         { label: 'RC Case Type', value: selectedRow.rcCaseType },
-                        { label: 'Delivery Status', value: selectedRow.deliveryStatus },
                       ])}
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* 8. Accordion D: AI Co-Pilot & ML (Default: Closed, Conditional visibility) */}
               {showAiAccordion && (
-                <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-xs">
+                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                   <button
+                    type="button"
                     onClick={() => toggleAccordion('ai')}
-                    className="w-full p-3.5 bg-slate-50 hover:bg-slate-100 flex justify-between items-center text-xs font-bold text-slate-800 transition-colors select-none cursor-pointer"
+                    className="flex w-full items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-800"
                   >
-                    <span className="flex items-center gap-1.5 uppercase tracking-wide text-blue-650">
-                      <Sparkles className="w-4 h-4 text-blue-600" /> Accordion D: AI Co-Pilot &amp; ML
+                    <span className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-blue-600" />
+                      AI Co-Pilot & ML
                     </span>
-                    {openAccordion.ai ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    {openAccordion.ai ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                   </button>
                   {openAccordion.ai && (
-                    <div className="p-3.5 bg-white border-t border-slate-100 space-y-4">
-                      {/* circular visual gauge */}
-                      <div className="flex items-center gap-4 p-3.5 bg-slate-50 border border-slate-100 rounded-xl">
-                        <div className="relative shrink-0">
-                          <svg className="w-14 h-14" viewBox="0 0 36 36">
+                    <div className="space-y-4 p-4">
+                      <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <div className="shrink-0">
+                          <svg className="h-14 w-14" viewBox="0 0 36 36">
                             <path
                               className="text-slate-200"
                               strokeWidth="3.5"
@@ -772,27 +903,29 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                             <path
                               className="text-blue-600"
                               strokeWidth="3.5"
-                              strokeDasharray={`${pctConfidence}, 100`}
+                              strokeDasharray={`${confidencePct}, 100`}
                               strokeLinecap="round"
                               stroke="currentColor"
                               fill="none"
                               d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                             />
-                            <text x="18" y="20.8" className="text-[8px] font-black text-slate-800 font-mono" textAnchor="middle">
-                              {pctConfidence}%
+                            <text x="18" y="20.8" className="text-[8px] font-black text-slate-800" textAnchor="middle">
+                              {confidencePct}%
                             </text>
                           </svg>
                         </div>
                         <div>
-                          <span className="block text-[9px] uppercase tracking-wider text-slate-400 font-bold font-mono">Confidence Score</span>
-                          <span className="block text-xs font-semibold text-slate-700 mt-0.5 leading-normal">
-                            Machine Learning score for delivery timeline health.
+                          <span className="block text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                            Confidence Score
+                          </span>
+                          <span className="mt-0.5 block text-xs font-medium text-slate-600">
+                            Machine learning score for delivery timeline health.
                           </span>
                         </div>
                       </div>
 
                       {renderGrid([
-                        { label: 'ML Est Delivery Date', value: selectedRow.mlEstimatedDeliveryDate },
+                        { label: 'ML Estimated Delivery Date', value: selectedRow.mlEstimatedDeliveryDate },
                         { label: 'Gmail Pendency Status', value: selectedRow.gmailPendencyStatus },
                         { label: 'Gmail Pendency Reason', value: selectedRow.gmailPendencyReason },
                       ])}
@@ -801,88 +934,111 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                 </div>
               )}
 
-              {/* Accordion E: Revision History (Default: Closed) */}
-              <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-xs">
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <button
+                  type="button"
                   onClick={() => toggleAccordion('history')}
-                  className="w-full p-3.5 bg-slate-50 hover:bg-slate-100 flex justify-between items-center text-xs font-bold text-slate-800 transition-colors select-none"
+                  className="flex w-full items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-800"
                 >
-                  <span className="flex items-center gap-1.5 uppercase tracking-wide">
-                    <Clock className="w-4 h-4 text-purple-500" /> Revision History
+                  <span className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-violet-600" />
+                    Revision History
                   </span>
-                  {openAccordion.history ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  {openAccordion.history ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                 </button>
+
                 {openAccordion.history && (
-                  <div className="p-3.5 bg-white border-t border-slate-100 space-y-4">
-                    {loadingAuditLogs ? (
-                      <div className="flex flex-col items-center justify-center py-6 text-slate-400 gap-2">
-                        <RefreshCw className="w-5 h-5 animate-spin text-amber-500" />
-                        <span className="text-[10px]">Loading audit log timeline...</span>
+                  <div className="space-y-6 p-4">
+                    <div>
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div>
+                          <h5 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                            Human Remarks
+                          </h5>
+                          <p className="mt-1 text-[10px] text-slate-400">
+                            Parsed from the append-only remarks cell.
+                          </p>
+                        </div>
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-600">
+                          {parsedRemarks.human.length} entries
+                        </span>
                       </div>
-                    ) : auditLogs.length === 0 ? (
-                      <div className="p-6 text-center text-slate-400 italic text-[11px] bg-slate-50 border border-slate-150 rounded-xl">
-                        No changes logged for this case.
+
+                      {parsedRemarks.human.length === 0 ? (
+                        renderEmptyState('No human remarks recorded for this booking.')
+                      ) : (
+                        <div className="space-y-2">
+                          {parsedRemarks.human.slice().reverse().map((remark, idx) => (
+                            <div key={`${remark.raw}-${idx}`} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                              <div className="flex items-center justify-between gap-3 text-[10px] font-mono text-slate-500">
+                                <span className="font-bold text-slate-700">{remark.author}</span>
+                                <span>[{remark.date}]</span>
+                              </div>
+                              <p className="mt-1 text-sm text-slate-700">{remark.text}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div>
+                          <h5 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                            Audit Diffs
+                          </h5>
+                          <p className="mt-1 text-[10px] text-slate-400">
+                            Sourced from `audit_logs` and grouped by field.
+                          </p>
+                        </div>
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-600">
+                          {auditLogs.length} changes
+                        </span>
                       </div>
-                    ) : (
-                      <div className="relative pl-5 border-l border-slate-100 space-y-4 py-1">
-                        {auditLogs.map((log) => {
-                          const columnLabels = {
-                            readyToDeliver: "Ready to Deliver?",
-                            cancelReqDate: "Cancel Request Date",
-                            expectedOdCompletionDate: "Expected OD Date",
-                            eddReviewerDate: "Reviewer EDD",
-                            reviewerRemarks: "Reviewer Remarks",
-                            onDemandStatus: "On Demand Status",
-                            expectedDeliveryDate: "Expected Delivery Date",
-                            paymentPercentage: "Payment Percentage",
-                            sheetFinalStatus: "Sheet Final Status",
-                            formFinalStatus: "Form Final Status",
-                            confidenceScore: "Confidence Score",
-                            leadStage: "Lead Stage",
-                            dealStatus: "Deal Status",
-                            allocatedRm: "Allocated RM",
-                            assignedDc: "Assigned DC",
-                            deliveryStatus: "Delivery Status",
-                            taskBucket: "Task Bucket"
-                          };
-                          const friendlyCol = (columnLabels as any)[log.column_name] || log.column_name;
-                          const formattedDate = log.changed_at 
-                            ? new Date(log.changed_at).toLocaleString() 
-                            : 'Unknown Date';
-                          
-                          return (
-                            <div key={log.id} className="relative text-xs">
-                              {/* Timeline bullet dot */}
-                              <div className="absolute -left-[25.5px] top-1 w-2 h-2 rounded-full bg-amber-500 border-2 border-white ring-4 ring-amber-500/10 shrink-0" />
-                              
-                              <div className="flex flex-col gap-0.5">
-                                <div className="flex items-center justify-between text-[8px] text-slate-400 font-mono">
-                                  <span className="font-bold text-slate-650">{log.changed_by.split('@')[0]}</span>
-                                  <span>{formattedDate}</span>
-                                </div>
-                                <div className="font-bold text-slate-800">
-                                  Modified <span className="text-amber-600 font-extrabold">{friendlyCol}</span>
-                                </div>
-                                
-                                {/* Diff Block */}
-                                <div className="mt-1 bg-slate-50 p-2 border border-slate-100 rounded-lg space-y-0.5 font-mono text-[9.5px]">
-                                  <div className="text-rose-600 line-through truncate" title={log.old_value || ''}>
-                                    - {log.old_value || 'Empty'}
-                                  </div>
-                                  <div className="text-emerald-700 font-semibold truncate" title={log.new_value || ''}>
-                                    + {log.new_value || 'Empty'}
-                                  </div>
+
+                      {loadingAuditLogs ? (
+                        <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 py-6 text-slate-500">
+                          <RefreshCw className="mr-2 h-4 w-4 animate-spin text-amber-600" />
+                          <span className="text-[11px]">Loading audit log timeline...</span>
+                        </div>
+                      ) : auditGroups.length === 0 ? (
+                        renderEmptyState('No changes logged for this case.')
+                      ) : (
+                        <div className="space-y-3">
+                          {auditGroups.map(group => (
+                            <div key={group.columnName} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                              <div className="mb-2 flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700">
+                                    {group.label}
+                                  </p>
+                                  <p className="text-[10px] text-slate-400">
+                                    {group.logs.length} change{group.logs.length === 1 ? '' : 's'}
+                                  </p>
                                 </div>
                               </div>
+
+                              <div className="space-y-3">
+                                {group.logs.map(log => (
+                                  <div key={log.id} className="rounded-lg border border-slate-200 bg-white p-3">
+                                    <div className="flex items-center justify-between gap-3 text-[10px] font-mono text-slate-500">
+                                      <span className="font-bold text-slate-700">
+                                        {log.changed_by?.split('@')[0] || log.changed_by}
+                                      </span>
+                                      <span>{log.changed_at ? new Date(log.changed_at).toLocaleString() : 'Unknown Date'}</span>
+                                    </div>
+                                    <DiffRow oldValue={log.old_value} newValue={log.new_value} />
+                                  </div>
+                                ))}
+                              </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
-
             </div>
           </motion.div>
         </>
