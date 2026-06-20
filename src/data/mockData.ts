@@ -27,8 +27,9 @@ export function groupCount(rows: CaseRow[], key: keyof CaseRow): Record<string, 
   const result: Record<string, number> = {};
   rows.forEach(row => {
     const rawVal = row[key];
-    const value = String(rawVal === undefined || rawVal === null || rawVal === '' ? 'Blank' : rawVal);
-    result[value] = (result[value] || 0) + 1;
+    const value = rawVal === undefined || rawVal === null ? '' : String(rawVal).trim();
+    const bucket = value === '' ? 'Blank' : value;
+    result[bucket] = (result[bucket] || 0) + 1;
   });
   return result;
 }
@@ -342,7 +343,7 @@ export function buildCharts(rows: CaseRow[]): DashboardCharts {
     sheetFinalStatus: groupCount(rows, 'sheetFinalStatus'),
     formFinalStatus: groupCount(rows, 'formFinalStatus'),
     eddDistribution: buildEddDistribution(rows),
-    leadDsChannel: groupCount(rows.filter(r => r.leadStage === 'CANCELLED' || r.leadStage === 'RETURNED' || r.dealStatus === 'CANCEL' || r.cancelReason), 'leadDsChannel'),
+    leadDsChannel: groupCount(rows, 'leadDsChannel'),
     listingDaysDistribution: buildListingDaysDistribution(rows)
   };
 }

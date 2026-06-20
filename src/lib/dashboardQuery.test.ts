@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { normalizeFilterState, isActiveTokenFastPath } from './dashboardQuery';
 import { DEFAULT_FILTERS, getConfidenceTrendStatus, isRowMatchingFilter, buildEddLabels, getExpectedDeliveryTimeTimestamp, getNormalizedFieldTimestamp } from './dashboardFilters';
 import { applyReturnedLeadStage } from '../data/caseRowSchema.js';
-import { buildEddDistribution } from '../data/mockData';
+import { buildCharts, buildEddDistribution } from '../data/mockData';
 
 test('normalizeFilterState converts multi-select filters into arrays', () => {
   const normalized = normalizeFilterState({
@@ -209,5 +209,45 @@ test('buildEddDistribution and eddStatus filtering prioritize expectedDeliveryTi
     eddLabels
   );
   assert.equal(matchTodayFilter, false);
+});
+
+test('buildCharts counts DS channel across the full filtered set', () => {
+  const rows = [
+    {
+      bookingId: 'B-3001',
+      leadStage: 'ACTIVE_TOKEN',
+      leadDsChannel: 'AmberChannel',
+    },
+    {
+      bookingId: 'B-3002',
+      leadStage: 'CANCELLED',
+      leadDsChannel: 'AmberChannel',
+    },
+  ] as any[];
+
+  const charts = buildCharts(rows);
+
+  assert.equal(charts.leadDsChannel?.AmberChannel, 2);
+  assert.equal(Object.values(charts.leadDsChannel || {}).reduce((sum, count) => sum + count, 0), 2);
+});
+
+test('buildCharts trims DS channel labels before grouping', () => {
+  const rows = [
+    {
+      bookingId: 'B-3003',
+      leadStage: 'ACTIVE_TOKEN',
+      leadDsChannel: ' AmberChannel ',
+    },
+    {
+      bookingId: 'B-3004',
+      leadStage: 'ACTIVE_TOKEN',
+      leadDsChannel: 'AmberChannel',
+    },
+  ] as any[];
+
+  const charts = buildCharts(rows);
+
+  assert.equal(charts.leadDsChannel?.AmberChannel, 2);
+  assert.equal(charts.leadDsChannel?.[' AmberChannel '], undefined);
 });
 

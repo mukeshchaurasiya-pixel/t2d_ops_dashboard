@@ -211,7 +211,9 @@ export default function DashboardCharts({
         <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
           DS Channel Distribution
         </h4>
-        {renderSvgBarChart('DS Channel', charts.leadDsChannel || {}, "bg-brand-blue", "leadDsChannel")}
+        {renderSvgBarChart('DS Channel', charts.leadDsChannel || {}, "bg-brand-blue", "leadDsChannel", {
+          'Blank': 'bg-slate-400',
+        })}
       </div>
     </div>
   );

@@ -466,7 +466,7 @@ export function buildDynamicFilterOptions(rows: CaseRow[]) {
     if (row.gmailPendencyStatus) gmailPendencySet.add(row.gmailPendencyStatus);
     if (row.onDemandStatus) onDemandStatusSet.add(row.onDemandStatus);
     if (row.cancelReason) cancelReasonsSet.add(row.cancelReason);
-    if (row.leadDsChannel) leadDsChannelsSet.add(row.leadDsChannel);
+    if (row.leadDsChannel) leadDsChannelsSet.add(row.leadDsChannel.trim());
     if (row.taskBucket) {
       splitTasks(row.taskBucket).forEach(task => {
         if (task.trim()) tasksSet.add(task.trim());

@@ -876,7 +876,13 @@ BEGIN
   END IF;
 
   IF NOT public.dashboard_matches_text_filter(input_filters -> 'cancelReason', c.cancel_reason) THEN RETURN false; END IF;
-  IF NOT public.dashboard_matches_text_filter(input_filters -> 'leadDsChannel', c.lead_ds_channel) THEN RETURN false; END IF;
+  IF NOT public.dashboard_matches_text_filter(
+    input_filters -> 'leadDsChannel',
+    coalesce(
+      nullif(btrim(c.lead_ds_channel), ''),
+      nullif(btrim(c.row_data ->> 'leadDsChannel'), '')
+    )
+  ) THEN RETURN false; END IF;
 
   IF input_filters ? 'readyToDeliver' AND jsonb_typeof(input_filters -> 'readyToDeliver') = 'array' AND jsonb_array_length(input_filters -> 'readyToDeliver') > 0 THEN
     IF NOT public.dashboard_matches_text_filter(input_filters -> 'readyToDeliver', ready_value) THEN
@@ -1045,7 +1051,20 @@ SELECT jsonb_build_object(
   'onDemandStatuses', coalesce((SELECT jsonb_agg(value ORDER BY value) FROM (SELECT DISTINCT nullif(btrim(row_data ->> 'onDemandStatus'), '') AS value FROM base WHERE nullif(btrim(row_data ->> 'onDemandStatus'), '') IS NOT NULL) on_demand_statuses), '[]'::jsonb),
   'tasks', coalesce((SELECT jsonb_agg(task ORDER BY task) FROM task_values), '[]'::jsonb),
   'cancelReasons', coalesce((SELECT jsonb_agg(value ORDER BY value) FROM (SELECT DISTINCT cancel_reason AS value FROM base WHERE cancel_reason IS NOT NULL) cancel_reasons), '[]'::jsonb),
-  'leadDsChannels', coalesce((SELECT jsonb_agg(value ORDER BY value) FROM (SELECT DISTINCT lead_ds_channel AS value FROM base WHERE lead_ds_channel IS NOT NULL) lead_channels), '[]'::jsonb)
+  'leadDsChannels', coalesce((
+    SELECT jsonb_agg(value ORDER BY value)
+    FROM (
+      SELECT DISTINCT coalesce(
+        nullif(btrim(lead_ds_channel), ''),
+        nullif(btrim(row_data ->> 'leadDsChannel'), '')
+      ) AS value
+      FROM base
+      WHERE coalesce(
+        nullif(btrim(lead_ds_channel), ''),
+        nullif(btrim(row_data ->> 'leadDsChannel'), '')
+      ) IS NOT NULL
+    ) lead_channels
+  ), '[]'::jsonb)
 );
 $$;
 
@@ -1117,13 +1136,6 @@ task_counts AS (
     count(split_task.task)::INTEGER AS total_task_instances
   FROM filtered
   LEFT JOIN LATERAL public.dashboard_split_tasks(filtered.task_bucket) split_task ON true
-),
-cancelled_rows AS (
-  SELECT *
-  FROM filtered
-  WHERE lead_stage IN ('CANCELLED', 'RETURNED')
-    OR deal_status = 'CANCEL'
-    OR cancel_reason IS NOT NULL
 )
 SELECT jsonb_build_object(
   'kpis', jsonb_build_object(
@@ -1371,8 +1383,12 @@ SELECT jsonb_build_object(
     'leadDsChannel', coalesce((
       SELECT jsonb_object_agg(bucket, cnt)
       FROM (
-        SELECT coalesce(nullif(lead_ds_channel, ''), 'Blank') AS bucket, count(*)::INTEGER AS cnt
-        FROM cancelled_rows
+        SELECT coalesce(
+          nullif(btrim(lead_ds_channel), ''),
+          nullif(btrim(row_data ->> 'leadDsChannel'), ''),
+          'Blank'
+        ) AS bucket, count(*)::INTEGER AS cnt
+        FROM filtered
         GROUP BY 1
       ) grouped
     ), '{}'::jsonb),
