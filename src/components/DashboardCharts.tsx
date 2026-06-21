@@ -2,6 +2,40 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { DashboardCharts as ChartsType, FilterState } from '../types';
 
+const DEFAULT_BLANK_BAR_COLOR = 'bg-slate-400';
+
+interface RenderSvgBarChartOptions {
+  showBlank?: boolean;
+  colorOverrides?: Record<string, string>;
+}
+
+export function getChartEntriesForRender(
+  dataObj: Record<string, number> | undefined | null,
+  showBlank: boolean = true
+): [string, number][] {
+  return Object.entries(dataObj || {})
+    .filter(([label]) => {
+      if (label === 'All' || label === '') return false;
+      if (!showBlank && label === 'Blank') return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0]);
+    });
+}
+
+export function getChartBarColor(
+  label: string,
+  defaultColorClass: string,
+  colorOverrides?: Record<string, string>
+): string {
+  if (label === 'Blank') {
+    return colorOverrides?.[label] ?? DEFAULT_BLANK_BAR_COLOR;
+  }
+  return colorOverrides?.[label] ?? defaultColorClass;
+}
+
 interface DashboardChartsProps {
   charts: ChartsType;
   filters: FilterState;
@@ -25,10 +59,10 @@ export default function DashboardCharts({
     dataObj: Record<string, number> | undefined | null, 
     colorClass: string = "bg-brand-orange",
     filterKey?: keyof FilterState,
-    colorOverrides?: Record<string, string>
+    options: RenderSvgBarChartOptions = {}
   ) => {
-    const includeBlank = !!colorOverrides;
-    const entries = Object.entries(dataObj || {}).filter(([k]) => (includeBlank || (k !== 'Blank')) && k !== 'All' && k !== '');
+    const { showBlank = true, colorOverrides } = options;
+    const entries = getChartEntriesForRender(dataObj, showBlank);
     if (!entries.length) {
       return (
         <div className="flex h-36 items-center justify-center text-xs text-slate-400 font-medium">
@@ -44,7 +78,7 @@ export default function DashboardCharts({
         {entries.slice(0, 8).map(([label, val]) => {
           const pct = Math.min(100, Math.max(4, (val / maxVal) * 100));
           const isCurrentFilter = filterKey && filters[filterKey] === label;
-          const barColor = colorOverrides?.[label] ?? colorClass;
+          const barColor = getChartBarColor(label, colorClass, colorOverrides);
           
           return (
             <div 
@@ -152,7 +186,9 @@ export default function DashboardCharts({
             On Demand Status
           </h4>
           {renderSvgBarChart('On Demand Status', charts.onDemandStatusDistribution, "bg-emerald-500", "onDemandStatus", {
-            'Blank': 'bg-slate-400',
+            colorOverrides: {
+              'Blank': 'bg-slate-400',
+            }
           })}
         </div>
 
@@ -162,9 +198,11 @@ export default function DashboardCharts({
             Ready to Deliver?
           </h4>
           {renderSvgBarChart('Ready to Deliver', charts.readyToDeliver, "bg-teal-500", "readyToDeliver", {
-            'Blank': 'bg-slate-400',
-            'Yes': 'bg-emerald-500',
-            'No': 'bg-rose-500',
+            colorOverrides: {
+              'Blank': 'bg-slate-400',
+              'Yes': 'bg-emerald-500',
+              'No': 'bg-rose-500',
+            }
           })}
         </div>
 
@@ -212,7 +250,9 @@ export default function DashboardCharts({
           DS Channel Distribution
         </h4>
         {renderSvgBarChart('DS Channel', charts.leadDsChannel || {}, "bg-brand-blue", "leadDsChannel", {
-          'Blank': 'bg-slate-400',
+          colorOverrides: {
+            'Blank': 'bg-slate-400',
+          }
         })}
       </div>
     </div>

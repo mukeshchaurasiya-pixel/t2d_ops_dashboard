@@ -4,6 +4,7 @@ import { normalizeFilterState, isActiveTokenFastPath } from './dashboardQuery';
 import { DEFAULT_FILTERS, getConfidenceTrendStatus, isRowMatchingFilter, buildEddLabels, getExpectedDeliveryTimeTimestamp, getNormalizedFieldTimestamp } from './dashboardFilters';
 import { applyReturnedLeadStage } from '../data/caseRowSchema.js';
 import { buildCharts, buildEddDistribution } from '../data/mockData';
+import { getChartBarColor, getChartEntriesForRender } from '../components/DashboardCharts';
 
 test('normalizeFilterState converts multi-select filters into arrays', () => {
   const normalized = normalizeFilterState({
@@ -249,5 +250,30 @@ test('buildCharts trims DS channel labels before grouping', () => {
 
   assert.equal(charts.leadDsChannel?.AmberChannel, 2);
   assert.equal(charts.leadDsChannel?.[' AmberChannel '], undefined);
+});
+
+test('getChartEntriesForRender includes Blank by default and excludes control buckets', () => {
+  const entries = getChartEntriesForRender({
+    Blank: 4,
+    RT: 10,
+    PVT: 7,
+    All: 99,
+    '': 3,
+  });
+
+  assert.deepEqual(entries, [
+    ['RT', 10],
+    ['PVT', 7],
+    ['Blank', 4],
+  ]);
+});
+
+test('getChartBarColor gives Blank a neutral fallback and respects overrides', () => {
+  assert.equal(getChartBarColor('Blank', 'bg-brand-blue'), 'bg-slate-400');
+  assert.equal(
+    getChartBarColor('Blank', 'bg-brand-blue', { Blank: 'bg-zinc-500' }),
+    'bg-zinc-500'
+  );
+  assert.equal(getChartBarColor('RT', 'bg-brand-blue'), 'bg-brand-blue');
 });
 
