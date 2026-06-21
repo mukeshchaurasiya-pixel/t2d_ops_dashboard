@@ -300,3 +300,12 @@ test('mapCsvRows imports common human-readable sheet headers', () => {
   assert.equal(rows[0].paymentPercentage, 0.82);
 });
 
+test('applyReturnedLeadStage derives readyToDeliver from reviewer remarks when the direct field is blank', () => {
+  const row = applyReturnedLeadStage({
+    readyToDeliver: '',
+    reviewerRemarks: '- Ready to Deliver? - Yes - shivani.mishral - 16/06/2026 11:46',
+  } as any);
+
+  assert.equal(row.readyToDeliver, 'Yes');
+});
+

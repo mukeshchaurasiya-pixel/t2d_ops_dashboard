@@ -398,6 +398,14 @@ export function createBaseCaseRow(rowNumber) {
 }
 
 export function applyReturnedLeadStage(row) {
+  if ((!row.readyToDeliver || String(row.readyToDeliver).trim() === '') && row.reviewerRemarks) {
+    const remarksText = String(row.reviewerRemarks);
+    const readyMatch = remarksText.match(/ready\s*to\s*deliver\??\s*[-:]\s*(yes|no)\b/i);
+    if (readyMatch) {
+      row.readyToDeliver = readyMatch[1][0].toUpperCase() + readyMatch[1].slice(1).toLowerCase();
+    }
+  }
+
   if (
     row.actualDeliveryDate &&
     String(row.actualDeliveryDate).trim() !== '' &&
