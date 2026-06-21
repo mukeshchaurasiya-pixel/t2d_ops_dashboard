@@ -203,12 +203,26 @@ RETURNS TABLE(task TEXT)
 LANGUAGE sql
 IMMUTABLE
 AS $$
-  SELECT cleaned_task
+  SELECT normalized_task
   FROM (
-    SELECT nullif(trim(regexp_replace(piece, '^\d+\.\s*', '')), '') AS cleaned_task
-    FROM regexp_split_to_table(coalesce(task_bucket, ''), E'[,\n]+') AS piece
-  ) split_rows
-  WHERE cleaned_task IS NOT NULL;
+    SELECT nullif(
+      trim(
+        regexp_replace(
+          regexp_replace(
+            regexp_replace(coalesce(task_bucket, ''), E'\r\n?', E'\n', 'g'),
+            E'\n+',
+            ' / ',
+            'g'
+          ),
+          '\s+',
+          ' ',
+          'g'
+        )
+      ),
+      ''
+    ) AS normalized_task
+  ) normalized
+  WHERE normalized_task IS NOT NULL;
 $$;
 
 CREATE OR REPLACE FUNCTION public.dashboard_token_is_rt(token_value TEXT)

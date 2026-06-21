@@ -16,11 +16,20 @@ export function parseDateSafe(value: string): Date | null {
   return parseDateString(value);
 }
 
-export function splitTasks(value: string): string[] {
+export function normalizeTaskBucketLabel(value: string): string {
   return String(value || '')
-    .split(/\n|,/)
-    .map(task => task.replace(/^\d+\.\s*/, '').trim())
-    .filter(Boolean);
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map(task => task.trim())
+    .filter(Boolean)
+    .join(' / ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function splitTasks(value: string): string[] {
+  const normalized = normalizeTaskBucketLabel(value);
+  return normalized ? [normalized] : [];
 }
 
 export function groupCount(rows: CaseRow[], key: keyof CaseRow): Record<string, number> {

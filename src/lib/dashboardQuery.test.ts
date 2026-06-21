@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeFilterState, isActiveTokenFastPath } from './dashboardQuery';
-import { DEFAULT_FILTERS, getConfidenceTrendStatus, isRowMatchingFilter, buildEddLabels, getExpectedDeliveryTimeTimestamp, getNormalizedFieldTimestamp } from './dashboardFilters';
+import { DEFAULT_FILTERS, getConfidenceTrendStatus, isRowMatchingFilter, buildDynamicFilterOptions, buildEddLabels, getExpectedDeliveryTimeTimestamp, getNormalizedFieldTimestamp } from './dashboardFilters';
 import { applyReturnedLeadStage, resolveCaseRowField } from '../data/caseRowSchema.js';
-import { buildCharts, buildEddDistribution } from '../data/mockData';
+import { buildCharts, buildEddDistribution, splitTasks } from '../data/mockData';
 import { getChartBarColor, getChartEntriesForRender } from '../components/DashboardCharts';
 import { mapCsvRows } from '../data/csvParser';
 
@@ -307,5 +307,41 @@ test('applyReturnedLeadStage derives readyToDeliver from reviewer remarks when t
   } as any);
 
   assert.equal(row.readyToDeliver, 'Yes');
+});
+
+test('splitTasks keeps the full task bucket as one normalized label', () => {
+  assert.deepEqual(
+    splitTasks('Alpha EDD Pull\n2. Customer Connect Pending'),
+    ['Alpha EDD Pull / 2. Customer Connect Pending']
+  );
+  assert.deepEqual(
+    splitTasks('Conversion_fill_form 2. Customer Connect Pending'),
+    ['Conversion_fill_form 2. Customer Connect Pending']
+  );
+});
+
+test('task bucket charts and filter options keep each row task as a single bucket', () => {
+  const rows = [
+    {
+      bookingId: 'B-5001',
+      taskBucket: 'Alpha EDD Pull\n2. Customer Connect Pending',
+      leadStage: 'ACTIVE_TOKEN',
+    },
+    {
+      bookingId: 'B-5002',
+      taskBucket: 'OD Push Priority',
+      leadStage: 'ACTIVE_TOKEN',
+    },
+  ] as any[];
+
+  const charts = buildCharts(rows);
+  const filterOptions = buildDynamicFilterOptions(rows);
+
+  assert.equal(charts.taskBucket['Alpha EDD Pull / 2. Customer Connect Pending'], 1);
+  assert.equal(charts.taskBucket['Customer Connect Pending'], undefined);
+  assert.deepEqual(filterOptions.tasks, [
+    'Alpha EDD Pull / 2. Customer Connect Pending',
+    'OD Push Priority',
+  ]);
 });
 
