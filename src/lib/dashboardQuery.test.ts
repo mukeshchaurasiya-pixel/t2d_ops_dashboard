@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeFilterState, isActiveTokenFastPath } from './dashboardQuery';
 import { DEFAULT_FILTERS, getConfidenceTrendStatus, isRowMatchingFilter, buildEddLabels, getExpectedDeliveryTimeTimestamp, getNormalizedFieldTimestamp } from './dashboardFilters';
-import { applyReturnedLeadStage } from '../data/caseRowSchema.js';
+import { applyReturnedLeadStage, resolveCaseRowField } from '../data/caseRowSchema.js';
 import { buildCharts, buildEddDistribution } from '../data/mockData';
 import { getChartBarColor, getChartEntriesForRender } from '../components/DashboardCharts';
+import { mapCsvRows } from '../data/csvParser';
 
 test('normalizeFilterState converts multi-select filters into arrays', () => {
   const normalized = normalizeFilterState({
@@ -275,5 +276,27 @@ test('getChartBarColor gives Blank a neutral fallback and respects overrides', (
     'bg-zinc-500'
   );
   assert.equal(getChartBarColor('RT', 'bg-brand-blue'), 'bg-brand-blue');
+});
+
+test('resolveCaseRowField accepts punctuation-free spreadsheet header variants', () => {
+  assert.equal(resolveCaseRowField('Ready to Deliver'), 'readyToDeliver');
+  assert.equal(resolveCaseRowField('Total Expected Amount'), 'totalExpectedAmount');
+  assert.equal(resolveCaseRowField('Amount Collected'), 'amountCollected');
+  assert.equal(resolveCaseRowField('Amount Pending'), 'amountPending');
+  assert.equal(resolveCaseRowField('Payment Percentage'), 'paymentPercentage');
+});
+
+test('mapCsvRows imports common human-readable sheet headers', () => {
+  const rows = mapCsvRows([
+    ['Booking ID', 'Ready to Deliver', 'Total Expected Amount', 'Amount Collected', 'Payment Percentage'],
+    ['B-4001', 'Yes', '550000', '125000', '0.82'],
+  ]);
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].bookingId, 'B-4001');
+  assert.equal(rows[0].readyToDeliver, 'Yes');
+  assert.equal(rows[0].totalExpectedAmount, 550000);
+  assert.equal(rows[0].amountCollected, 125000);
+  assert.equal(rows[0].paymentPercentage, 0.82);
 });
 

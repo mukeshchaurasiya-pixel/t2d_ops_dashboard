@@ -223,6 +223,18 @@ export const CASE_ROW_FIELD_MAP = {
   'agglastdisposition': 'lastDisposition'
 };
 
+function compactHeaderKey(value) {
+  return normalizeHeaderKey(value).replace(/[^a-z0-9]/g, '');
+}
+
+const CASE_ROW_COMPACT_FIELD_MAP = Object.entries(CASE_ROW_FIELD_MAP).reduce((acc, [alias, field]) => {
+  const compact = compactHeaderKey(alias);
+  if (compact && !(compact in acc)) {
+    acc[compact] = field;
+  }
+  return acc;
+}, {});
+
 export const CASE_ROW_NUMERIC_FIELDS = [
   'amountCollected',
   'amountPending',
@@ -243,7 +255,7 @@ export function normalizeHeaderKey(header) {
 
 export function resolveCaseRowField(header) {
   const normalized = normalizeHeaderKey(header);
-  return CASE_ROW_FIELD_MAP[normalized] || CASE_ROW_FIELD_MAP[normalized.replace(/[\s_?]/g, '')];
+  return CASE_ROW_FIELD_MAP[normalized] || CASE_ROW_COMPACT_FIELD_MAP[compactHeaderKey(normalized)];
 }
 
 export function coerceCaseRowValue(field, rawValue) {
