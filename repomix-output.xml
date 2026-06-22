@@ -954,6 +954,370 @@ export const auth = null;
 export const db = null;
 </file>
 
+<file path="src/lib/matrixCalculator.ts">
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { CaseRow } from '../types';
+import { parseDateString } from './dateUtils';
+
+export interface MatrixRow {
+  category: string;
+  name: string;
+  isPercent: boolean;
+  indent: boolean;
+  values: Record<string, string | number>;
+}
+
+// ----------------------------------------------------
+// Native JavaScript Date Helpers (to keep zero-dep)
+// ----------------------------------------------------
+function setStartOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
+
+function setEndOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+}
+
+function startOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
+}
+
+function endOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
+}
+
+function subMonths(d: Date, n: number): Date {
+  // Safe month subtraction
+  const newDate = new Date(d.getFullYear(), d.getMonth() - n, 1);
+  const maxDays = new Date(newDate.getFullYear(), newDate.getMonth() + 1, 0).getDate();
+  newDate.setDate(Math.min(d.getDate(), maxDays));
+  return newDate;
+}
+
+function subDays(d: Date, n: number): Date {
+  return new Date(d.getTime() - n * 24 * 60 * 60 * 1000);
+}
+
+function getMonday(d: Date): Date {
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  return new Date(d.getFullYear(), d.getMonth(), diff, 0, 0, 0, 0);
+}
+
+// ----------------------------------------------------
+// Categorization Helpers matching raw columns
+// ----------------------------------------------------
+const isRT = (type: string) => {
+  const t = String(type || '').toUpperCase();
+  return t.includes('RT') || t.includes('PAID') || t.includes('REFUNDABLE');
+};
+const isNRT = (type: string) => {
+  const t = String(type || '').toUpperCase();
+  return t.includes('NRT');
+};
+const isPVT = (type: string) => {
+  const t = String(type || '').toUpperCase();
+  return t.includes('PVT') || t.includes('PRIVATE');
+};
+const isGCBL = (type: string) => {
+  const t = String(type || '').toUpperCase();
+  return t.includes('GCBL') || (t.includes('GREEN') && t.includes('BL')) || (t.includes('GC') && t.includes('BL'));
+};
+
+// ----------------------------------------------------
+// Core Calculation Logic
+// ----------------------------------------------------
+export function calculateOperationsMatrix(rows: CaseRow[]): {
+  columns: { key: string; label: string; subLabel: string }[];
+  rows: MatrixRow[];
+} {
+  // 1. Set baseDate to yesterday (today - 1 day) relative to system local time
+  const baseDate = setStartOfDay(subDays(new Date(), 1));
+
+  // Helper formatting for dates
+  const formatDateLabel = (d: Date) => {
+    return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+  };
+
+  // 2. Define Timeframes MTD and Last MTD (relative to yesterday)
+  const MTD_Start = startOfMonth(baseDate);
+  const MTD_End = setEndOfDay(baseDate);
+
+  const prevMonthBase = subMonths(baseDate, 1);
+  const LastMTD_Start = startOfMonth(prevMonthBase);
+  // Last MTD goes up to the same relative day of the month as yesterday
+  const LastMTD_End = setEndOfDay(new Date(prevMonthBase.getFullYear(), prevMonthBase.getMonth(), Math.min(baseDate.getDate(), prevMonthBase.getDate())));
+
+  const LLM_Start = startOfMonth(prevMonthBase);
+  const LLM_End = endOfMonth(prevMonthBase);
+
+  const W_Start = getMonday(baseDate);
+  const W_End = setEndOfDay(baseDate);
+
+  const LW_Start = getMonday(subDays(baseDate, 7));
+  const LW_End = setEndOfDay(addDays(LW_Start, 6));
+  function addDays(d: Date, n: number): Date {
+    return new Date(d.getTime() + n * 24 * 60 * 60 * 1000);
+  }
+
+  const LLW_Start = getMonday(subDays(baseDate, 14));
+  const LLW_End = setEndOfDay(addDays(LLW_Start, 6));
+
+  const D1_Date = baseDate;
+  const D2_Date = subDays(baseDate, 1);
+  const D3_Date = subDays(baseDate, 2);
+
+  const timeframes = [
+    { key: 'mtd', label: 'MTD', subLabel: `${formatDateLabel(MTD_Start)} - ${formatDateLabel(MTD_End)}`, start: MTD_Start, end: MTD_End },
+    { key: 'last_mtd', label: 'Last MTD', subLabel: `${formatDateLabel(LastMTD_Start)} - ${formatDateLabel(LastMTD_End)}`, start: LastMTD_Start, end: LastMTD_End },
+    { key: 'llm', label: 'LLM', subLabel: `${formatDateLabel(LLM_Start)} - ${formatDateLabel(LLM_End)}`, start: LLM_Start, end: LLM_End },
+    { key: 'w', label: 'W', subLabel: `${formatDateLabel(W_Start)} - ${formatDateLabel(W_End)}`, start: W_Start, end: W_End },
+    { key: 'lw', label: 'LW', subLabel: `${formatDateLabel(LW_Start)} - ${formatDateLabel(LW_End)}`, start: LW_Start, end: LW_End },
+    { key: 'llw', label: 'LLW', subLabel: `${formatDateLabel(LLW_Start)} - ${formatDateLabel(LLW_End)}`, start: LLW_Start, end: LLW_End },
+    { key: 'd1', label: formatDateLabel(D1_Date), subLabel: 'Yesterday', start: setStartOfDay(D1_Date), end: setEndOfDay(D1_Date) },
+    { key: 'd2', label: formatDateLabel(D2_Date), subLabel: 'T-2', start: setStartOfDay(D2_Date), end: setEndOfDay(D2_Date) },
+    { key: 'd3', label: formatDateLabel(D3_Date), subLabel: 'T-3', start: setStartOfDay(D3_Date), end: setEndOfDay(D3_Date) },
+  ];
+
+  // 3. Columns configuration for UI
+  const columns = timeframes.map(tf => ({
+    key: tf.key,
+    label: tf.label,
+    subLabel: tf.subLabel
+  }));
+
+  // 4. Initialize rows mapping
+  const rowSpecs = [
+    { category: 'Overall', name: 'GD', isPercent: false, indent: true },
+    { category: 'Overall', name: 'ND', isPercent: false, indent: true },
+    { category: 'Overall', name: 'Unique Token (Inflow)', isPercent: false, indent: true },
+    { category: 'Overall', name: 'RT Share (Overall)', isPercent: true, indent: true },
+    { category: 'Overall', name: 'NRT Share (Overall)', isPercent: true, indent: true },
+    { category: 'Overall', name: 'PVT Share (Overall)', isPercent: true, indent: true },
+    { category: 'Overall', name: 'GCBL Share (Overall)', isPercent: true, indent: true },
+
+    { category: 'Token', name: 'Active token (Till End Date)', isPercent: false, indent: true },
+    { category: 'Token', name: 'Token Age', isPercent: false, indent: true },
+    { category: 'Token', name: 'RT Share', isPercent: true, indent: true },
+    { category: 'Token', name: 'RT Share (>4 Days)', isPercent: true, indent: true },
+
+    { category: 'Upgrade', name: 'NRT Upgrade', isPercent: true, indent: true },
+    { category: 'Upgrade', name: 'PVT Upgrade', isPercent: true, indent: true },
+
+    { category: 'CF', name: 'Login on Token base', isPercent: true, indent: true },
+    { category: 'CF', name: 'Login >=(T+1)', isPercent: true, indent: true },
+    { category: 'CF', name: 'CF attached (%)', isPercent: true, indent: true },
+
+    { category: 'Cancellation', name: 'Unique Token Cancellation %', isPercent: true, indent: true },
+    { category: 'Cancellation', name: 'RT - Token base', isPercent: true, indent: true },
+    { category: 'Cancellation', name: 'NRT - Token Base', isPercent: true, indent: true },
+    { category: 'Cancellation', name: 'PVT - Token Base', isPercent: true, indent: true },
+
+    { category: 'TAT', name: 'Delivery TAT', isPercent: false, indent: true },
+    { category: 'TAT', name: 'Cancellation TAT', isPercent: false, indent: true },
+  ];
+
+  const resultRows: MatrixRow[] = rowSpecs.map(spec => ({
+    category: spec.category,
+    name: spec.name,
+    isPercent: spec.isPercent,
+    indent: spec.indent,
+    values: {}
+  }));
+
+  // 5. Populate values for each timeframe
+  timeframes.forEach(tf => {
+
+    // Filter relevant rows for this timeframe
+    const inflowCases = rows.filter(r => {
+      if (!r.tokenDate) return false;
+      const d = parseDateString(r.tokenDate);
+      return d && d >= tf.start && d <= tf.end;
+    });
+
+    const deliveryCases = rows.filter(r => {
+      if (!r.actualDeliveryDate) return false;
+      const d = parseDateString(r.actualDeliveryDate);
+      return d && d >= tf.start && d <= tf.end;
+    });
+
+    const cancellationCases = rows.filter(r => {
+      if (!r.cancelReqDate) return false;
+      const d = parseDateString(r.cancelReqDate);
+      return d && d >= tf.start && d <= tf.end;
+    });
+
+    // Active tokens logic: Token date <= end date AND (actualDeliveryDate > end date or blank) AND (cancelReqDate > end date or blank)
+    const activeTokens = rows.filter(r => {
+      if (!r.tokenDate) return false;
+      const tD = parseDateString(r.tokenDate);
+      if (!tD || tD > tf.end) return false;
+
+      const delD = r.actualDeliveryDate ? parseDateString(r.actualDeliveryDate) : null;
+      if (delD && delD <= tf.end) return false;
+
+      const cancD = r.cancelReqDate ? parseDateString(r.cancelReqDate) : null;
+      if (cancD && cancD <= tf.end) return false;
+
+      return true;
+    });
+
+    // Compute metrics
+    const gd = deliveryCases.length;
+    const nd = gd - cancellationCases.length;
+    const inflowCount = inflowCases.length;
+
+    // Token Type splits
+    const rtInflow = inflowCases.filter(r => isRT(r.tokenType)).length;
+    const nrtInflow = inflowCases.filter(r => isNRT(r.tokenType)).length;
+    const pvtInflow = inflowCases.filter(r => isPVT(r.tokenType)).length;
+    const gcblInflow = inflowCases.filter(r => isGCBL(r.tokenType || r.leadDsChannel)).length;
+
+    const rtShare = inflowCount ? rtInflow / inflowCount : 0;
+    const nrtShare = inflowCount ? nrtInflow / inflowCount : 0;
+    const pvtShare = inflowCount ? pvtInflow / inflowCount : 0;
+    const gcblShare = inflowCount ? gcblInflow / inflowCount : 0;
+
+    // Active token calculations
+    const activeCount = activeTokens.length;
+    let avgAge = 0;
+    let activeRTCount = 0;
+    let activeRTOver4Count = 0;
+
+    if (activeCount > 0) {
+      let totalAge = 0;
+      activeTokens.forEach(r => {
+        const tD = parseDateString(r.tokenDate || '');
+        if (tD) {
+          const ageDiff = tf.end.getTime() - tD.getTime();
+          const ageDays = ageDiff / (1000 * 60 * 60 * 24);
+          totalAge += Math.max(0, ageDays);
+          
+          if (isRT(r.tokenType)) {
+            activeRTCount++;
+            if (ageDays > 4) activeRTOver4Count++;
+          }
+        }
+      });
+      avgAge = totalAge / activeCount;
+    }
+
+    // Upgrades
+    const nrtUpgrades = inflowCases.filter(r => isNRT(r.tokenTypeWithNrt || r.tokenType)).length;
+    const nrtUpgradePct = inflowCount ? nrtUpgrades / inflowCount : 0;
+
+    const pvtUpgrades = inflowCases.filter(r => isPVT(r.tokenType || r.tokenTypeWithNrt)).length;
+    const pvtUpgradePct = inflowCount ? pvtUpgrades / inflowCount : 0;
+
+    // Customer Finance (CF)
+    const loginCases = inflowCases.filter(r => {
+      return Boolean(r.latestLoginTime || r.sheetLoginTimestamp || r.sheetLoginPartner || r.leadStage === 'LOGIN_COMPLETED');
+    });
+    const loginCount = loginCases.length;
+    const loginPct = inflowCount ? loginCount / inflowCount : 0;
+
+    const loginT1 = loginCases.filter(r => {
+      const tD = parseDateString(r.tokenDate || '');
+      const lD = parseDateString(r.latestLoginTime || r.sheetLoginTimestamp || '');
+      if (tD && lD) {
+        return (lD.getTime() - tD.getTime()) >= 24 * 60 * 60 * 1000;
+      }
+      return false;
+    }).length;
+    const loginT1Pct = inflowCount ? loginT1 / inflowCount : 0;
+
+    const cfAttachedCases = inflowCases.filter(r => {
+      return Boolean(r.loanId || String(r.paymentType).toUpperCase().includes('PMAX') || String(r.paymentType).toUpperCase().includes('LOAN'));
+    }).length;
+    const cfAttachedPct = inflowCount ? cfAttachedCases / inflowCount : 0;
+
+    // Cohort-based cancellations (for percentages and TAT)
+    const cohortCancelledCases = inflowCases.filter(r => Boolean(r.cancelReqDate));
+    const cohortCancelPct = inflowCount ? cohortCancelledCases.length / inflowCount : 0;
+    
+    const cohortRtInflow = inflowCases.filter(r => isRT(r.tokenType)).length;
+    const cohortRtCancelled = cohortCancelledCases.filter(r => isRT(r.tokenType)).length;
+    const cohortRtCancelPct = cohortRtInflow ? cohortRtCancelled / cohortRtInflow : 0;
+
+    const cohortNrtInflow = inflowCases.filter(r => isNRT(r.tokenType)).length;
+    const cohortNrtCancelled = cohortCancelledCases.filter(r => isNRT(r.tokenType)).length;
+    const cohortNrtCancelPct = cohortNrtInflow ? cohortNrtCancelled / cohortNrtInflow : 0;
+
+    const cohortPvtInflow = inflowCases.filter(r => isPVT(r.tokenType)).length;
+    const cohortPvtCancelled = cohortCancelledCases.filter(r => isPVT(r.tokenType)).length;
+    const cohortPvtCancelPct = cohortPvtInflow ? cohortPvtCancelled / cohortPvtInflow : 0;
+
+    // TAT
+    let delTat = 0;
+    if (gd > 0) {
+      let sum = 0;
+      deliveryCases.forEach(r => {
+        const tD = parseDateString(r.tokenDate || '');
+        const dD = parseDateString(r.actualDeliveryDate || '');
+        if (tD && dD) {
+          sum += (dD.getTime() - tD.getTime()) / (1000 * 60 * 60 * 24);
+        }
+      });
+      delTat = sum / gd;
+    }
+
+    let cancTat = 0;
+    if (cohortCancelledCases.length > 0) {
+      let sum = 0;
+      cohortCancelledCases.forEach(r => {
+        const tD = parseDateString(r.tokenDate || '');
+        const cD = parseDateString(r.cancelReqDate || '');
+        if (tD && cD) {
+          sum += (cD.getTime() - tD.getTime()) / (1000 * 60 * 60 * 24);
+        }
+      });
+      cancTat = sum / cohortCancelledCases.length;
+    }
+
+    // Map computed values to correct row indices
+    resultRows.forEach(r => {
+      let val: number | string = 0;
+      switch (r.name) {
+        case 'GD': val = gd; break;
+        case 'ND': val = nd; break;
+        case 'Unique Token (Inflow)': val = inflowCount; break;
+        case 'RT Share (Overall)': val = rtShare; break;
+        case 'NRT Share (Overall)': val = nrtShare; break;
+        case 'PVT Share (Overall)': val = pvtShare; break;
+        case 'GCBL Share (Overall)': val = gcblShare; break;
+
+        case 'Active token (Till End Date)': val = activeCount; break;
+        case 'Token Age': val = Number(avgAge.toFixed(2)); break;
+        case 'RT Share': val = activeCount ? activeRTCount / activeCount : 0; break;
+        case 'RT Share (>4 Days)': val = activeRTCount ? activeRTOver4Count / activeRTCount : 0; break;
+
+        case 'NRT Upgrade': val = nrtUpgradePct; break;
+        case 'PVT Upgrade': val = pvtUpgradePct; break;
+
+        case 'Login on Token base': val = loginPct; break;
+        case 'Login >=(T+1)': val = loginT1Pct; break;
+        case 'CF attached (%)': val = cfAttachedPct; break;
+
+        case 'Unique Token Cancellation %': val = cohortCancelPct; break;
+        case 'RT - Token base': val = cohortRtCancelPct; break;
+        case 'NRT - Token Base': val = cohortNrtCancelPct; break;
+        case 'PVT - Token Base': val = cohortPvtCancelPct; break;
+
+        case 'Delivery TAT': val = Number(delTat.toFixed(2)); break;
+        case 'Cancellation TAT': val = Number(cancTat.toFixed(2)); break;
+      }
+      r.values[tf.key] = val;
+    });
+  });
+
+  return { columns, rows: resultRows };
+}
+</file>
+
 <file path="src/lib/supabaseClient.ts">
 /**
  * @license
@@ -2397,846 +2761,6 @@ export function useAuthBootstrap({
 }
 </file>
 
-<file path=".github/workflows/sync-sheets.yml">
-name: Auto Google Sheets Sync
-
-on:
-  schedule:
-    # Runs every 10 minutes
-    - cron: '*/10 * * * *'
-  workflow_dispatch:
-    # Allows manual trigger from GitHub Actions tab
-
-jobs:
-  sync:
-    name: Sync Sheet to Supabase
-    runs-on: ubuntu-latest
-    env:
-      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
-      GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY }}
-      HAS_PRIVATE_SYNC_SECRETS: ${{ secrets.VITE_SUPABASE_URL != '' && secrets.SUPABASE_SERVICE_ROLE_KEY != '' && secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL != '' && secrets.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY != '' }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Skip when private sync secrets are missing
-        if: env.HAS_PRIVATE_SYNC_SECRETS != 'true'
-        run: |
-          echo "Private sheet sync skipped."
-          echo "Configure VITE_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GOOGLE_SERVICE_ACCOUNT_EMAIL, and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY to enable this job."
-
-      - name: Install dependencies
-        if: env.HAS_PRIVATE_SYNC_SECRETS == 'true'
-        run: npm ci
-
-      - name: Run sync script
-        if: env.HAS_PRIVATE_SYNC_SECRETS == 'true'
-        run: node scripts/sync-sheets.js
-</file>
-
-<file path="src/data/caseRowSchema.js">
-export const CASE_ROW_FIELD_MAP = {
-  'booking_id': 'bookingId',
-  'bookingid': 'bookingId',
-  'booking': 'bookingId',
-  'uid': 'uid',
-  'lead_id': 'leadId',
-  'leadid': 'leadId',
-  'user_id': 'userId',
-  'userid': 'userId',
-  'loan_id': 'loanId',
-  'loanid': 'loanId',
-  'appointmentid': 'appointmentId',
-  'appointment_id': 'appointmentId',
-  'car_reg_no': 'carRegNo',
-  'carregno': 'carRegNo',
-  'hub_code': 'hubCode',
-  'hubname': 'hubName',
-  'hub_name': 'hubName',
-  'city': 'city',
-  'allocated_rm': 'allocatedRm',
-  'allocatedrm': 'allocatedRm',
-  'assigned_rm': 'allocatedRm',
-  'assignedrm': 'allocatedRm',
-  'assigned_dc': 'assignedDc',
-  'assigneddc': 'assignedDc',
-  'lead_stage': 'leadStage',
-  'leadstage': 'leadStage',
-  'deal_status': 'dealStatus',
-  'dealstatus': 'dealStatus',
-  'token_type': 'tokenType',
-  'tokentype': 'tokenType',
-  'payment_type': 'paymentType',
-  'paymenttype': 'paymentType',
-  'funnel_stage': 'funnelStage',
-  'funnelstage': 'funnelStage',
-  'token_date': 'tokenDate',
-  'expected_delivery_date': 'expectedDeliveryDate',
-  'actual_delivery_date': 'actualDeliveryDate',
-  'on demand status': 'onDemandStatus',
-  'on_demand_status': 'onDemandStatus',
-  'ondemandstatus': 'onDemandStatus',
-  'amount_collected': 'amountCollected',
-  'amount_pending': 'amountPending',
-  'total_expected_amount': 'totalExpectedAmount',
-  'payment_percentage': 'paymentPercentage',
-  'ready to deliver?': 'readyToDeliver',
-  'ready_to_deliver': 'readyToDeliver',
-  'expected od completion date': 'expectedOdCompletionDate',
-  'expected_od_completion_date': 'expectedOdCompletionDate',
-  'edd date (reviewer)': 'eddReviewerDate',
-  'edd_reviewer_date': 'eddReviewerDate',
-  'remarks - everyone (tl/rm/fs/hh)': 'reviewerRemarks',
-  'remarks': 'reviewerRemarks',
-  'reviewer_remarks': 'reviewerRemarks',
-  'make': 'make',
-  'model': 'model',
-  'variant': 'variant',
-  'task_bucket': 'taskBucket',
-  'taskbucket': 'taskBucket',
-  'reason & data pointer': 'reasonPointer',
-  'reason_pointer': 'reasonPointer',
-  'cancel_req_date': 'cancelReqDate',
-  'cancelreqdate': 'cancelReqDate',
-  'cancellation_date': 'cancellationDate',
-  'cancellationdate': 'cancellationDate',
-  'auto_cancelled_flag': 'autoCancelledFlag',
-  'autocancelledflag': 'autoCancelledFlag',
-  'token_auto_cancellation_extended_date': 'tokenAutoCancellationExtendedDate',
-  'tokenautocancellationextendeddate': 'tokenAutoCancellationExtendedDate',
-  'reason': 'cancelReason',
-  'cancelreason': 'cancelReason',
-  'cancel_reason': 'cancelReason',
-  'sheetloginpartner': 'sheetLoginPartner',
-  'sheet_login_partner': 'sheetLoginPartner',
-  'sheetfinalstatus': 'sheetFinalStatus',
-  'sheet_final_status': 'sheetFinalStatus',
-  'sheetyardname': 'sheetYardName',
-  'sheet_yard_name': 'sheetYardName',
-  'sheetyardcity': 'sheetYardCity',
-  'sheet_yard_city': 'sheetYardCity',
-  'sheetdetailedremarks': 'sheetDetailedRemarks',
-  'sheet_detailed_remarks': 'sheetDetailedRemarks',
-  'sheetlastdisbursalactivity': 'sheetLastDisbursalActivity',
-  'sheet_last_disbursal_activity': 'sheetLastDisbursalActivity',
-  'sheetlogintimestamp': 'sheetLoginTimestamp',
-  'sheet_login_timestamp': 'sheetLoginTimestamp',
-  'formriskbucket': 'formRiskBucket',
-  'form_risk_bucket': 'formRiskBucket',
-  'formfinalstatus': 'formFinalStatus',
-  'form_final_status': 'formFinalStatus',
-  'formcasestage': 'formCaseStage',
-  'form_case_stage': 'formCaseStage',
-  'formfinalremarks': 'formFinalRemarks',
-  'form_final_remarks': 'formFinalRemarks',
-  'formdeviationrequired': 'formDeviationRequired',
-  'form_deviation_required': 'formDeviationRequired',
-  'formdetailedask': 'formDetailedAsk',
-  'form_detailed_ask': 'formDetailedAsk',
-  'gmail_summary': 'gmailSummary',
-  'gmailsummary': 'gmailSummary',
-  'gmail_pendency_status': 'gmailPendencyStatus',
-  'gmailpendencystatus': 'gmailPendencyStatus',
-  'gmail_pendency_reason': 'gmailPendencyReason',
-  'gmailpendencyreason': 'gmailPendencyReason',
-  'gmail_next_action': 'gmailNextAction',
-  'gmailnextaction': 'gmailNextAction',
-  'gmail_pendency_source': 'gmailPendencySource',
-  'gmailpendencysource': 'gmailPendencySource',
-  'gmail_pendency_date': 'gmailPendencyDate',
-  'gmailpendencydate': 'gmailPendencyDate',
-  'confidence_score': 'confidenceScore',
-  'confidencescore': 'confidenceScore',
-  'ml_estimated_delivery_date': 'mlEstimatedDeliveryDate',
-  'mlestimateddeliverydate': 'mlEstimatedDeliveryDate',
-  'latest_remark': 'latestRemark',
-  'latestremark': 'latestRemark',
-  'latest_remark_by': 'latestRemarkBy',
-  'latestremarkby': 'latestRemarkBy',
-  'latest_remark_date': 'latestRemarkDate',
-  'latestremarkdate': 'latestRemarkDate',
-  'rc_case_type': 'rcCaseType',
-  'rccasetype': 'rcCaseType',
-  'income_source': 'incomeSource',
-  'incomesource': 'incomeSource',
-  'ogl_pincode_flag': 'oglPincodeFlag',
-  'oglpincodeflag': 'oglPincodeFlag',
-  'ogl_pincode_check': 'oglPincodeFlag',
-  'credit_ltv': 'creditLtv',
-  'creditltv': 'creditLtv',
-  'ltv': 'creditLtv',
-  'last_risk_bucket': 'lastRiskBucket',
-  'lastriskbucket': 'lastRiskBucket',
-  'ds_roi': 'dsRoi',
-  'dsroi': 'dsRoi',
-  'final_roi': 'finalRoi',
-  'finalroi': 'finalRoi',
-  'credit_rejection_reason': 'creditRejectionReason',
-  'creditrejectionreason': 'creditRejectionReason',
-  'credit_rejection_sub_reason': 'creditRejectionSubReason',
-  'creditrejectionsubreason': 'creditRejectionSubReason',
-  'diligence_rejection_reason': 'diligenceRejectionReason',
-  'diligencerejectionreason': 'diligenceRejectionReason',
-  'diligence_rejection_sub_reason': 'diligenceRejectionSubReason',
-  'diligencerejectionsubreason': 'diligenceRejectionSubReason',
-  'red_channel_reason': 'redChannelReason',
-  'redchannelreason': 'redChannelReason',
-  'soft_derog_flag': 'softDerogFlag',
-  'softderogflag': 'softDerogFlag',
-  'hard_derog_flag': 'hardDerogFlag',
-  'hardderogflag': 'hardDerogFlag',
-  'non_ogl': 'nonOgl',
-  'nonogl': 'nonOgl',
-  'contact_number': 'contactNumber',
-  'contactnumber': 'contactNumber',
-  'red_channel_flag': 'redChannelFlag',
-  'redchannelflag': 'redChannelFlag',
-  'tof_rejected_flag': 'tofRejectedFlag',
-  'tofrejectedflag': 'tofRejectedFlag',
-  'deviation_mitigation_comment': 'deviationMitigationComment',
-  'deviationmitigationcomment': 'deviationMitigationComment',
-  'bajaj_segment': 'bajajSegment',
-  'bajajsegment': 'bajajSegment',
-  'company_name': 'companyName',
-  'companyname': 'companyName',
-  'lead_ds_channel': 'leadDsChannel',
-  'leaddschannel': 'leadDsChannel',
-  'foir': 'foir',
-  'total_listing_days': 'totalListingDays',
-  'totallistingdays': 'totalListingDays',
-  'latest_lead_creation_timestamp': 'latestLeadCreationTimestamp',
-  'latestleadcreationtimestamp': 'latestLeadCreationTimestamp',
-  'latest_login_time': 'latestLoginTime',
-  'latestlogintime': 'latestLoginTime',
-  'latest_credit_assessed_timestamp': 'latestCreditAssessedTimestamp',
-  'latestcreditassessedtimestamp': 'latestCreditAssessedTimestamp',
-  'latest_diligence_assessed_timestamp': 'latestDiligenceAssessedTimestamp',
-  'latestdiligenceassessedtimestamp': 'latestDiligenceAssessedTimestamp',
-  'latest_fcu_assessed_timestamp': 'latestFcuAssessedTimestamp',
-  'latestfcuassessedtimestamp': 'latestFcuAssessedTimestamp',
-  'tnc_generated_date': 'tncGeneratedDate',
-  'tncgenerateddate': 'tncGeneratedDate',
-  'tnc_accepted_timestamp': 'tncAcceptedTimestamp',
-  'tncacceptedtimestamp': 'tncAcceptedTimestamp',
-  'fcu_sent_date': 'fcuSentDate',
-  'fcusentdate': 'fcuSentDate',
-  'sent_to_rcu_timestamp': 'sentToRcuTimestamp',
-  'senttorcutimestamp': 'sentToRcuTimestamp',
-  'sent_to_ops_timestamp': 'sentToOpsTimestamp',
-  'senttoopstimestamp': 'sentToOpsTimestamp',
-  'submit_to_ops_timestamp': 'submitToOpsTimestamp',
-  'submittoopstimestamp': 'submitToOpsTimestamp',
-  'ops_disbursal_timestamp': 'opsDisbursalTimestamp',
-  'opsdisbursaltimestamp': 'opsDisbursalTimestamp',
-  'finance_disbursed_timestamp': 'financeDisbursedTimestamp',
-  'financedisbursedtimestamp': 'financeDisbursedTimestamp',
-  'last_call_at': 'lastCallAt',
-  'lastcallat': 'lastCallAt',
-  'followup_at': 'followupAt',
-  'followupat': 'followupAt',
-  'total_call_attempts': 'totalCallAttempts',
-  'totalcallattempts': 'totalCallAttempts',
-  'agg_total_call_attempts': 'totalCallAttempts',
-  'aggtotalcallattempts': 'totalCallAttempts',
-  'total_connected_calls': 'totalConnectedCalls',
-  'totalconnectedcalls': 'totalConnectedCalls',
-  'agg_total_connected_calls': 'totalConnectedCalls',
-  'aggtotalconnectedcalls': 'totalConnectedCalls',
-  'last_call_connected_sp': 'lastCallConnectedSp',
-  'lastcallconnectedsp': 'lastCallConnectedSp',
-  'dialed_operator_sp': 'lastCallConnectedSp',
-  'dialed_operator': 'lastCallConnectedSp',
-  'call_duration': 'callDuration',
-  'callduration': 'callDuration',
-  'agg_call_duration': 'callDuration',
-  'aggcallduration': 'callDuration',
-  'latest_call_outcome': 'latestCallOutcome',
-  'latestcalloutcome': 'latestCallOutcome',
-  'agg_latest_call_outcome': 'latestCallOutcome',
-  'agglatestcalloutcome': 'latestCallOutcome',
-  'last_disposition': 'lastDisposition',
-  'lastdisposition': 'lastDisposition',
-  'agg_last_disposition': 'lastDisposition',
-  'agglastdisposition': 'lastDisposition'
-};
-
-export const CASE_ROW_NUMERIC_FIELDS = [
-  'amountCollected',
-  'amountPending',
-  'totalExpectedAmount',
-  'paymentPercentage',
-  'totalCallAttempts',
-  'totalConnectedCalls',
-  'totalListingDays'
-];
-
-export function normalizeHeaderKey(header) {
-  return String(header ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\r\n\t]+/g, ' ')
-    .replace(/\s+/g, ' ');
-}
-
-export function resolveCaseRowField(header) {
-  const normalized = normalizeHeaderKey(header);
-  return CASE_ROW_FIELD_MAP[normalized] || CASE_ROW_FIELD_MAP[normalized.replace(/[\s_?]/g, '')];
-}
-
-export function coerceCaseRowValue(field, rawValue) {
-  if (CASE_ROW_NUMERIC_FIELDS.includes(field)) {
-    return parseFloat(String(rawValue || '').replace(/[^0-9.-]/g, '')) || 0;
-  }
-  return rawValue;
-}
-
-export function createBaseCaseRow(rowNumber) {
-  return {
-    _rowNumber: rowNumber,
-    bookingId: `B-INFO-${999 + rowNumber}`,
-    uid: `UID-CSV-${Math.max(1, rowNumber - 1)}`,
-    leadId: '',
-    userId: '',
-    loanId: '',
-    appointmentId: '',
-    carRegNo: '',
-    hubCode: '',
-    hubName: `Hub ${Math.max(1, rowNumber - 1)}`,
-    city: 'Delhi-NCR',
-    allocatedRm: 'System RM',
-    assignedDc: '',
-    caAssignedLms: '',
-    sm: '',
-    tm: '',
-    rm: '',
-    dealStatus: 'ACTIVE',
-    dealStatusUpdatedAt: '',
-    cancellationDate: '',
-    autoCancelledFlag: 'false',
-    tokenAutoCancellationExtendedDate: '',
-    leadStage: 'ACTIVE_TOKEN',
-    leadStatus: 'ACTIVE_TOKEN',
-    tokenType: 'PAID_TOKEN',
-    tokenTypeWithNrt: '',
-    paymentType: 'CASH',
-    funnelStage: 'TOKEN_PAID',
-    tokenDate: '',
-    tokenDateTime: '',
-    bookingDate: '',
-    expectedDeliveryDate: '',
-    expectedDeliveryTime: '',
-    actualDeliveryDate: '',
-    lastPaymentDate: '',
-    latestRemarkDate: '',
-    updatedAt: '',
-    cancelReqDate: '',
-    deliveryStatus: '',
-    deliverySegment: '',
-    onDemandStatus: '',
-    amountCollected: 0,
-    amountPending: 0,
-    totalExpectedAmount: 0,
-    agreedSalesPrice: 0,
-    paymentPercentage: 0,
-    readyToDeliver: '',
-    expectedOdCompletionDate: '',
-    eddReviewerDate: '',
-    reviewerRemarks: '',
-    make: '',
-    model: '',
-    variant: '',
-    manufacturingYear: '',
-    rcCaseType: 'FRESH',
-    incomeSource: '',
-    oglPincodeFlag: '',
-    creditLtv: '',
-    lastRiskBucket: '',
-    dsRoi: '',
-    finalRoi: '',
-    creditRejectionReason: '',
-    creditRejectionSubReason: '',
-    diligenceRejectionReason: '',
-    diligenceRejectionSubReason: '',
-    redChannelReason: '',
-    softDerogFlag: 'false',
-    hardDerogFlag: 'false',
-    nonOgl: 'false',
-    contactNumber: '',
-    redChannelFlag: 'N',
-    tofRejectedFlag: 'N',
-    deviationMitigationComment: '',
-    bajajSegment: '',
-    companyName: '',
-    leadDsChannel: '',
-    foir: '',
-    latestLeadCreationTimestamp: '',
-    latestLoginTime: '',
-    latestCreditAssessedTimestamp: '',
-    latestDiligenceAssessedTimestamp: '',
-    latestFcuAssessedTimestamp: '',
-    tncGeneratedDate: '',
-    tncAcceptedTimestamp: '',
-    fcuSentDate: '',
-    sentToRcuTimestamp: '',
-    sentToOpsTimestamp: '',
-    submitToOpsTimestamp: '',
-    opsDisbursalTimestamp: '',
-    financeDisbursedTimestamp: '',
-    lastCallAt: '',
-    followupAt: '',
-    totalCallAttempts: 0,
-    totalConnectedCalls: 0,
-    lastCallConnectedSp: '',
-    callDuration: '',
-    latestCallOutcome: '',
-    lastDisposition: '',
-    latestRemark: '',
-    latestRemarkBy: '',
-    isActive: 'true',
-    isAlertVisible: 'true',
-    cancelReason: '',
-    taskBucket: '',
-    reasonPointer: '',
-    sheetLoginPartner: '',
-    sheetFinalStatus: '',
-    sheetYardName: '',
-    sheetYardCity: '',
-    sheetDetailedRemarks: '',
-    sheetLastDisbursalActivity: '',
-    sheetLoginTimestamp: '',
-    formRiskBucket: '',
-    formFinalStatus: '',
-    formCaseStage: '',
-    formFinalRemarks: '',
-    formDeviationRequired: 'No',
-    formDetailedAsk: '',
-    gmailSummary: '',
-    gmailPendencyStatus: '',
-    gmailPendencyReason: '',
-    gmailNextAction: '',
-    gmailPendencySource: '',
-    gmailPendencyDate: '',
-    confidenceScore: '',
-    mlEstimatedDeliveryDate: '',
-    totalListingDays: 0
-  };
-}
-
-export function applyReturnedLeadStage(row) {
-  if (
-    row.actualDeliveryDate &&
-    String(row.actualDeliveryDate).trim() !== '' &&
-    String(row.dealStatus).toUpperCase() === 'CANCEL'
-  ) {
-    row.leadStage = 'RETURNED';
-  }
-
-  // Link expectedDeliveryDate with expectedDeliveryTime if expectedDeliveryTime has a valid date-time
-  if (row.expectedDeliveryTime && String(row.expectedDeliveryTime).trim() !== '') {
-    const timeStr = String(row.expectedDeliveryTime).trim();
-    // 1. Matches YYYY-MM-DD or YYYY/MM/DD
-    const yyyymmddRegex = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/;
-    const matchY = timeStr.match(yyyymmddRegex);
-    let datePart = '';
-    if (matchY) {
-      const year = matchY[1];
-      const month = matchY[2].padStart(2, '0');
-      const day = matchY[3].padStart(2, '0');
-      datePart = `${year}-${month}-${day}`;
-    } else {
-      // 2. Matches DD/MM/YYYY or DD-MM-YYYY
-      const ddmmyyyyRegex = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/;
-      const matchD = timeStr.match(ddmmyyyyRegex);
-      if (matchD) {
-        const day = matchD[1].padStart(2, '0');
-        const month = matchD[2].padStart(2, '0');
-        const year = matchD[3];
-        datePart = `${year}-${month}-${day}`;
-      }
-    }
-
-    if (datePart) {
-      row.expectedDeliveryDate = datePart;
-    }
-  }
-
-  return row;
-}
-</file>
-
-<file path="src/lib/matrixCalculator.ts">
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import { CaseRow } from '../types';
-import { parseDateString } from './dateUtils';
-
-export interface MatrixRow {
-  category: string;
-  name: string;
-  isPercent: boolean;
-  indent: boolean;
-  values: Record<string, string | number>;
-}
-
-// ----------------------------------------------------
-// Native JavaScript Date Helpers (to keep zero-dep)
-// ----------------------------------------------------
-function setStartOfDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
-}
-
-function setEndOfDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-}
-
-function startOfMonth(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
-}
-
-function endOfMonth(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
-}
-
-function subMonths(d: Date, n: number): Date {
-  // Safe month subtraction
-  const newDate = new Date(d.getFullYear(), d.getMonth() - n, 1);
-  const maxDays = new Date(newDate.getFullYear(), newDate.getMonth() + 1, 0).getDate();
-  newDate.setDate(Math.min(d.getDate(), maxDays));
-  return newDate;
-}
-
-function subDays(d: Date, n: number): Date {
-  return new Date(d.getTime() - n * 24 * 60 * 60 * 1000);
-}
-
-function getMonday(d: Date): Date {
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  return new Date(d.getFullYear(), d.getMonth(), diff, 0, 0, 0, 0);
-}
-
-// ----------------------------------------------------
-// Categorization Helpers matching raw columns
-// ----------------------------------------------------
-const isRT = (type: string) => {
-  const t = String(type || '').toUpperCase();
-  return t.includes('RT') || t.includes('PAID') || t.includes('REFUNDABLE');
-};
-const isNRT = (type: string) => {
-  const t = String(type || '').toUpperCase();
-  return t.includes('NRT');
-};
-const isPVT = (type: string) => {
-  const t = String(type || '').toUpperCase();
-  return t.includes('PVT') || t.includes('PRIVATE');
-};
-const isGCBL = (type: string) => {
-  const t = String(type || '').toUpperCase();
-  return t.includes('GCBL') || (t.includes('GREEN') && t.includes('BL')) || (t.includes('GC') && t.includes('BL'));
-};
-
-// ----------------------------------------------------
-// Core Calculation Logic
-// ----------------------------------------------------
-export function calculateOperationsMatrix(rows: CaseRow[]): {
-  columns: { key: string; label: string; subLabel: string }[];
-  rows: MatrixRow[];
-} {
-  // 1. Set baseDate to yesterday (today - 1 day) relative to system local time
-  const baseDate = setStartOfDay(subDays(new Date(), 1));
-
-  // Helper formatting for dates
-  const formatDateLabel = (d: Date) => {
-    return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
-  };
-
-  // 2. Define Timeframes MTD and Last MTD (relative to yesterday)
-  const MTD_Start = startOfMonth(baseDate);
-  const MTD_End = setEndOfDay(baseDate);
-
-  const prevMonthBase = subMonths(baseDate, 1);
-  const LastMTD_Start = startOfMonth(prevMonthBase);
-  // Last MTD goes up to the same relative day of the month as yesterday
-  const LastMTD_End = setEndOfDay(new Date(prevMonthBase.getFullYear(), prevMonthBase.getMonth(), Math.min(baseDate.getDate(), prevMonthBase.getDate())));
-
-  const LLM_Start = startOfMonth(prevMonthBase);
-  const LLM_End = endOfMonth(prevMonthBase);
-
-  const W_Start = getMonday(baseDate);
-  const W_End = setEndOfDay(baseDate);
-
-  const LW_Start = getMonday(subDays(baseDate, 7));
-  const LW_End = setEndOfDay(addDays(LW_Start, 6));
-  function addDays(d: Date, n: number): Date {
-    return new Date(d.getTime() + n * 24 * 60 * 60 * 1000);
-  }
-
-  const LLW_Start = getMonday(subDays(baseDate, 14));
-  const LLW_End = setEndOfDay(addDays(LLW_Start, 6));
-
-  const D1_Date = baseDate;
-  const D2_Date = subDays(baseDate, 1);
-  const D3_Date = subDays(baseDate, 2);
-
-  const timeframes = [
-    { key: 'mtd', label: 'MTD', subLabel: `${formatDateLabel(MTD_Start)} - ${formatDateLabel(MTD_End)}`, start: MTD_Start, end: MTD_End },
-    { key: 'last_mtd', label: 'Last MTD', subLabel: `${formatDateLabel(LastMTD_Start)} - ${formatDateLabel(LastMTD_End)}`, start: LastMTD_Start, end: LastMTD_End },
-    { key: 'llm', label: 'LLM', subLabel: `${formatDateLabel(LLM_Start)} - ${formatDateLabel(LLM_End)}`, start: LLM_Start, end: LLM_End },
-    { key: 'w', label: 'W', subLabel: `${formatDateLabel(W_Start)} - ${formatDateLabel(W_End)}`, start: W_Start, end: W_End },
-    { key: 'lw', label: 'LW', subLabel: `${formatDateLabel(LW_Start)} - ${formatDateLabel(LW_End)}`, start: LW_Start, end: LW_End },
-    { key: 'llw', label: 'LLW', subLabel: `${formatDateLabel(LLW_Start)} - ${formatDateLabel(LLW_End)}`, start: LLW_Start, end: LLW_End },
-    { key: 'd1', label: formatDateLabel(D1_Date), subLabel: 'Yesterday', start: setStartOfDay(D1_Date), end: setEndOfDay(D1_Date) },
-    { key: 'd2', label: formatDateLabel(D2_Date), subLabel: 'T-2', start: setStartOfDay(D2_Date), end: setEndOfDay(D2_Date) },
-    { key: 'd3', label: formatDateLabel(D3_Date), subLabel: 'T-3', start: setStartOfDay(D3_Date), end: setEndOfDay(D3_Date) },
-  ];
-
-  // 3. Columns configuration for UI
-  const columns = timeframes.map(tf => ({
-    key: tf.key,
-    label: tf.label,
-    subLabel: tf.subLabel
-  }));
-
-  // 4. Initialize rows mapping
-  const rowSpecs = [
-    { category: 'Overall', name: 'GD', isPercent: false, indent: true },
-    { category: 'Overall', name: 'ND', isPercent: false, indent: true },
-    { category: 'Overall', name: 'Unique Token (Inflow)', isPercent: false, indent: true },
-    { category: 'Overall', name: 'RT Share (Overall)', isPercent: true, indent: true },
-    { category: 'Overall', name: 'NRT Share (Overall)', isPercent: true, indent: true },
-    { category: 'Overall', name: 'PVT Share (Overall)', isPercent: true, indent: true },
-    { category: 'Overall', name: 'GCBL Share (Overall)', isPercent: true, indent: true },
-
-    { category: 'Token', name: 'Active token (Till End Date)', isPercent: false, indent: true },
-    { category: 'Token', name: 'Token Age', isPercent: false, indent: true },
-    { category: 'Token', name: 'RT Share', isPercent: true, indent: true },
-    { category: 'Token', name: 'RT Share (>4 Days)', isPercent: true, indent: true },
-
-    { category: 'Upgrade', name: 'NRT Upgrade', isPercent: true, indent: true },
-    { category: 'Upgrade', name: 'PVT Upgrade', isPercent: true, indent: true },
-
-    { category: 'CF', name: 'Login on Token base', isPercent: true, indent: true },
-    { category: 'CF', name: 'Login >=(T+1)', isPercent: true, indent: true },
-    { category: 'CF', name: 'CF attached (%)', isPercent: true, indent: true },
-
-    { category: 'Cancellation', name: 'Unique Token Cancellation %', isPercent: true, indent: true },
-    { category: 'Cancellation', name: 'RT - Token base', isPercent: true, indent: true },
-    { category: 'Cancellation', name: 'NRT - Token Base', isPercent: true, indent: true },
-    { category: 'Cancellation', name: 'PVT - Token Base', isPercent: true, indent: true },
-
-    { category: 'TAT', name: 'Delivery TAT', isPercent: false, indent: true },
-    { category: 'TAT', name: 'Cancellation TAT', isPercent: false, indent: true },
-  ];
-
-  const resultRows: MatrixRow[] = rowSpecs.map(spec => ({
-    category: spec.category,
-    name: spec.name,
-    isPercent: spec.isPercent,
-    indent: spec.indent,
-    values: {}
-  }));
-
-  // 5. Populate values for each timeframe
-  timeframes.forEach(tf => {
-
-    // Filter relevant rows for this timeframe
-    const inflowCases = rows.filter(r => {
-      if (!r.tokenDate) return false;
-      const d = parseDateString(r.tokenDate);
-      return d && d >= tf.start && d <= tf.end;
-    });
-
-    const deliveryCases = rows.filter(r => {
-      if (!r.actualDeliveryDate) return false;
-      const d = parseDateString(r.actualDeliveryDate);
-      return d && d >= tf.start && d <= tf.end;
-    });
-
-    const cancellationCases = rows.filter(r => {
-      if (!r.cancelReqDate) return false;
-      const d = parseDateString(r.cancelReqDate);
-      return d && d >= tf.start && d <= tf.end;
-    });
-
-    // Active tokens logic: Token date <= end date AND (actualDeliveryDate > end date or blank) AND (cancelReqDate > end date or blank)
-    const activeTokens = rows.filter(r => {
-      if (!r.tokenDate) return false;
-      const tD = parseDateString(r.tokenDate);
-      if (!tD || tD > tf.end) return false;
-
-      const delD = r.actualDeliveryDate ? parseDateString(r.actualDeliveryDate) : null;
-      if (delD && delD <= tf.end) return false;
-
-      const cancD = r.cancelReqDate ? parseDateString(r.cancelReqDate) : null;
-      if (cancD && cancD <= tf.end) return false;
-
-      return true;
-    });
-
-    // Compute metrics
-    const gd = deliveryCases.length;
-    const nd = gd - cancellationCases.length;
-    const inflowCount = inflowCases.length;
-
-    // Token Type splits
-    const rtInflow = inflowCases.filter(r => isRT(r.tokenType)).length;
-    const nrtInflow = inflowCases.filter(r => isNRT(r.tokenType)).length;
-    const pvtInflow = inflowCases.filter(r => isPVT(r.tokenType)).length;
-    const gcblInflow = inflowCases.filter(r => isGCBL(r.tokenType || r.leadDsChannel)).length;
-
-    const rtShare = inflowCount ? rtInflow / inflowCount : 0;
-    const nrtShare = inflowCount ? nrtInflow / inflowCount : 0;
-    const pvtShare = inflowCount ? pvtInflow / inflowCount : 0;
-    const gcblShare = inflowCount ? gcblInflow / inflowCount : 0;
-
-    // Active token calculations
-    const activeCount = activeTokens.length;
-    let avgAge = 0;
-    let activeRTCount = 0;
-    let activeRTOver4Count = 0;
-
-    if (activeCount > 0) {
-      let totalAge = 0;
-      activeTokens.forEach(r => {
-        const tD = parseDateString(r.tokenDate || '');
-        if (tD) {
-          const ageDiff = tf.end.getTime() - tD.getTime();
-          const ageDays = ageDiff / (1000 * 60 * 60 * 24);
-          totalAge += Math.max(0, ageDays);
-          
-          if (isRT(r.tokenType)) {
-            activeRTCount++;
-            if (ageDays > 4) activeRTOver4Count++;
-          }
-        }
-      });
-      avgAge = totalAge / activeCount;
-    }
-
-    // Upgrades
-    const nrtUpgrades = inflowCases.filter(r => isNRT(r.tokenTypeWithNrt || r.tokenType)).length;
-    const nrtUpgradePct = inflowCount ? nrtUpgrades / inflowCount : 0;
-
-    const pvtUpgrades = inflowCases.filter(r => isPVT(r.tokenType || r.tokenTypeWithNrt)).length;
-    const pvtUpgradePct = inflowCount ? pvtUpgrades / inflowCount : 0;
-
-    // Customer Finance (CF)
-    const loginCases = inflowCases.filter(r => {
-      return Boolean(r.latestLoginTime || r.sheetLoginTimestamp || r.sheetLoginPartner || r.leadStage === 'LOGIN_COMPLETED');
-    });
-    const loginCount = loginCases.length;
-    const loginPct = inflowCount ? loginCount / inflowCount : 0;
-
-    const loginT1 = loginCases.filter(r => {
-      const tD = parseDateString(r.tokenDate || '');
-      const lD = parseDateString(r.latestLoginTime || r.sheetLoginTimestamp || '');
-      if (tD && lD) {
-        return (lD.getTime() - tD.getTime()) >= 24 * 60 * 60 * 1000;
-      }
-      return false;
-    }).length;
-    const loginT1Pct = inflowCount ? loginT1 / inflowCount : 0;
-
-    const cfAttachedCases = inflowCases.filter(r => {
-      return Boolean(r.loanId || String(r.paymentType).toUpperCase().includes('PMAX') || String(r.paymentType).toUpperCase().includes('LOAN'));
-    }).length;
-    const cfAttachedPct = inflowCount ? cfAttachedCases / inflowCount : 0;
-
-    // Cohort-based cancellations (for percentages and TAT)
-    const cohortCancelledCases = inflowCases.filter(r => Boolean(r.cancelReqDate));
-    const cohortCancelPct = inflowCount ? cohortCancelledCases.length / inflowCount : 0;
-    
-    const cohortRtInflow = inflowCases.filter(r => isRT(r.tokenType)).length;
-    const cohortRtCancelled = cohortCancelledCases.filter(r => isRT(r.tokenType)).length;
-    const cohortRtCancelPct = cohortRtInflow ? cohortRtCancelled / cohortRtInflow : 0;
-
-    const cohortNrtInflow = inflowCases.filter(r => isNRT(r.tokenType)).length;
-    const cohortNrtCancelled = cohortCancelledCases.filter(r => isNRT(r.tokenType)).length;
-    const cohortNrtCancelPct = cohortNrtInflow ? cohortNrtCancelled / cohortNrtInflow : 0;
-
-    const cohortPvtInflow = inflowCases.filter(r => isPVT(r.tokenType)).length;
-    const cohortPvtCancelled = cohortCancelledCases.filter(r => isPVT(r.tokenType)).length;
-    const cohortPvtCancelPct = cohortPvtInflow ? cohortPvtCancelled / cohortPvtInflow : 0;
-
-    // TAT
-    let delTat = 0;
-    if (gd > 0) {
-      let sum = 0;
-      deliveryCases.forEach(r => {
-        const tD = parseDateString(r.tokenDate || '');
-        const dD = parseDateString(r.actualDeliveryDate || '');
-        if (tD && dD) {
-          sum += (dD.getTime() - tD.getTime()) / (1000 * 60 * 60 * 24);
-        }
-      });
-      delTat = sum / gd;
-    }
-
-    let cancTat = 0;
-    if (cohortCancelledCases.length > 0) {
-      let sum = 0;
-      cohortCancelledCases.forEach(r => {
-        const tD = parseDateString(r.tokenDate || '');
-        const cD = parseDateString(r.cancelReqDate || '');
-        if (tD && cD) {
-          sum += (cD.getTime() - tD.getTime()) / (1000 * 60 * 60 * 24);
-        }
-      });
-      cancTat = sum / cohortCancelledCases.length;
-    }
-
-    // Map computed values to correct row indices
-    resultRows.forEach(r => {
-      let val: number | string = 0;
-      switch (r.name) {
-        case 'GD': val = gd; break;
-        case 'ND': val = nd; break;
-        case 'Unique Token (Inflow)': val = inflowCount; break;
-        case 'RT Share (Overall)': val = rtShare; break;
-        case 'NRT Share (Overall)': val = nrtShare; break;
-        case 'PVT Share (Overall)': val = pvtShare; break;
-        case 'GCBL Share (Overall)': val = gcblShare; break;
-
-        case 'Active token (Till End Date)': val = activeCount; break;
-        case 'Token Age': val = Number(avgAge.toFixed(2)); break;
-        case 'RT Share': val = activeCount ? activeRTCount / activeCount : 0; break;
-        case 'RT Share (>4 Days)': val = activeRTCount ? activeRTOver4Count / activeRTCount : 0; break;
-
-        case 'NRT Upgrade': val = nrtUpgradePct; break;
-        case 'PVT Upgrade': val = pvtUpgradePct; break;
-
-        case 'Login on Token base': val = loginPct; break;
-        case 'Login >=(T+1)': val = loginT1Pct; break;
-        case 'CF attached (%)': val = cfAttachedPct; break;
-
-        case 'Unique Token Cancellation %': val = cohortCancelPct; break;
-        case 'RT - Token base': val = cohortRtCancelPct; break;
-        case 'NRT - Token Base': val = cohortNrtCancelPct; break;
-        case 'PVT - Token Base': val = cohortPvtCancelPct; break;
-
-        case 'Delivery TAT': val = Number(delTat.toFixed(2)); break;
-        case 'Cancellation TAT': val = Number(cancTat.toFixed(2)); break;
-      }
-      r.values[tf.key] = val;
-    });
-  });
-
-  return { columns, rows: resultRows };
-}
-</file>
-
 <file path="src/verify-offline-mode.ts">
 import * as fs from 'fs';
 import * as path from 'path';
@@ -3354,6 +2878,52 @@ function runVerification() {
 }
 
 runVerification();
+</file>
+
+<file path=".github/workflows/sync-sheets.yml">
+name: Auto Google Sheets Sync
+
+on:
+  schedule:
+    # Runs every 30 minutes
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  sync:
+    name: Sync Sheet to Supabase
+    runs-on: ubuntu-latest
+    env:
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+      GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY }}
+      HAS_PRIVATE_SYNC_SECRETS: ${{ secrets.VITE_SUPABASE_URL != '' && secrets.SUPABASE_SERVICE_ROLE_KEY != '' && secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL != '' && secrets.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY != '' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Skip when private sync secrets are missing
+        if: env.HAS_PRIVATE_SYNC_SECRETS != 'true'
+        run: |
+          echo "Private sheet sync skipped."
+          echo "Configure VITE_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GOOGLE_SERVICE_ACCOUNT_EMAIL, and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY to enable this job."
+
+      - name: Install dependencies
+        if: env.HAS_PRIVATE_SYNC_SECRETS == 'true'
+        run: npm ci
+
+      - name: Run sync script
+        if: env.HAS_PRIVATE_SYNC_SECRETS == 'true'
+        run: node scripts/sync-sheets.js
 </file>
 
 <file path="package.json">
@@ -3526,6 +3096,127 @@ async function fetchPrivateSheetValues(sheetId, sheetName, accessToken) {
   return values.map(row => row.map(cell => normalizeStr(String(cell ?? ''))));
 }
 
+function parseDateStringInternal(str) {
+  const yyyymmddRegex = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:\s+|T)?(\d{1,2})?:?(\d{1,2})?:?(\d{1,2})?/;
+  const matchY = str.match(yyyymmddRegex);
+  if (matchY) {
+    const year = parseInt(matchY[1], 10);
+    const month = parseInt(matchY[2], 10) - 1;
+    const day = parseInt(matchY[3], 10);
+    const hour = matchY[4] ? parseInt(matchY[4], 10) : 0;
+    const minute = matchY[5] ? parseInt(matchY[5], 10) : 0;
+    const second = matchY[6] ? parseInt(matchY[6], 10) : 0;
+    return new Date(year, month, day, hour, minute, second);
+  }
+
+  const ddmmyyyyRegex = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4}|\d{2})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/;
+  const matchD = str.match(ddmmyyyyRegex);
+  if (matchD) {
+    const day = parseInt(matchD[1], 10);
+    const month = parseInt(matchD[2], 10) - 1;
+    let year = parseInt(matchD[3], 10);
+    if (year < 100) {
+      year += year < 50 ? 2000 : 1900;
+    }
+    const hour = matchD[4] ? parseInt(matchD[4], 10) : 0;
+    const minute = matchD[5] ? parseInt(matchD[5], 10) : 0;
+    const second = matchD[6] ? parseInt(matchD[6], 10) : 0;
+    return new Date(year, month, day, hour, minute, second);
+  }
+
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    return parsed;
+  }
+  return null;
+}
+
+const dateCache = new Map();
+function parseDateString(dateStr) {
+  if (!dateStr) return null;
+  const str = String(dateStr).trim();
+  if (!str) return null;
+
+  const cached = dateCache.get(str);
+  if (cached !== undefined) {
+    return cached === -1 ? null : new Date(cached);
+  }
+
+  const result = parseDateStringInternal(str);
+  if (result) {
+    dateCache.set(str, result.getTime());
+  } else {
+    dateCache.set(str, -1);
+  }
+  return result;
+}
+
+function cleanString(value) {
+  if (value === undefined || value === null) return null;
+  const cleaned = String(value).trim();
+  return cleaned === '' ? null : cleaned;
+}
+
+function toDateOnly(value) {
+  const cleaned = cleanString(value);
+  if (!cleaned) return null;
+  const parsed = parseDateString(cleaned);
+  if (!parsed) return null;
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function toTimestamp(value) {
+  const cleaned = cleanString(value);
+  if (!cleaned) return null;
+  const parsed = parseDateString(cleaned);
+  return parsed ? parsed.toISOString() : null;
+}
+
+function toNumeric(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function buildCaseRecord(row) {
+  return {
+    booking_id: String(row.bookingId).trim(),
+    row_data: row,
+    updated_at: new Date().toISOString(),
+    token_date: toDateOnly(row.tokenDate),
+    expected_delivery_date: toDateOnly(row.expectedDeliveryTime) || toDateOnly(row.expectedDeliveryDate),
+    actual_delivery_date: toDateOnly(row.actualDeliveryDate),
+    cancel_req_date: toDateOnly(row.cancelReqDate),
+    last_payment_date: toDateOnly(row.lastPaymentDate),
+    latest_remark_date: toTimestamp(row.latestRemarkDate),
+    expected_od_completion_date: toDateOnly(row.expectedOdCompletionDate),
+    edd_reviewer_date: toDateOnly(row.eddReviewerDate),
+    gmail_pendency_date: toDateOnly(row.gmailPendencyDate),
+    city: cleanString(row.city),
+    hub_name: cleanString(row.hubName),
+    allocated_rm: cleanString(row.allocatedRm),
+    assigned_dc: cleanString(row.assignedDc),
+    lead_stage: cleanString(row.leadStage),
+    deal_status: cleanString(row.dealStatus),
+    task_bucket: cleanString(row.taskBucket),
+    payment_type: cleanString(row.paymentType),
+    token_type: cleanString(row.tokenType),
+    token_type_with_nrt: cleanString(row.tokenTypeWithNrt),
+    sheet_final_status: cleanString(row.sheetFinalStatus),
+    form_final_status: cleanString(row.formFinalStatus),
+    gmail_pendency_status: cleanString(row.gmailPendencyStatus),
+    ready_to_deliver: cleanString(row.readyToDeliver),
+    cancel_reason: cleanString(row.cancelReason),
+    lead_ds_channel: cleanString(row.leadDsChannel),
+    total_listing_days: toNumeric(row.totalListingDays),
+    payment_percentage: toNumeric(row.paymentPercentage),
+    customer_key: cleanString(row.userId || row.uid || row.leadId),
+  };
+}
+
 async function runSync() {
   console.log('--- STARTING BACKGROUND SHEET SYNC ---');
 
@@ -3600,11 +3291,7 @@ async function runSync() {
   console.log(`De-duplicated to ${uniqueRows.length} unique cases.`);
 
   // 3. Upsert to Supabase
-  const payload = uniqueRows.map(row => ({
-    booking_id: String(row.bookingId).trim(),
-    row_data: row,
-    updated_at: new Date().toISOString()
-  }));
+  const payload = uniqueRows.map(row => buildCaseRecord(row));
 
   console.log(`Upserting payloads to Supabase dashboard_cases table...`);
   const chunkSize = 200;
@@ -4987,227 +4674,6 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
 };
 </file>
 
-<file path="src/components/DashboardCharts.tsx">
-import React from 'react';
-import { motion } from 'motion/react';
-import { DashboardCharts as ChartsType, FilterState } from '../types';
-
-interface DashboardChartsProps {
-  charts: ChartsType;
-  filters: FilterState;
-  setFilters: React.Dispatch<React.SetStateAction<FilterState>>;
-  setCurrentPage: React.Dispatch<React.SetStateAction<number>>;
-  activeTab: 'ops' | 'performance' | 'loss';
-  filteredCancelledC2dCount: number;
-}
-
-export default function DashboardCharts({
-  charts,
-  filters,
-  setFilters,
-  setCurrentPage,
-  activeTab,
-  filteredCancelledC2dCount
-}: DashboardChartsProps) {
-  
-  const renderSvgBarChart = (
-    title: string, 
-    dataObj: Record<string, number> | undefined | null, 
-    colorClass: string = "bg-brand-orange",
-    filterKey?: keyof FilterState,
-    colorOverrides?: Record<string, string>
-  ) => {
-    const includeBlank = !!colorOverrides;
-    const entries = Object.entries(dataObj || {}).filter(([k]) => (includeBlank || (k !== 'Blank')) && k !== 'All' && k !== '');
-    if (!entries.length) {
-      return (
-        <div className="flex h-36 items-center justify-center text-xs text-slate-400 font-medium">
-          No data available for {title}
-        </div>
-      );
-    }
-    
-    const maxVal = Math.max(...entries.map(([, v]) => v)) || 1;
-    
-    return (
-      <div className="space-y-1.5 mt-2 select-none">
-        {entries.slice(0, 8).map(([label, val]) => {
-          const pct = Math.min(100, Math.max(4, (val / maxVal) * 100));
-          const isCurrentFilter = filterKey && filters[filterKey] === label;
-          const barColor = colorOverrides?.[label] ?? colorClass;
-          
-          return (
-            <div 
-              key={label} 
-              className={`text-xs p-2 rounded-xl transition-all ${
-                filterKey ? 'cursor-pointer hover:bg-slate-50 active:scale-[0.99]' : ''
-              } ${isCurrentFilter ? 'bg-orange-50/50 border border-brand-orange/40 shadow-xs' : 'border border-transparent'}`}
-              onClick={() => {
-                if (filterKey) {
-                  setFilters(prev => {
-                    const currentVal = prev[filterKey];
-                    const newVal = currentVal === label ? 'All' : label;
-                    return { ...prev, [filterKey]: newVal };
-                  });
-                  setCurrentPage(1);
-                }
-              }}
-            >
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 items-start text-[11px] font-semibold text-slate-600 mb-1">
-                <span className="min-w-0 break-words leading-4 flex items-center gap-1.5">
-                  {label}
-                  {isCurrentFilter && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-brand-orange inline-block animate-pulse shrink-0" />
-                  )}
-                </span>
-                <span className={`text-right leading-4 whitespace-nowrap ${isCurrentFilter ? 'text-brand-orange font-bold' : ''}`}>
-                  {val} cases
-                </span>
-              </div>
-              <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                <motion.div 
-                  className={`h-full rounded-full ${isCurrentFilter ? 'bg-brand-orange' : barColor}`}
-                  initial={{ width: 0 }}
-                  animate={{ width: `${pct}%` }}
-                  transition={{ duration: 0.6, ease: "easeOut" }}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
-  if (activeTab === 'ops') {
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Lead Stage Split */}
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-            Lead Stage Split
-          </h4>
-          {renderSvgBarChart('Lead Stage', charts.leadStage, "bg-brand-orange", "leadStage")}
-        </div>
-
-        {/* Task Bucket Split */}
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-            Task Bucket Distribution
-          </h4>
-          {renderSvgBarChart('Task Bucket', charts.taskBucket, "bg-brand-blue", "taskBucket")}
-        </div>
-
-        {/* EDD Distribution */}
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-            EDD Distribution
-          </h4>
-          {renderSvgBarChart('EDD Distribution', charts.eddDistribution, "bg-rose-500", "eddStatus")}
-        </div>
-
-        {/* Total Listing Days */}
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-            Total Listing Days
-          </h4>
-          {renderSvgBarChart('Total Listing Days', charts.listingDaysDistribution, "bg-emerald-500", "listingDaysBucket")}
-        </div>
-      </div>
-    );
-  }
-
-  if (activeTab === 'performance') {
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
-        {/* City Split */}
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-            City Distribution
-          </h4>
-          {renderSvgBarChart('City', charts.city, "bg-brand-blue", "city")}
-        </div>
-
-        {/* Hub Split */}
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-            Top Hubs (Volume)
-          </h4>
-          {renderSvgBarChart('Hub', charts.hub, "bg-violet-500", "hubName")}
-        </div>
-
-        {/* On Demand Status Split */}
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-            On Demand Status
-          </h4>
-          {renderSvgBarChart('On Demand Status', charts.onDemandStatusDistribution, "bg-emerald-500", "onDemandStatus", {
-            'Blank': 'bg-slate-400',
-          })}
-        </div>
-
-        {/* Ready to Deliver Split */}
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-            Ready to Deliver?
-          </h4>
-          {renderSvgBarChart('Ready to Deliver', charts.readyToDeliver, "bg-teal-500", "readyToDeliver", {
-            'Blank': 'bg-slate-400',
-            'Yes': 'bg-emerald-500',
-            'No': 'bg-rose-500',
-          })}
-        </div>
-
-        {/* Total Expected Amount Split */}
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-            Total Expected Amount
-          </h4>
-          {renderSvgBarChart('Total Expected Amount', charts.totalExpectedAmountDistribution, "bg-amber-500")}
-        </div>
-      </div>
-    );
-  }
-
-  // activeTab === 'loss'
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-      {/* Cancellation Reason Split */}
-      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-        <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-          Cancellation Reasons
-        </h4>
-        {renderSvgBarChart('Cancellation Reason', charts.cancellationReason, "bg-rose-500", "cancelReason")}
-      </div>
-
-      {/* Payment Type Split */}
-      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-        <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-          Payment Type Split
-        </h4>
-        {renderSvgBarChart('Payment Type', charts.paymentType, "bg-brand-orange", "paymentType")}
-      </div>
-
-      {/* Token Type Split */}
-      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-        <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-          Token Type Split
-        </h4>
-        {renderSvgBarChart('Token Type', charts.tokenType, "bg-indigo-500", "tokenType")}
-      </div>
-
-      {/* DS Channel Distribution */}
-      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-        <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
-          DS Channel Distribution
-        </h4>
-        {renderSvgBarChart('DS Channel', charts.leadDsChannel || {}, "bg-brand-blue", "leadDsChannel")}
-      </div>
-    </div>
-  );
-}
-</file>
-
 <file path="src/hooks/useCaseData.ts">
 import { Dispatch, SetStateAction, useCallback, useState } from 'react';
 import { CaseRow } from '../types';
@@ -5345,6 +4811,456 @@ export function useCaseData(
     syncCasesFromSheets,
     syncPendingChangesToSheets,
   };
+}
+</file>
+
+<file path="src/data/caseRowSchema.js">
+export const CASE_ROW_FIELD_MAP = {
+  'booking_id': 'bookingId',
+  'bookingid': 'bookingId',
+  'booking': 'bookingId',
+  'uid': 'uid',
+  'lead_id': 'leadId',
+  'leadid': 'leadId',
+  'user_id': 'userId',
+  'userid': 'userId',
+  'loan_id': 'loanId',
+  'loanid': 'loanId',
+  'appointmentid': 'appointmentId',
+  'appointment_id': 'appointmentId',
+  'car_reg_no': 'carRegNo',
+  'carregno': 'carRegNo',
+  'hub_code': 'hubCode',
+  'hubname': 'hubName',
+  'hub_name': 'hubName',
+  'city': 'city',
+  'allocated_rm': 'allocatedRm',
+  'allocatedrm': 'allocatedRm',
+  'assigned_rm': 'allocatedRm',
+  'assignedrm': 'allocatedRm',
+  'assigned_dc': 'assignedDc',
+  'assigneddc': 'assignedDc',
+  'lead_stage': 'leadStage',
+  'leadstage': 'leadStage',
+  'deal_status': 'dealStatus',
+  'dealstatus': 'dealStatus',
+  'token_type': 'tokenType',
+  'tokentype': 'tokenType',
+  'payment_type': 'paymentType',
+  'paymenttype': 'paymentType',
+  'funnel_stage': 'funnelStage',
+  'funnelstage': 'funnelStage',
+  'token_date': 'tokenDate',
+  'expected_delivery_date': 'expectedDeliveryDate',
+  'actual_delivery_date': 'actualDeliveryDate',
+  'on demand status': 'onDemandStatus',
+  'on_demand_status': 'onDemandStatus',
+  'ondemandstatus': 'onDemandStatus',
+  'amount_collected': 'amountCollected',
+  'amount_pending': 'amountPending',
+  'total_expected_amount': 'totalExpectedAmount',
+  'payment_percentage': 'paymentPercentage',
+  'ready to deliver?': 'readyToDeliver',
+  'ready_to_deliver': 'readyToDeliver',
+  'expected od completion date': 'expectedOdCompletionDate',
+  'expected_od_completion_date': 'expectedOdCompletionDate',
+  'edd date (reviewer)': 'eddReviewerDate',
+  'edd_reviewer_date': 'eddReviewerDate',
+  'remarks - everyone (tl/rm/fs/hh)': 'reviewerRemarks',
+  'remarks': 'reviewerRemarks',
+  'reviewer_remarks': 'reviewerRemarks',
+  'make': 'make',
+  'model': 'model',
+  'variant': 'variant',
+  'task_bucket': 'taskBucket',
+  'taskbucket': 'taskBucket',
+  'reason & data pointer': 'reasonPointer',
+  'reason_pointer': 'reasonPointer',
+  'cancel_req_date': 'cancelReqDate',
+  'cancelreqdate': 'cancelReqDate',
+  'cancellation_date': 'cancellationDate',
+  'cancellationdate': 'cancellationDate',
+  'auto_cancelled_flag': 'autoCancelledFlag',
+  'autocancelledflag': 'autoCancelledFlag',
+  'token_auto_cancellation_extended_date': 'tokenAutoCancellationExtendedDate',
+  'tokenautocancellationextendeddate': 'tokenAutoCancellationExtendedDate',
+  'reason': 'cancelReason',
+  'cancelreason': 'cancelReason',
+  'cancel_reason': 'cancelReason',
+  'sheetloginpartner': 'sheetLoginPartner',
+  'sheet_login_partner': 'sheetLoginPartner',
+  'sheetfinalstatus': 'sheetFinalStatus',
+  'sheet_final_status': 'sheetFinalStatus',
+  'sheetyardname': 'sheetYardName',
+  'sheet_yard_name': 'sheetYardName',
+  'sheetyardcity': 'sheetYardCity',
+  'sheet_yard_city': 'sheetYardCity',
+  'sheetdetailedremarks': 'sheetDetailedRemarks',
+  'sheet_detailed_remarks': 'sheetDetailedRemarks',
+  'sheetlastdisbursalactivity': 'sheetLastDisbursalActivity',
+  'sheet_last_disbursal_activity': 'sheetLastDisbursalActivity',
+  'sheetlogintimestamp': 'sheetLoginTimestamp',
+  'sheet_login_timestamp': 'sheetLoginTimestamp',
+  'formriskbucket': 'formRiskBucket',
+  'form_risk_bucket': 'formRiskBucket',
+  'formfinalstatus': 'formFinalStatus',
+  'form_final_status': 'formFinalStatus',
+  'formcasestage': 'formCaseStage',
+  'form_case_stage': 'formCaseStage',
+  'formfinalremarks': 'formFinalRemarks',
+  'form_final_remarks': 'formFinalRemarks',
+  'formdeviationrequired': 'formDeviationRequired',
+  'form_deviation_required': 'formDeviationRequired',
+  'formdetailedask': 'formDetailedAsk',
+  'form_detailed_ask': 'formDetailedAsk',
+  'gmail_summary': 'gmailSummary',
+  'gmailsummary': 'gmailSummary',
+  'gmail_pendency_status': 'gmailPendencyStatus',
+  'gmailpendencystatus': 'gmailPendencyStatus',
+  'gmail_pendency_reason': 'gmailPendencyReason',
+  'gmailpendencyreason': 'gmailPendencyReason',
+  'gmail_next_action': 'gmailNextAction',
+  'gmailnextaction': 'gmailNextAction',
+  'gmail_pendency_source': 'gmailPendencySource',
+  'gmailpendencysource': 'gmailPendencySource',
+  'gmail_pendency_date': 'gmailPendencyDate',
+  'gmailpendencydate': 'gmailPendencyDate',
+  'confidence_score': 'confidenceScore',
+  'confidencescore': 'confidenceScore',
+  'ml_estimated_delivery_date': 'mlEstimatedDeliveryDate',
+  'mlestimateddeliverydate': 'mlEstimatedDeliveryDate',
+  'latest_remark': 'latestRemark',
+  'latestremark': 'latestRemark',
+  'latest_remark_by': 'latestRemarkBy',
+  'latestremarkby': 'latestRemarkBy',
+  'latest_remark_date': 'latestRemarkDate',
+  'latestremarkdate': 'latestRemarkDate',
+  'rc_case_type': 'rcCaseType',
+  'rccasetype': 'rcCaseType',
+  'income_source': 'incomeSource',
+  'incomesource': 'incomeSource',
+  'ogl_pincode_flag': 'oglPincodeFlag',
+  'oglpincodeflag': 'oglPincodeFlag',
+  'ogl_pincode_check': 'oglPincodeFlag',
+  'credit_ltv': 'creditLtv',
+  'creditltv': 'creditLtv',
+  'ltv': 'creditLtv',
+  'last_risk_bucket': 'lastRiskBucket',
+  'lastriskbucket': 'lastRiskBucket',
+  'ds_roi': 'dsRoi',
+  'dsroi': 'dsRoi',
+  'final_roi': 'finalRoi',
+  'finalroi': 'finalRoi',
+  'credit_rejection_reason': 'creditRejectionReason',
+  'creditrejectionreason': 'creditRejectionReason',
+  'credit_rejection_sub_reason': 'creditRejectionSubReason',
+  'creditrejectionsubreason': 'creditRejectionSubReason',
+  'diligence_rejection_reason': 'diligenceRejectionReason',
+  'diligencerejectionreason': 'diligenceRejectionReason',
+  'diligence_rejection_sub_reason': 'diligenceRejectionSubReason',
+  'diligencerejectionsubreason': 'diligenceRejectionSubReason',
+  'red_channel_reason': 'redChannelReason',
+  'redchannelreason': 'redChannelReason',
+  'soft_derog_flag': 'softDerogFlag',
+  'softderogflag': 'softDerogFlag',
+  'hard_derog_flag': 'hardDerogFlag',
+  'hardderogflag': 'hardDerogFlag',
+  'non_ogl': 'nonOgl',
+  'nonogl': 'nonOgl',
+  'contact_number': 'contactNumber',
+  'contactnumber': 'contactNumber',
+  'red_channel_flag': 'redChannelFlag',
+  'redchannelflag': 'redChannelFlag',
+  'tof_rejected_flag': 'tofRejectedFlag',
+  'tofrejectedflag': 'tofRejectedFlag',
+  'deviation_mitigation_comment': 'deviationMitigationComment',
+  'deviationmitigationcomment': 'deviationMitigationComment',
+  'bajaj_segment': 'bajajSegment',
+  'bajajsegment': 'bajajSegment',
+  'company_name': 'companyName',
+  'companyname': 'companyName',
+  'lead_ds_channel': 'leadDsChannel',
+  'leaddschannel': 'leadDsChannel',
+  'foir': 'foir',
+  'total_listing_days': 'totalListingDays',
+  'totallistingdays': 'totalListingDays',
+  'latest_lead_creation_timestamp': 'latestLeadCreationTimestamp',
+  'latestleadcreationtimestamp': 'latestLeadCreationTimestamp',
+  'latest_login_time': 'latestLoginTime',
+  'latestlogintime': 'latestLoginTime',
+  'latest_credit_assessed_timestamp': 'latestCreditAssessedTimestamp',
+  'latestcreditassessedtimestamp': 'latestCreditAssessedTimestamp',
+  'latest_diligence_assessed_timestamp': 'latestDiligenceAssessedTimestamp',
+  'latestdiligenceassessedtimestamp': 'latestDiligenceAssessedTimestamp',
+  'latest_fcu_assessed_timestamp': 'latestFcuAssessedTimestamp',
+  'latestfcuassessedtimestamp': 'latestFcuAssessedTimestamp',
+  'tnc_generated_date': 'tncGeneratedDate',
+  'tncgenerateddate': 'tncGeneratedDate',
+  'tnc_accepted_timestamp': 'tncAcceptedTimestamp',
+  'tncacceptedtimestamp': 'tncAcceptedTimestamp',
+  'fcu_sent_date': 'fcuSentDate',
+  'fcusentdate': 'fcuSentDate',
+  'sent_to_rcu_timestamp': 'sentToRcuTimestamp',
+  'senttorcutimestamp': 'sentToRcuTimestamp',
+  'sent_to_ops_timestamp': 'sentToOpsTimestamp',
+  'senttoopstimestamp': 'sentToOpsTimestamp',
+  'submit_to_ops_timestamp': 'submitToOpsTimestamp',
+  'submittoopstimestamp': 'submitToOpsTimestamp',
+  'ops_disbursal_timestamp': 'opsDisbursalTimestamp',
+  'opsdisbursaltimestamp': 'opsDisbursalTimestamp',
+  'finance_disbursed_timestamp': 'financeDisbursedTimestamp',
+  'financedisbursedtimestamp': 'financeDisbursedTimestamp',
+  'last_call_at': 'lastCallAt',
+  'lastcallat': 'lastCallAt',
+  'followup_at': 'followupAt',
+  'followupat': 'followupAt',
+  'total_call_attempts': 'totalCallAttempts',
+  'totalcallattempts': 'totalCallAttempts',
+  'agg_total_call_attempts': 'totalCallAttempts',
+  'aggtotalcallattempts': 'totalCallAttempts',
+  'total_connected_calls': 'totalConnectedCalls',
+  'totalconnectedcalls': 'totalConnectedCalls',
+  'agg_total_connected_calls': 'totalConnectedCalls',
+  'aggtotalconnectedcalls': 'totalConnectedCalls',
+  'last_call_connected_sp': 'lastCallConnectedSp',
+  'lastcallconnectedsp': 'lastCallConnectedSp',
+  'dialed_operator_sp': 'lastCallConnectedSp',
+  'dialed_operator': 'lastCallConnectedSp',
+  'call_duration': 'callDuration',
+  'callduration': 'callDuration',
+  'agg_call_duration': 'callDuration',
+  'aggcallduration': 'callDuration',
+  'latest_call_outcome': 'latestCallOutcome',
+  'latestcalloutcome': 'latestCallOutcome',
+  'agg_latest_call_outcome': 'latestCallOutcome',
+  'agglatestcalloutcome': 'latestCallOutcome',
+  'last_disposition': 'lastDisposition',
+  'lastdisposition': 'lastDisposition',
+  'agg_last_disposition': 'lastDisposition',
+  'agglastdisposition': 'lastDisposition'
+};
+
+function compactHeaderKey(value) {
+  return normalizeHeaderKey(value).replace(/[^a-z0-9]/g, '');
+}
+
+const CASE_ROW_COMPACT_FIELD_MAP = Object.entries(CASE_ROW_FIELD_MAP).reduce((acc, [alias, field]) => {
+  const compact = compactHeaderKey(alias);
+  if (compact && !(compact in acc)) {
+    acc[compact] = field;
+  }
+  return acc;
+}, {});
+
+export const CASE_ROW_NUMERIC_FIELDS = [
+  'amountCollected',
+  'amountPending',
+  'totalExpectedAmount',
+  'paymentPercentage',
+  'totalCallAttempts',
+  'totalConnectedCalls',
+  'totalListingDays'
+];
+
+export function normalizeHeaderKey(header) {
+  return String(header ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+export function resolveCaseRowField(header) {
+  const normalized = normalizeHeaderKey(header);
+  return CASE_ROW_FIELD_MAP[normalized] || CASE_ROW_COMPACT_FIELD_MAP[compactHeaderKey(normalized)];
+}
+
+export function coerceCaseRowValue(field, rawValue) {
+  if (CASE_ROW_NUMERIC_FIELDS.includes(field)) {
+    return parseFloat(String(rawValue || '').replace(/[^0-9.-]/g, '')) || 0;
+  }
+  return rawValue;
+}
+
+export function createBaseCaseRow(rowNumber) {
+  return {
+    _rowNumber: rowNumber,
+    bookingId: `B-INFO-${999 + rowNumber}`,
+    uid: `UID-CSV-${Math.max(1, rowNumber - 1)}`,
+    leadId: '',
+    userId: '',
+    loanId: '',
+    appointmentId: '',
+    carRegNo: '',
+    hubCode: '',
+    hubName: `Hub ${Math.max(1, rowNumber - 1)}`,
+    city: 'Delhi-NCR',
+    allocatedRm: 'System RM',
+    assignedDc: '',
+    caAssignedLms: '',
+    sm: '',
+    tm: '',
+    rm: '',
+    dealStatus: 'ACTIVE',
+    dealStatusUpdatedAt: '',
+    cancellationDate: '',
+    autoCancelledFlag: 'false',
+    tokenAutoCancellationExtendedDate: '',
+    leadStage: 'ACTIVE_TOKEN',
+    leadStatus: 'ACTIVE_TOKEN',
+    tokenType: 'PAID_TOKEN',
+    tokenTypeWithNrt: '',
+    paymentType: 'CASH',
+    funnelStage: 'TOKEN_PAID',
+    tokenDate: '',
+    tokenDateTime: '',
+    bookingDate: '',
+    expectedDeliveryDate: '',
+    expectedDeliveryTime: '',
+    actualDeliveryDate: '',
+    lastPaymentDate: '',
+    latestRemarkDate: '',
+    updatedAt: '',
+    cancelReqDate: '',
+    deliveryStatus: '',
+    deliverySegment: '',
+    onDemandStatus: '',
+    amountCollected: 0,
+    amountPending: 0,
+    totalExpectedAmount: 0,
+    agreedSalesPrice: 0,
+    paymentPercentage: 0,
+    readyToDeliver: '',
+    expectedOdCompletionDate: '',
+    eddReviewerDate: '',
+    reviewerRemarks: '',
+    make: '',
+    model: '',
+    variant: '',
+    manufacturingYear: '',
+    rcCaseType: 'FRESH',
+    incomeSource: '',
+    oglPincodeFlag: '',
+    creditLtv: '',
+    lastRiskBucket: '',
+    dsRoi: '',
+    finalRoi: '',
+    creditRejectionReason: '',
+    creditRejectionSubReason: '',
+    diligenceRejectionReason: '',
+    diligenceRejectionSubReason: '',
+    redChannelReason: '',
+    softDerogFlag: 'false',
+    hardDerogFlag: 'false',
+    nonOgl: 'false',
+    contactNumber: '',
+    redChannelFlag: 'N',
+    tofRejectedFlag: 'N',
+    deviationMitigationComment: '',
+    bajajSegment: '',
+    companyName: '',
+    leadDsChannel: '',
+    foir: '',
+    latestLeadCreationTimestamp: '',
+    latestLoginTime: '',
+    latestCreditAssessedTimestamp: '',
+    latestDiligenceAssessedTimestamp: '',
+    latestFcuAssessedTimestamp: '',
+    tncGeneratedDate: '',
+    tncAcceptedTimestamp: '',
+    fcuSentDate: '',
+    sentToRcuTimestamp: '',
+    sentToOpsTimestamp: '',
+    submitToOpsTimestamp: '',
+    opsDisbursalTimestamp: '',
+    financeDisbursedTimestamp: '',
+    lastCallAt: '',
+    followupAt: '',
+    totalCallAttempts: 0,
+    totalConnectedCalls: 0,
+    lastCallConnectedSp: '',
+    callDuration: '',
+    latestCallOutcome: '',
+    lastDisposition: '',
+    latestRemark: '',
+    latestRemarkBy: '',
+    isActive: 'true',
+    isAlertVisible: 'true',
+    cancelReason: '',
+    taskBucket: '',
+    reasonPointer: '',
+    sheetLoginPartner: '',
+    sheetFinalStatus: '',
+    sheetYardName: '',
+    sheetYardCity: '',
+    sheetDetailedRemarks: '',
+    sheetLastDisbursalActivity: '',
+    sheetLoginTimestamp: '',
+    formRiskBucket: '',
+    formFinalStatus: '',
+    formCaseStage: '',
+    formFinalRemarks: '',
+    formDeviationRequired: 'No',
+    formDetailedAsk: '',
+    gmailSummary: '',
+    gmailPendencyStatus: '',
+    gmailPendencyReason: '',
+    gmailNextAction: '',
+    gmailPendencySource: '',
+    gmailPendencyDate: '',
+    confidenceScore: '',
+    mlEstimatedDeliveryDate: '',
+    totalListingDays: 0
+  };
+}
+
+export function applyReturnedLeadStage(row) {
+  if ((!row.readyToDeliver || String(row.readyToDeliver).trim() === '') && row.reviewerRemarks) {
+    const remarksText = String(row.reviewerRemarks);
+    const readyMatch = remarksText.match(/ready\s*to\s*deliver\??\s*[-:]\s*(yes|no)\b/i);
+    if (readyMatch) {
+      row.readyToDeliver = readyMatch[1][0].toUpperCase() + readyMatch[1].slice(1).toLowerCase();
+    }
+  }
+
+  if (
+    row.actualDeliveryDate &&
+    String(row.actualDeliveryDate).trim() !== '' &&
+    String(row.dealStatus).toUpperCase() === 'CANCEL'
+  ) {
+    row.leadStage = 'RETURNED';
+  }
+
+  // Link expectedDeliveryDate with expectedDeliveryTime if expectedDeliveryTime has a valid date-time
+  if (row.expectedDeliveryTime && String(row.expectedDeliveryTime).trim() !== '') {
+    const timeStr = String(row.expectedDeliveryTime).trim();
+    // 1. Matches YYYY-MM-DD or YYYY/MM/DD
+    const yyyymmddRegex = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/;
+    const matchY = timeStr.match(yyyymmddRegex);
+    let datePart = '';
+    if (matchY) {
+      const year = matchY[1];
+      const month = matchY[2].padStart(2, '0');
+      const day = matchY[3].padStart(2, '0');
+      datePart = `${year}-${month}-${day}`;
+    } else {
+      // 2. Matches DD/MM/YYYY or DD-MM-YYYY
+      const ddmmyyyyRegex = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/;
+      const matchD = timeStr.match(ddmmyyyyRegex);
+      if (matchD) {
+        const day = matchD[1].padStart(2, '0');
+        const month = matchD[2].padStart(2, '0');
+        const year = matchD[3];
+        datePart = `${year}-${month}-${day}`;
+      }
+    }
+
+    if (datePart) {
+      row.expectedDeliveryDate = datePart;
+    }
+  }
+
+  return row;
 }
 </file>
 
@@ -5779,6 +5695,269 @@ export function buildLocalDashboardMatrix(rows: CaseRow[]): DashboardMatrixResul
 }
 </file>
 
+<file path="src/components/DashboardCharts.tsx">
+import React from 'react';
+import { motion } from 'motion/react';
+import { DashboardCharts as ChartsType, FilterState } from '../types';
+
+const DEFAULT_BLANK_BAR_COLOR = 'bg-slate-400';
+
+interface RenderSvgBarChartOptions {
+  showBlank?: boolean;
+  colorOverrides?: Record<string, string>;
+}
+
+export function getChartEntriesForRender(
+  dataObj: Record<string, number> | undefined | null,
+  showBlank: boolean = true
+): [string, number][] {
+  return Object.entries(dataObj || {})
+    .filter(([label]) => {
+      if (label === 'All' || label === '') return false;
+      if (!showBlank && label === 'Blank') return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0]);
+    });
+}
+
+export function getChartBarColor(
+  label: string,
+  defaultColorClass: string,
+  colorOverrides?: Record<string, string>
+): string {
+  if (label === 'Blank') {
+    return colorOverrides?.[label] ?? DEFAULT_BLANK_BAR_COLOR;
+  }
+  return colorOverrides?.[label] ?? defaultColorClass;
+}
+
+interface DashboardChartsProps {
+  charts: ChartsType;
+  filters: FilterState;
+  setFilters: React.Dispatch<React.SetStateAction<FilterState>>;
+  setCurrentPage: React.Dispatch<React.SetStateAction<number>>;
+  activeTab: 'ops' | 'performance' | 'loss';
+  filteredCancelledC2dCount: number;
+}
+
+export default function DashboardCharts({
+  charts,
+  filters,
+  setFilters,
+  setCurrentPage,
+  activeTab,
+  filteredCancelledC2dCount
+}: DashboardChartsProps) {
+  
+  const renderSvgBarChart = (
+    title: string, 
+    dataObj: Record<string, number> | undefined | null, 
+    colorClass: string = "bg-brand-orange",
+    filterKey?: keyof FilterState,
+    options: RenderSvgBarChartOptions = {}
+  ) => {
+    const { showBlank = true, colorOverrides } = options;
+    const entries = getChartEntriesForRender(dataObj, showBlank);
+    if (!entries.length) {
+      return (
+        <div className="flex h-36 items-center justify-center text-xs text-slate-400 font-medium">
+          No data available for {title}
+        </div>
+      );
+    }
+    
+    const maxVal = Math.max(...entries.map(([, v]) => v)) || 1;
+    
+    return (
+      <div className="space-y-1.5 mt-2 select-none">
+        {entries.slice(0, 8).map(([label, val]) => {
+          const pct = Math.min(100, Math.max(4, (val / maxVal) * 100));
+          const isCurrentFilter = filterKey && filters[filterKey] === label;
+          const barColor = getChartBarColor(label, colorClass, colorOverrides);
+          
+          return (
+            <div 
+              key={label} 
+              className={`text-xs p-2 rounded-xl transition-all ${
+                filterKey ? 'cursor-pointer hover:bg-slate-50 active:scale-[0.99]' : ''
+              } ${isCurrentFilter ? 'bg-orange-50/50 border border-brand-orange/40 shadow-xs' : 'border border-transparent'}`}
+              onClick={() => {
+                if (filterKey) {
+                  setFilters(prev => {
+                    const currentVal = prev[filterKey];
+                    const newVal = currentVal === label ? 'All' : label;
+                    return { ...prev, [filterKey]: newVal };
+                  });
+                  setCurrentPage(1);
+                }
+              }}
+            >
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 items-start text-[11px] font-semibold text-slate-600 mb-1">
+                <span className="min-w-0 break-words leading-4 flex items-center gap-1.5">
+                  {label}
+                  {isCurrentFilter && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-brand-orange inline-block animate-pulse shrink-0" />
+                  )}
+                </span>
+                <span className={`text-right leading-4 whitespace-nowrap ${isCurrentFilter ? 'text-brand-orange font-bold' : ''}`}>
+                  {val} cases
+                </span>
+              </div>
+              <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                <motion.div 
+                  className={`h-full rounded-full ${isCurrentFilter ? 'bg-brand-orange' : barColor}`}
+                  initial={{ width: 0 }}
+                  animate={{ width: `${pct}%` }}
+                  transition={{ duration: 0.6, ease: "easeOut" }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  if (activeTab === 'ops') {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Lead Stage Split */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+            Lead Stage Split
+          </h4>
+          {renderSvgBarChart('Lead Stage', charts.leadStage, "bg-brand-orange", "leadStage")}
+        </div>
+
+        {/* Task Bucket Split */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+            Task Bucket Distribution
+          </h4>
+          {renderSvgBarChart('Task Bucket', charts.taskBucket, "bg-brand-blue", "taskBucket")}
+        </div>
+
+        {/* EDD Distribution */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+            EDD Distribution
+          </h4>
+          {renderSvgBarChart('EDD Distribution', charts.eddDistribution, "bg-rose-500", "eddStatus")}
+        </div>
+
+        {/* Total Listing Days */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+            Total Listing Days
+          </h4>
+          {renderSvgBarChart('Total Listing Days', charts.listingDaysDistribution, "bg-emerald-500", "listingDaysBucket")}
+        </div>
+      </div>
+    );
+  }
+
+  if (activeTab === 'performance') {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
+        {/* City Split */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+            City Distribution
+          </h4>
+          {renderSvgBarChart('City', charts.city, "bg-brand-blue", "city")}
+        </div>
+
+        {/* Hub Split */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+            Top Hubs (Volume)
+          </h4>
+          {renderSvgBarChart('Hub', charts.hub, "bg-violet-500", "hubName")}
+        </div>
+
+        {/* On Demand Status Split */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+            On Demand Status
+          </h4>
+          {renderSvgBarChart('On Demand Status', charts.onDemandStatusDistribution, "bg-emerald-500", "onDemandStatus", {
+            colorOverrides: {
+              'Blank': 'bg-slate-400',
+            }
+          })}
+        </div>
+
+        {/* Ready to Deliver Split */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+            Ready to Deliver?
+          </h4>
+          {renderSvgBarChart('Ready to Deliver', charts.readyToDeliver, "bg-teal-500", "readyToDeliver", {
+            colorOverrides: {
+              'Blank': 'bg-slate-400',
+              'Yes': 'bg-emerald-500',
+              'No': 'bg-rose-500',
+            }
+          })}
+        </div>
+
+        {/* Total Expected Amount Split */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+          <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+            Total Expected Amount
+          </h4>
+          {renderSvgBarChart('Total Expected Amount', charts.totalExpectedAmountDistribution, "bg-amber-500")}
+        </div>
+      </div>
+    );
+  }
+
+  // activeTab === 'loss'
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* Cancellation Reason Split */}
+      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+        <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+          Cancellation Reasons
+        </h4>
+        {renderSvgBarChart('Cancellation Reason', charts.cancellationReason, "bg-rose-500", "cancelReason")}
+      </div>
+
+      {/* Payment Type Split */}
+      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+        <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+          Payment Type Split
+        </h4>
+        {renderSvgBarChart('Payment Type', charts.paymentType, "bg-brand-orange", "paymentType")}
+      </div>
+
+      {/* Token Type Split */}
+      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+        <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+          Token Type Split
+        </h4>
+        {renderSvgBarChart('Token Type', charts.tokenType, "bg-indigo-500", "tokenType")}
+      </div>
+
+      {/* DS Channel Distribution */}
+      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+        <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+          DS Channel Distribution
+        </h4>
+        {renderSvgBarChart('DS Channel', charts.leadDsChannel || {}, "bg-brand-blue", "leadDsChannel", {
+          colorOverrides: {
+            'Blank': 'bg-slate-400',
+          }
+        })}
+      </div>
+    </div>
+  );
+}
+</file>
+
 <file path="src/components/LoginPage.tsx">
 /**
  * @license
@@ -6092,6 +6271,104 @@ export default function LoginPage({
       </motion.div>
     </div>
   );
+}
+</file>
+
+<file path="src/data/csvParser.ts">
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { CaseRow } from '../types';
+import {
+  applyReturnedLeadStage,
+  coerceCaseRowValue,
+  createBaseCaseRow,
+  normalizeHeaderKey,
+  resolveCaseRowField,
+} from './caseRowSchema.js';
+
+// Robust client-side CSV parser that handles quotes, line-breaks, and commas correctly
+export function parseCsvRaw(text: string): string[][] {
+  const lines: string[][] = [];
+  let row: string[] = [''];
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const nextChar = text[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        row[row.length - 1] += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      row.push('');
+    } else if ((char === '\r' || char === '\n') && !inQuotes) {
+      if (char === '\r' && nextChar === '\n') {
+        i++;
+      }
+      lines.push(row);
+      row = [''];
+    } else {
+      row[row.length - 1] += char;
+    }
+  }
+  if (row.length > 1 || row[0] !== '') {
+    lines.push(row);
+  }
+  return lines;
+}
+
+
+/**
+ * Strips ALL whitespace — including non-breaking spaces (\u00A0), zero-width spaces (\u200B),
+ * and other unicode whitespace that JS .trim() misses.
+ */
+function normalizeStr(val: string): string {
+  return val
+    .replace(/^[\s\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]+/g, '')
+    .replace(/[\s\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]+$/g, '')
+    .replace(/[\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]/g, ' ')  // replace mid-string invisible chars with regular space
+    .replace(/  +/g, ' ');  // collapse double spaces
+}
+
+export function mapCsvRows(parsed: string[][]): CaseRow[] {
+  if (parsed.length < 2) {
+    throw new Error('Dataset must contain a header row and at least one data row.');
+  }
+
+  const rawHeaders = parsed[0].map(normalizeHeaderKey);
+
+  const result: CaseRow[] = [];
+
+  for (let i = 1; i < parsed.length; i++) {
+    const line = parsed[i];
+    if (line.every(cell => !cell.trim())) continue; // Skip blank lines
+
+    // Create standard empty row object
+    const rowObj: Record<string, any> = createBaseCaseRow(i + 1);
+
+    // Map values dynamically
+    line.forEach((cell, cellIndex) => {
+      const headerName = rawHeaders[cellIndex];
+      if (!headerName) return;
+
+      const key = resolveCaseRowField(headerName) as keyof CaseRow | undefined;
+      if (key) {
+        const rawVal = normalizeStr(cell.trim());
+        rowObj[key] = coerceCaseRowValue(key, rawVal);
+      }
+    });
+
+    result.push(applyReturnedLeadStage(rowObj) as CaseRow);
+  }
+
+  return result;
 }
 </file>
 
@@ -6646,7 +6923,7 @@ export const DEFAULT_FILTERS: FilterState = {
   cancelReason: 'All',
   leadDsChannel: 'All',
   readyToDeliver: 'All',
-  dateFilters: [],
+  dateFilters: [{ id: 'initial', dateField: 'All', startDate: '', endDate: '', filterBlankDates: false }],
   minPaymentPercentage: 'All',
   listingDaysBucket: 'All',
 };
@@ -7084,7 +7361,7 @@ export function buildDynamicFilterOptions(rows: CaseRow[]) {
     if (row.gmailPendencyStatus) gmailPendencySet.add(row.gmailPendencyStatus);
     if (row.onDemandStatus) onDemandStatusSet.add(row.onDemandStatus);
     if (row.cancelReason) cancelReasonsSet.add(row.cancelReason);
-    if (row.leadDsChannel) leadDsChannelsSet.add(row.leadDsChannel);
+    if (row.leadDsChannel) leadDsChannelsSet.add(row.leadDsChannel.trim());
     if (row.taskBucket) {
       splitTasks(row.taskBucket).forEach(task => {
         if (task.trim()) tasksSet.add(task.trim());
@@ -7190,319 +7467,6 @@ export function createDerivedLabels(tasks: string[]) {
 }
 </file>
 
-<file path="src/lib/dashboardQuery.test.ts">
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { normalizeFilterState, isActiveTokenFastPath } from './dashboardQuery';
-import { DEFAULT_FILTERS, getConfidenceTrendStatus, isRowMatchingFilter, buildEddLabels, getExpectedDeliveryTimeTimestamp, getNormalizedFieldTimestamp } from './dashboardFilters';
-import { applyReturnedLeadStage } from '../data/caseRowSchema.js';
-import { buildEddDistribution } from '../data/mockData';
-
-test('normalizeFilterState converts multi-select filters into arrays', () => {
-  const normalized = normalizeFilterState({
-    ...DEFAULT_FILTERS,
-    city: 'Delhi|||Mumbai',
-    leadStage: 'ACTIVE_TOKEN',
-    paymentType: 'Blank|||PMAX',
-    confidenceTrend: 'Decline|||Stable',
-    onDemandStatus: 'ASSIGNED|||DELIVERING',
-  });
-
-  assert.deepEqual(normalized.city, ['Delhi', 'Mumbai']);
-  assert.deepEqual(normalized.leadStage, ['ACTIVE_TOKEN']);
-  assert.deepEqual(normalized.paymentType, ['Blank', 'PMAX']);
-  assert.deepEqual(normalized.confidenceTrend, ['Decline', 'Stable']);
-  assert.deepEqual(normalized.onDemandStatus, ['ASSIGNED', 'DELIVERING']);
-});
-
-test('normalizeFilterState keeps date filters, search, and numeric thresholds', () => {
-  const normalized = normalizeFilterState({
-    ...DEFAULT_FILTERS,
-    searchQuery: 'B-2026-1234',
-    minPaymentPercentage: '75',
-    dateField: 'tokenDate',
-    startDate: '2026-06-01',
-    endDate: '2026-06-14',
-    filterBlankDates: true,
-    dateFilters: [
-      {
-        id: 'active',
-        dateField: 'expectedDeliveryDate',
-        startDate: '2026-06-10',
-        endDate: '2026-06-20',
-        filterBlankDates: false,
-      },
-      {
-        id: 'blank-only',
-        dateField: 'gmailPendencyDate',
-        startDate: '',
-        endDate: '',
-        filterBlankDates: true,
-      },
-      {
-        id: 'ignored',
-        dateField: 'All',
-        startDate: '',
-        endDate: '',
-        filterBlankDates: false,
-      },
-    ],
-  });
-
-  assert.equal(normalized.searchQuery, 'B-2026-1234');
-  assert.equal(normalized.minPaymentPercentage, 75);
-  assert.equal(normalized.dateField, 'tokenDate');
-  assert.equal(normalized.startDate, '2026-06-01');
-  assert.equal(normalized.endDate, '2026-06-14');
-  assert.equal(normalized.filterBlankDates, true);
-  assert.deepEqual(normalized.dateFilters, [
-    {
-      field: 'expectedDeliveryDate',
-      startDate: '2026-06-10',
-      endDate: '2026-06-20',
-      filterBlankDates: false,
-    },
-    {
-      field: 'gmailPendencyDate',
-      startDate: undefined,
-      endDate: undefined,
-      filterBlankDates: true,
-    },
-  ]);
-});
-
-test('isActiveTokenFastPath only enables the exact ACTIVE_TOKEN-only filter', () => {
-  assert.equal(isActiveTokenFastPath({ leadStage: ['ACTIVE_TOKEN'] }), true);
-  assert.equal(isActiveTokenFastPath({ leadStage: ['ACTIVE_TOKEN'], confidenceTrend: ['Decline'] }), false);
-  assert.equal(isActiveTokenFastPath({ leadStage: ['ACTIVE_TOKEN', 'DELIVERED'] }), false);
-  assert.equal(isActiveTokenFastPath({ city: ['Delhi'] }), false);
-});
-
-test('getConfidenceTrendStatus returns correct trend fallback when missing', () => {
-  const row1 = { bookingId: 'B-1001', confidenceScore: '0.95' } as any;
-  const trend1 = getConfidenceTrendStatus(row1);
-  assert.ok(['Stable', 'Improving', 'Decline'].includes(trend1));
-  
-  const row2 = { bookingId: 'B-1001', confidenceScore: '0.95', confidenceTrendStatus: 'Improving' } as any;
-  assert.equal(getConfidenceTrendStatus(row2), 'Improving');
-});
-
-test('isRowMatchingFilter matches on computed confidence trend status', () => {
-  const row = { bookingId: 'B-1001', confidenceScore: '0.95' } as any;
-  const computedTrend = getConfidenceTrendStatus(row);
-  const eddLabels = buildEddLabels();
-
-  const matchingFilters = {
-    ...DEFAULT_FILTERS,
-    confidenceTrend: computedTrend,
-  };
-  assert.equal(isRowMatchingFilter(row, matchingFilters, eddLabels), true);
-
-  const nonMatchingTrend = computedTrend === 'Stable' ? 'Decline' : 'Stable';
-  const nonMatchingFilters = {
-    ...DEFAULT_FILTERS,
-    confidenceTrend: nonMatchingTrend,
-  };
-  assert.equal(isRowMatchingFilter(row, nonMatchingFilters, eddLabels), false);
-});
-
-test('applyReturnedLeadStage links expectedDeliveryDate to date part of expectedDeliveryTime', () => {
-  // Case A: expectedDeliveryTime has full date-time YYYY-MM-DD
-  const row1 = { expectedDeliveryTime: '2026-06-18 00:00:00', expectedDeliveryDate: '2026-06-17' } as any;
-  const processed1 = applyReturnedLeadStage(row1);
-  assert.equal(processed1.expectedDeliveryDate, '2026-06-18');
-
-  // Case B: expectedDeliveryTime has format DD/MM/YYYY
-  const row2 = { expectedDeliveryTime: '18/06/2026 12:30:00', expectedDeliveryDate: '2026-06-17' } as any;
-  const processed2 = applyReturnedLeadStage(row2);
-  assert.equal(processed2.expectedDeliveryDate, '2026-06-18');
-
-  // Case C: expectedDeliveryTime has only time, should NOT overwrite expectedDeliveryDate
-  const row3 = { expectedDeliveryTime: '12:30:00', expectedDeliveryDate: '2026-06-17' } as any;
-  const processed3 = applyReturnedLeadStage(row3);
-  assert.equal(processed3.expectedDeliveryDate, '2026-06-17');
-});
-
-test('getExpectedDeliveryTimeTimestamp returns combined timestamp correctly', () => {
-  // Case 1: has only time, links to date
-  const row1 = { expectedDeliveryTime: '11:30:00', expectedDeliveryDate: '2026-06-18' } as any;
-  const ts1 = getExpectedDeliveryTimeTimestamp(row1);
-  assert.equal(ts1?.getFullYear(), 2026);
-  assert.equal(ts1?.getMonth(), 5); // June is 5
-  assert.equal(ts1?.getDate(), 18);
-  assert.equal(ts1?.getHours(), 11);
-  assert.equal(ts1?.getMinutes(), 30);
-
-  // Case 2: has full date time
-  const row2 = { expectedDeliveryTime: '2026-06-19 14:45:00', expectedDeliveryDate: '2026-06-18' } as any;
-  const ts2 = getExpectedDeliveryTimeTimestamp(row2);
-  assert.equal(ts2?.getDate(), 19);
-  assert.equal(ts2?.getHours(), 14);
-
-  // Case 3: missing time, falls back to date
-  const row3 = { expectedDeliveryTime: '', expectedDeliveryDate: '2026-06-18' } as any;
-  const ts3 = getExpectedDeliveryTimeTimestamp(row3);
-  assert.equal(ts3?.getDate(), 18);
-  assert.equal(ts3?.getHours(), 0);
-});
-
-test('isRowMatchingFilter filters expectedDeliveryTime in range correctly', () => {
-  const row = { expectedDeliveryTime: '11:30:00', expectedDeliveryDate: '2026-06-18' } as any;
-  const eddLabels = buildEddLabels();
-
-  const matchingFilters = {
-    ...DEFAULT_FILTERS,
-    dateField: 'expectedDeliveryTime',
-    startDate: '2026-06-18',
-    endDate: '2026-06-18',
-  };
-  assert.equal(isRowMatchingFilter(row, matchingFilters, eddLabels), true);
-
-  const nonMatchingFilters = {
-    ...DEFAULT_FILTERS,
-    dateField: 'expectedDeliveryTime',
-    startDate: '2026-06-19',
-    endDate: '2026-06-19',
-  };
-  assert.equal(isRowMatchingFilter(row, nonMatchingFilters, eddLabels), false);
-});
-
-test('getNormalizedFieldTimestamp links tokenDateTime to tokenDate correctly', () => {
-  const row = { tokenDateTime: '10:45:00', tokenDate: '2026-06-18' } as any;
-  const ts = getNormalizedFieldTimestamp(row, 'tokenDateTime');
-  assert.equal(ts?.getFullYear(), 2026);
-  assert.equal(ts?.getDate(), 18);
-  assert.equal(ts?.getHours(), 10);
-  assert.equal(ts?.getMinutes(), 45);
-});
-
-test('buildEddDistribution and eddStatus filtering prioritize expectedDeliveryTime', () => {
-  
-  // Row with expectedDeliveryTime having a date
-  const rowWithTime = {
-    bookingId: 'B-2001',
-    expectedDeliveryTime: '2026-06-25 15:00:00',
-    expectedDeliveryDate: '2026-06-17',
-  } as any;
-
-  // Let's verify the distribution output keys/buckets
-  const dist = buildEddDistribution([rowWithTime]);
-  // The value should go to the bucket for 2026-06-25 instead of 2026-06-17
-  // Since 2026-06-25 is far in the future relative to today (2026-06-16 is current local time), it should be in the +7 days bucket or similar.
-  const overdueCount = dist['Overdue / Breached'] || 0;
-  assert.equal(overdueCount, 0);
-
-  // Verify filtering behaves the same
-  const eddLabels = buildEddLabels();
-  // Today is 2026-06-16 in local test context or system date
-  // Let's test filter match
-  const matchTodayFilter = isRowMatchingFilter(
-    rowWithTime,
-    { ...DEFAULT_FILTERS, eddStatus: 'Overdue / Breached' },
-    eddLabels
-  );
-  assert.equal(matchTodayFilter, false);
-});
-</file>
-
-<file path="src/data/csvParser.ts">
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import { CaseRow } from '../types';
-import {
-  applyReturnedLeadStage,
-  coerceCaseRowValue,
-  createBaseCaseRow,
-  normalizeHeaderKey,
-  resolveCaseRowField,
-} from './caseRowSchema.js';
-
-// Robust client-side CSV parser that handles quotes, line-breaks, and commas correctly
-export function parseCsvRaw(text: string): string[][] {
-  const lines: string[][] = [];
-  let row: string[] = [''];
-  let inQuotes = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    const nextChar = text[i + 1];
-
-    if (char === '"') {
-      if (inQuotes && nextChar === '"') {
-        row[row.length - 1] += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (char === ',' && !inQuotes) {
-      row.push('');
-    } else if ((char === '\r' || char === '\n') && !inQuotes) {
-      if (char === '\r' && nextChar === '\n') {
-        i++;
-      }
-      lines.push(row);
-      row = [''];
-    } else {
-      row[row.length - 1] += char;
-    }
-  }
-  if (row.length > 1 || row[0] !== '') {
-    lines.push(row);
-  }
-  return lines;
-}
-
-
-/**
- * Strips ALL whitespace — including non-breaking spaces (\u00A0), zero-width spaces (\u200B),
- * and other unicode whitespace that JS .trim() misses.
- */
-function normalizeStr(val: string): string {
-  return val
-    .replace(/^[\s\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]+/g, '')
-    .replace(/[\s\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]+$/g, '')
-    .replace(/[\u00A0\u200B\uFEFF\u2000-\u200F\u2028\u2029]/g, ' ')  // replace mid-string invisible chars with regular space
-    .replace(/  +/g, ' ');  // collapse double spaces
-}
-
-export function mapCsvRows(parsed: string[][]): CaseRow[] {
-  if (parsed.length < 2) {
-    throw new Error('Dataset must contain a header row and at least one data row.');
-  }
-
-  const rawHeaders = parsed[0].map(normalizeHeaderKey);
-
-  const result: CaseRow[] = [];
-
-  for (let i = 1; i < parsed.length; i++) {
-    const line = parsed[i];
-    if (line.every(cell => !cell.trim())) continue; // Skip blank lines
-
-    // Create standard empty row object
-    const rowObj: Record<string, any> = createBaseCaseRow(i + 1);
-
-    // Map values dynamically
-    line.forEach((cell, cellIndex) => {
-      const headerName = rawHeaders[cellIndex];
-      if (!headerName) return;
-
-      const key = resolveCaseRowField(headerName) as keyof CaseRow | undefined;
-      if (key) {
-        const rawVal = normalizeStr(cell.trim());
-        rowObj[key] = coerceCaseRowValue(key, rawVal);
-      }
-    });
-
-    result.push(applyReturnedLeadStage(rowObj) as CaseRow);
-  }
-
-  return result;
-}
-</file>
-
 <file path="src/data/mockData.ts">
 /**
  * @license
@@ -7522,19 +7486,29 @@ export function parseDateSafe(value: string): Date | null {
   return parseDateString(value);
 }
 
-export function splitTasks(value: string): string[] {
+export function normalizeTaskBucketLabel(value: string): string {
   return String(value || '')
-    .split(/\n|,/)
-    .map(task => task.replace(/^\d+\.\s*/, '').trim())
-    .filter(Boolean);
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map(task => task.trim())
+    .filter(Boolean)
+    .join(' / ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function splitTasks(value: string): string[] {
+  const normalized = normalizeTaskBucketLabel(value);
+  return normalized ? [normalized] : [];
 }
 
 export function groupCount(rows: CaseRow[], key: keyof CaseRow): Record<string, number> {
   const result: Record<string, number> = {};
   rows.forEach(row => {
     const rawVal = row[key];
-    const value = String(rawVal === undefined || rawVal === null || rawVal === '' ? 'Blank' : rawVal);
-    result[value] = (result[value] || 0) + 1;
+    const value = rawVal === undefined || rawVal === null ? '' : String(rawVal).trim();
+    const bucket = value === '' ? 'Blank' : value;
+    result[bucket] = (result[bucket] || 0) + 1;
   });
   return result;
 }
@@ -7848,7 +7822,7 @@ export function buildCharts(rows: CaseRow[]): DashboardCharts {
     sheetFinalStatus: groupCount(rows, 'sheetFinalStatus'),
     formFinalStatus: groupCount(rows, 'formFinalStatus'),
     eddDistribution: buildEddDistribution(rows),
-    leadDsChannel: groupCount(rows.filter(r => r.leadStage === 'CANCELLED' || r.leadStage === 'RETURNED' || r.dealStatus === 'CANCEL' || r.cancelReason), 'leadDsChannel'),
+    leadDsChannel: groupCount(rows, 'leadDsChannel'),
     listingDaysDistribution: buildListingDaysDistribution(rows)
   };
 }
@@ -8498,6 +8472,355 @@ export const SEED_CASE_ROWS: CaseRow[] = [
 ];
 </file>
 
+<file path="src/lib/dashboardQuery.test.ts">
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { normalizeFilterState, isActiveTokenFastPath } from './dashboardQuery';
+import { DEFAULT_FILTERS, getConfidenceTrendStatus, isRowMatchingFilter, buildDynamicFilterOptions, buildEddLabels, getExpectedDeliveryTimeTimestamp, getNormalizedFieldTimestamp } from './dashboardFilters';
+import { applyReturnedLeadStage, resolveCaseRowField } from '../data/caseRowSchema.js';
+import { buildCharts, buildEddDistribution, splitTasks } from '../data/mockData';
+import { getChartBarColor, getChartEntriesForRender } from '../components/DashboardCharts';
+import { mapCsvRows } from '../data/csvParser';
+
+test('normalizeFilterState converts multi-select filters into arrays', () => {
+  const normalized = normalizeFilterState({
+    ...DEFAULT_FILTERS,
+    city: 'Delhi|||Mumbai',
+    leadStage: 'ACTIVE_TOKEN',
+    paymentType: 'Blank|||PMAX',
+    confidenceTrend: 'Decline|||Stable',
+    onDemandStatus: 'ASSIGNED|||DELIVERING',
+  });
+
+  assert.deepEqual(normalized.city, ['Delhi', 'Mumbai']);
+  assert.deepEqual(normalized.leadStage, ['ACTIVE_TOKEN']);
+  assert.deepEqual(normalized.paymentType, ['Blank', 'PMAX']);
+  assert.deepEqual(normalized.confidenceTrend, ['Decline', 'Stable']);
+  assert.deepEqual(normalized.onDemandStatus, ['ASSIGNED', 'DELIVERING']);
+});
+
+test('normalizeFilterState keeps date filters, search, and numeric thresholds', () => {
+  const normalized = normalizeFilterState({
+    ...DEFAULT_FILTERS,
+    searchQuery: 'B-2026-1234',
+    minPaymentPercentage: '75',
+    dateField: 'tokenDate',
+    startDate: '2026-06-01',
+    endDate: '2026-06-14',
+    filterBlankDates: true,
+    dateFilters: [
+      {
+        id: 'active',
+        dateField: 'expectedDeliveryDate',
+        startDate: '2026-06-10',
+        endDate: '2026-06-20',
+        filterBlankDates: false,
+      },
+      {
+        id: 'blank-only',
+        dateField: 'gmailPendencyDate',
+        startDate: '',
+        endDate: '',
+        filterBlankDates: true,
+      },
+      {
+        id: 'ignored',
+        dateField: 'All',
+        startDate: '',
+        endDate: '',
+        filterBlankDates: false,
+      },
+    ],
+  });
+
+  assert.equal(normalized.searchQuery, 'B-2026-1234');
+  assert.equal(normalized.minPaymentPercentage, 75);
+  assert.equal(normalized.dateField, 'tokenDate');
+  assert.equal(normalized.startDate, '2026-06-01');
+  assert.equal(normalized.endDate, '2026-06-14');
+  assert.equal(normalized.filterBlankDates, true);
+  assert.deepEqual(normalized.dateFilters, [
+    {
+      field: 'expectedDeliveryDate',
+      startDate: '2026-06-10',
+      endDate: '2026-06-20',
+      filterBlankDates: false,
+    },
+    {
+      field: 'gmailPendencyDate',
+      startDate: undefined,
+      endDate: undefined,
+      filterBlankDates: true,
+    },
+  ]);
+});
+
+test('isActiveTokenFastPath only enables the exact ACTIVE_TOKEN-only filter', () => {
+  assert.equal(isActiveTokenFastPath({ leadStage: ['ACTIVE_TOKEN'] }), true);
+  assert.equal(isActiveTokenFastPath({ leadStage: ['ACTIVE_TOKEN'], confidenceTrend: ['Decline'] }), false);
+  assert.equal(isActiveTokenFastPath({ leadStage: ['ACTIVE_TOKEN', 'DELIVERED'] }), false);
+  assert.equal(isActiveTokenFastPath({ city: ['Delhi'] }), false);
+});
+
+test('getConfidenceTrendStatus returns correct trend fallback when missing', () => {
+  const row1 = { bookingId: 'B-1001', confidenceScore: '0.95' } as any;
+  const trend1 = getConfidenceTrendStatus(row1);
+  assert.ok(['Stable', 'Improving', 'Decline'].includes(trend1));
+  
+  const row2 = { bookingId: 'B-1001', confidenceScore: '0.95', confidenceTrendStatus: 'Improving' } as any;
+  assert.equal(getConfidenceTrendStatus(row2), 'Improving');
+});
+
+test('isRowMatchingFilter matches on computed confidence trend status', () => {
+  const row = { bookingId: 'B-1001', confidenceScore: '0.95' } as any;
+  const computedTrend = getConfidenceTrendStatus(row);
+  const eddLabels = buildEddLabels();
+
+  const matchingFilters = {
+    ...DEFAULT_FILTERS,
+    confidenceTrend: computedTrend,
+  };
+  assert.equal(isRowMatchingFilter(row, matchingFilters, eddLabels), true);
+
+  const nonMatchingTrend = computedTrend === 'Stable' ? 'Decline' : 'Stable';
+  const nonMatchingFilters = {
+    ...DEFAULT_FILTERS,
+    confidenceTrend: nonMatchingTrend,
+  };
+  assert.equal(isRowMatchingFilter(row, nonMatchingFilters, eddLabels), false);
+});
+
+test('applyReturnedLeadStage links expectedDeliveryDate to date part of expectedDeliveryTime', () => {
+  // Case A: expectedDeliveryTime has full date-time YYYY-MM-DD
+  const row1 = { expectedDeliveryTime: '2026-06-18 00:00:00', expectedDeliveryDate: '2026-06-17' } as any;
+  const processed1 = applyReturnedLeadStage(row1);
+  assert.equal(processed1.expectedDeliveryDate, '2026-06-18');
+
+  // Case B: expectedDeliveryTime has format DD/MM/YYYY
+  const row2 = { expectedDeliveryTime: '18/06/2026 12:30:00', expectedDeliveryDate: '2026-06-17' } as any;
+  const processed2 = applyReturnedLeadStage(row2);
+  assert.equal(processed2.expectedDeliveryDate, '2026-06-18');
+
+  // Case C: expectedDeliveryTime has only time, should NOT overwrite expectedDeliveryDate
+  const row3 = { expectedDeliveryTime: '12:30:00', expectedDeliveryDate: '2026-06-17' } as any;
+  const processed3 = applyReturnedLeadStage(row3);
+  assert.equal(processed3.expectedDeliveryDate, '2026-06-17');
+});
+
+test('getExpectedDeliveryTimeTimestamp returns combined timestamp correctly', () => {
+  // Case 1: has only time, links to date
+  const row1 = { expectedDeliveryTime: '11:30:00', expectedDeliveryDate: '2026-06-18' } as any;
+  const ts1 = getExpectedDeliveryTimeTimestamp(row1);
+  assert.equal(ts1?.getFullYear(), 2026);
+  assert.equal(ts1?.getMonth(), 5); // June is 5
+  assert.equal(ts1?.getDate(), 18);
+  assert.equal(ts1?.getHours(), 11);
+  assert.equal(ts1?.getMinutes(), 30);
+
+  // Case 2: has full date time
+  const row2 = { expectedDeliveryTime: '2026-06-19 14:45:00', expectedDeliveryDate: '2026-06-18' } as any;
+  const ts2 = getExpectedDeliveryTimeTimestamp(row2);
+  assert.equal(ts2?.getDate(), 19);
+  assert.equal(ts2?.getHours(), 14);
+
+  // Case 3: missing time, falls back to date
+  const row3 = { expectedDeliveryTime: '', expectedDeliveryDate: '2026-06-18' } as any;
+  const ts3 = getExpectedDeliveryTimeTimestamp(row3);
+  assert.equal(ts3?.getDate(), 18);
+  assert.equal(ts3?.getHours(), 0);
+});
+
+test('isRowMatchingFilter filters expectedDeliveryTime in range correctly', () => {
+  const row = { expectedDeliveryTime: '11:30:00', expectedDeliveryDate: '2026-06-18' } as any;
+  const eddLabels = buildEddLabels();
+
+  const matchingFilters = {
+    ...DEFAULT_FILTERS,
+    dateField: 'expectedDeliveryTime',
+    startDate: '2026-06-18',
+    endDate: '2026-06-18',
+  };
+  assert.equal(isRowMatchingFilter(row, matchingFilters, eddLabels), true);
+
+  const nonMatchingFilters = {
+    ...DEFAULT_FILTERS,
+    dateField: 'expectedDeliveryTime',
+    startDate: '2026-06-19',
+    endDate: '2026-06-19',
+  };
+  assert.equal(isRowMatchingFilter(row, nonMatchingFilters, eddLabels), false);
+});
+
+test('getNormalizedFieldTimestamp links tokenDateTime to tokenDate correctly', () => {
+  const row = { tokenDateTime: '10:45:00', tokenDate: '2026-06-18' } as any;
+  const ts = getNormalizedFieldTimestamp(row, 'tokenDateTime');
+  assert.equal(ts?.getFullYear(), 2026);
+  assert.equal(ts?.getDate(), 18);
+  assert.equal(ts?.getHours(), 10);
+  assert.equal(ts?.getMinutes(), 45);
+});
+
+test('buildEddDistribution and eddStatus filtering prioritize expectedDeliveryTime', () => {
+  
+  // Row with expectedDeliveryTime having a date
+  const rowWithTime = {
+    bookingId: 'B-2001',
+    expectedDeliveryTime: '2026-06-25 15:00:00',
+    expectedDeliveryDate: '2026-06-17',
+  } as any;
+
+  // Let's verify the distribution output keys/buckets
+  const dist = buildEddDistribution([rowWithTime]);
+  // The value should go to the bucket for 2026-06-25 instead of 2026-06-17
+  // Since 2026-06-25 is far in the future relative to today (2026-06-16 is current local time), it should be in the +7 days bucket or similar.
+  const overdueCount = dist['Overdue / Breached'] || 0;
+  assert.equal(overdueCount, 0);
+
+  // Verify filtering behaves the same
+  const eddLabels = buildEddLabels();
+  // Today is 2026-06-16 in local test context or system date
+  // Let's test filter match
+  const matchTodayFilter = isRowMatchingFilter(
+    rowWithTime,
+    { ...DEFAULT_FILTERS, eddStatus: 'Overdue / Breached' },
+    eddLabels
+  );
+  assert.equal(matchTodayFilter, false);
+});
+
+test('buildCharts counts DS channel across the full filtered set', () => {
+  const rows = [
+    {
+      bookingId: 'B-3001',
+      leadStage: 'ACTIVE_TOKEN',
+      leadDsChannel: 'AmberChannel',
+    },
+    {
+      bookingId: 'B-3002',
+      leadStage: 'CANCELLED',
+      leadDsChannel: 'AmberChannel',
+    },
+  ] as any[];
+
+  const charts = buildCharts(rows);
+
+  assert.equal(charts.leadDsChannel?.AmberChannel, 2);
+  assert.equal(Object.values(charts.leadDsChannel || {}).reduce((sum, count) => sum + count, 0), 2);
+});
+
+test('buildCharts trims DS channel labels before grouping', () => {
+  const rows = [
+    {
+      bookingId: 'B-3003',
+      leadStage: 'ACTIVE_TOKEN',
+      leadDsChannel: ' AmberChannel ',
+    },
+    {
+      bookingId: 'B-3004',
+      leadStage: 'ACTIVE_TOKEN',
+      leadDsChannel: 'AmberChannel',
+    },
+  ] as any[];
+
+  const charts = buildCharts(rows);
+
+  assert.equal(charts.leadDsChannel?.AmberChannel, 2);
+  assert.equal(charts.leadDsChannel?.[' AmberChannel '], undefined);
+});
+
+test('getChartEntriesForRender includes Blank by default and excludes control buckets', () => {
+  const entries = getChartEntriesForRender({
+    Blank: 4,
+    RT: 10,
+    PVT: 7,
+    All: 99,
+    '': 3,
+  });
+
+  assert.deepEqual(entries, [
+    ['RT', 10],
+    ['PVT', 7],
+    ['Blank', 4],
+  ]);
+});
+
+test('getChartBarColor gives Blank a neutral fallback and respects overrides', () => {
+  assert.equal(getChartBarColor('Blank', 'bg-brand-blue'), 'bg-slate-400');
+  assert.equal(
+    getChartBarColor('Blank', 'bg-brand-blue', { Blank: 'bg-zinc-500' }),
+    'bg-zinc-500'
+  );
+  assert.equal(getChartBarColor('RT', 'bg-brand-blue'), 'bg-brand-blue');
+});
+
+test('resolveCaseRowField accepts punctuation-free spreadsheet header variants', () => {
+  assert.equal(resolveCaseRowField('Ready to Deliver'), 'readyToDeliver');
+  assert.equal(resolveCaseRowField('Total Expected Amount'), 'totalExpectedAmount');
+  assert.equal(resolveCaseRowField('Amount Collected'), 'amountCollected');
+  assert.equal(resolveCaseRowField('Amount Pending'), 'amountPending');
+  assert.equal(resolveCaseRowField('Payment Percentage'), 'paymentPercentage');
+});
+
+test('mapCsvRows imports common human-readable sheet headers', () => {
+  const rows = mapCsvRows([
+    ['Booking ID', 'Ready to Deliver', 'Total Expected Amount', 'Amount Collected', 'Payment Percentage'],
+    ['B-4001', 'Yes', '550000', '125000', '0.82'],
+  ]);
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].bookingId, 'B-4001');
+  assert.equal(rows[0].readyToDeliver, 'Yes');
+  assert.equal(rows[0].totalExpectedAmount, 550000);
+  assert.equal(rows[0].amountCollected, 125000);
+  assert.equal(rows[0].paymentPercentage, 0.82);
+});
+
+test('applyReturnedLeadStage derives readyToDeliver from reviewer remarks when the direct field is blank', () => {
+  const row = applyReturnedLeadStage({
+    readyToDeliver: '',
+    reviewerRemarks: '- Ready to Deliver? - Yes - shivani.mishral - 16/06/2026 11:46',
+  } as any);
+
+  assert.equal(row.readyToDeliver, 'Yes');
+});
+
+test('splitTasks keeps the full task bucket as one normalized label', () => {
+  assert.deepEqual(
+    splitTasks('Alpha EDD Pull\n2. Customer Connect Pending'),
+    ['Alpha EDD Pull / 2. Customer Connect Pending']
+  );
+  assert.deepEqual(
+    splitTasks('Conversion_fill_form 2. Customer Connect Pending'),
+    ['Conversion_fill_form 2. Customer Connect Pending']
+  );
+});
+
+test('task bucket charts and filter options keep each row task as a single bucket', () => {
+  const rows = [
+    {
+      bookingId: 'B-5001',
+      taskBucket: 'Alpha EDD Pull\n2. Customer Connect Pending',
+      leadStage: 'ACTIVE_TOKEN',
+    },
+    {
+      bookingId: 'B-5002',
+      taskBucket: 'OD Push Priority',
+      leadStage: 'ACTIVE_TOKEN',
+    },
+  ] as any[];
+
+  const charts = buildCharts(rows);
+  const filterOptions = buildDynamicFilterOptions(rows);
+
+  assert.equal(charts.taskBucket['Alpha EDD Pull / 2. Customer Connect Pending'], 1);
+  assert.equal(charts.taskBucket['Customer Connect Pending'], undefined);
+  assert.deepEqual(filterOptions.tasks, [
+    'Alpha EDD Pull / 2. Customer Connect Pending',
+    'OD Push Priority',
+  ]);
+});
+</file>
+
 <file path="src/lib/sheetsService.ts">
 /**
  * @license
@@ -8841,13 +9164,58 @@ export async function verifySheetAccess(sheetId: string, accessToken: string): P
   }
 }
 
+export const AVAILABLE_ADDITIONAL_COLS: { key: keyof CaseRow; label: string }[] = [
+  { key: 'totalListingDays', label: 'Total Listing Days' },
+  { key: 'city', label: 'City' },
+  { key: 'carRegNo', label: 'Car Registration No' },
+  { key: 'make', label: 'Make' },
+  { key: 'model', label: 'Model' },
+  { key: 'variant', label: 'Variant' },
+  { key: 'hubCode', label: 'Hub Code' },
+  { key: 'cancelReason', label: 'Cancellation Reason' },
+  { key: 'leadDsChannel', label: 'DS Channel' },
+  { key: 'sheetFinalStatus', label: 'Sheet Final Status' },
+  { key: 'formFinalStatus', label: 'Form Final Status' },
+  { key: 'deviationMitigationComment', label: 'Deviation Comments' },
+  { key: 'creditLtv', label: 'Credit LTV' },
+  { key: 'contactNumber', label: 'Contact Number' },
+  // Date parameter fields requested for export selection
+  { key: 'tokenDateTime', label: 'Token Date & Time' },
+  { key: 'bookingDate', label: 'Booking Date' },
+  { key: 'expectedDeliveryTime', label: 'Expected Delivery Time' },
+  { key: 'actualDeliveryDate', label: 'Actual Delivery Date' },
+  { key: 'eddReviewerDate', label: 'EDD Date (Reviewer)' },
+  { key: 'cancelReqDate', label: 'Cancellation Req Date' },
+  { key: 'cancellationDate', label: 'Cancellation Date' },
+  { key: 'tokenAutoCancellationExtendedDate', label: 'Auto Cancel Ext Date' },
+  { key: 'dealStatusUpdatedAt', label: 'Deal Status Update Date' },
+  { key: 'latestRemarkDate', label: 'Latest Remark Date' },
+  { key: 'updatedAt', label: 'System Update Date' },
+  { key: 'lastCallAt', label: 'Last Call Date' },
+  { key: 'followupAt', label: 'Followup Date' },
+  { key: 'gmailPendencyDate', label: 'Gmail Pendency Date' },
+  { key: 'latestLeadCreationTimestamp', label: 'Lead Creation Date' },
+  { key: 'latestLoginTime', label: 'Login Time' },
+  { key: 'latestCreditAssessedTimestamp', label: 'Credit Assessed Date' },
+  { key: 'latestDiligenceAssessedTimestamp', label: 'Diligence Assessed Date' },
+  { key: 'latestFcuAssessedTimestamp', label: 'FCU Assessed Date' },
+  { key: 'tncGeneratedDate', label: 'TnC Generated Date' },
+  { key: 'tncAcceptedTimestamp', label: 'TnC Accepted Date' },
+  { key: 'fcuSentDate', label: 'FCU Sent Date' },
+  { key: 'sentToRcuTimestamp', label: 'Sent to RCU Date' },
+  { key: 'sentToOpsTimestamp', label: 'Sent to Ops Date' },
+  { key: 'submitToOpsTimestamp', label: 'Submit to Ops Date' },
+  { key: 'opsDisbursalTimestamp', label: 'Ops Disbursal Date' },
+  { key: 'financeDisbursedTimestamp', label: 'Finance Disbursed Date' }
+];
+
 /**
  * Creates a brand new Google Spreadsheet and writes all provided rows to its default first sheet.
  */
 export async function exportFilteredRowsToGoogleSheet(
   accessToken: string,
   rows: CaseRow[],
-  additionalColumns: string[]
+  additionalColumns: string[] = []
 ): Promise<{ title: string; url: string }> {
   if (!accessToken) throw new Error('Authorization token is required.');
 
@@ -8884,51 +9252,6 @@ export async function exportFilteredRowsToGoogleSheet(
 
   // 2. Prepare headers and values
   const standardHeader = ["Booking ID", "Loan ID", "Token Date", "Hub", "RM", "TokenType", "PaymentType", "LeadStage", "Tasks", "ExpectedDelivery", "Ready", "ODCompletion", "Remarks"];
-  
-  const AVAILABLE_ADDITIONAL_COLS = [
-    { key: 'totalListingDays', label: 'Total Listing Days' },
-    { key: 'city', label: 'City' },
-    { key: 'carRegNo', label: 'Car Registration No' },
-    { key: 'make', label: 'Make' },
-    { key: 'model', label: 'Model' },
-    { key: 'variant', label: 'Variant' },
-    { key: 'hubCode', label: 'Hub Code' },
-    { key: 'cancelReason', label: 'Cancellation Reason' },
-    { key: 'leadDsChannel', label: 'DS Channel' },
-    { key: 'sheetFinalStatus', label: 'Sheet Final Status' },
-    { key: 'formFinalStatus', label: 'Form Final Status' },
-    { key: 'deviationMitigationComment', label: 'Deviation Comments' },
-    { key: 'creditLtv', label: 'Credit LTV' },
-    { key: 'contactNumber', label: 'Contact Number' },
-    // Date parameter fields requested for export selection
-    { key: 'tokenDateTime', label: 'Token Date & Time' },
-    { key: 'bookingDate', label: 'Booking Date' },
-    { key: 'expectedDeliveryTime', label: 'Expected Delivery Time' },
-    { key: 'actualDeliveryDate', label: 'Actual Delivery Date' },
-    { key: 'eddReviewerDate', label: 'EDD Date (Reviewer)' },
-    { key: 'cancelReqDate', label: 'Cancellation Req Date' },
-    { key: 'cancellationDate', label: 'Cancellation Date' },
-    { key: 'tokenAutoCancellationExtendedDate', label: 'Auto Cancel Ext Date' },
-    { key: 'dealStatusUpdatedAt', label: 'Deal Status Update Date' },
-    { key: 'latestRemarkDate', label: 'Latest Remark Date' },
-    { key: 'updatedAt', label: 'System Update Date' },
-    { key: 'lastCallAt', label: 'Last Call Date' },
-    { key: 'followupAt', label: 'Followup Date' },
-    { key: 'gmailPendencyDate', label: 'Gmail Pendency Date' },
-    { key: 'latestLeadCreationTimestamp', label: 'Lead Creation Date' },
-    { key: 'latestLoginTime', label: 'Login Time' },
-    { key: 'latestCreditAssessedTimestamp', label: 'Credit Assessed Date' },
-    { key: 'latestDiligenceAssessedTimestamp', label: 'Diligence Assessed Date' },
-    { key: 'latestFcuAssessedTimestamp', label: 'FCU Assessed Date' },
-    { key: 'tncGeneratedDate', label: 'TnC Generated Date' },
-    { key: 'tncAcceptedTimestamp', label: 'TnC Accepted Date' },
-    { key: 'fcuSentDate', label: 'FCU Sent Date' },
-    { key: 'sentToRcuTimestamp', label: 'Sent to RCU Date' },
-    { key: 'sentToOpsTimestamp', label: 'Sent to Ops Date' },
-    { key: 'submitToOpsTimestamp', label: 'Submit to Ops Date' },
-    { key: 'opsDisbursalTimestamp', label: 'Ops Disbursal Date' },
-    { key: 'financeDisbursedTimestamp', label: 'Finance Disbursed Date' }
-  ];
 
   const additionalHeaders = AVAILABLE_ADDITIONAL_COLS
     .filter(col => additionalColumns.includes(col.key))
@@ -9597,6 +9920,397 @@ export async function getAllAuditLogs(): Promise<AuditLog[]> {
 }
 </file>
 
+<file path="src/types.ts">
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+export interface CaseRow {
+  _rowNumber: number; // Google Sheet row index (e.g. 2, 3...)
+  bookingId: string;  // Unique ID
+  
+  // IDs and links
+  uid?: string;
+  leadId?: string;
+  userId?: string;
+  loanId?: string;
+  appointmentId?: string;
+  carRegNo?: string;
+
+  // Location and ownership
+  hubCode?: string;
+  hubName?: string;
+  city?: string;
+  allocatedRm?: string;
+  assignedDc?: string;
+  caAssignedLms?: string;
+  sm?: string;
+  tm?: string;
+  rm?: string;
+
+  // Deal and lead status
+  dealStatus?: string;
+  dealStatusUpdatedAt?: string;
+  cancellationDate?: string;
+  autoCancelledFlag?: string;
+  tokenAutoCancellationExtendedDate?: string;
+  leadStage?: string;
+  tokenType?: string;
+  tokenTypeWithNrt?: string;
+  paymentType?: string;
+  leadStatus?: string;
+  funnelStage?: string;
+
+  // Dates
+  tokenDate?: string;
+  tokenDateTime?: string;
+  bookingDate?: string;
+  expectedDeliveryDate?: string;
+  expectedDeliveryTime?: string;
+  actualDeliveryDate?: string;
+  lastPaymentDate?: string;
+  latestRemarkDate?: string;
+  updatedAt?: string;
+  cancelReqDate?: string;
+
+  // Delivery
+  deliveryStatus?: string;
+  deliverySegment?: string;
+  onDemandStatus?: string;
+
+  // Amounts
+  amountCollected?: number;
+  amountPending?: number;
+  totalExpectedAmount?: number;
+  agreedSalesPrice?: number;
+  paymentPercentage?: number;
+
+  // Actionable columns
+  readyToDeliver?: string; // 'Yes', 'No', or ''
+  expectedOdCompletionDate?: string;
+  eddReviewerDate?: string;
+  reviewerRemarks?: string;
+
+  // Vehicle
+  make?: string;
+  model?: string;
+  variant?: string;
+  manufacturingYear?: string;
+
+  // Finance and risk
+  rcCaseType?: string;
+  incomeSource?: string;
+  oglPincodeFlag?: string;
+  creditLtv?: string;
+  lastRiskBucket?: string;
+  dsRoi?: string;
+  finalRoi?: string;
+  creditRejectionReason?: string;
+  creditRejectionSubReason?: string;
+  diligenceRejectionReason?: string;
+  diligenceRejectionSubReason?: string;
+  redChannelReason?: string;
+  softDerogFlag?: string;
+  hardDerogFlag?: string;
+  nonOgl?: string;
+  contactNumber?: string;
+  redChannelFlag?: string;
+  tofRejectedFlag?: string;
+  deviationMitigationComment?: string;
+  bajajSegment?: string;
+  companyName?: string;
+  leadDsChannel?: string;
+  foir?: string;
+
+  // Milestones
+  latestLeadCreationTimestamp?: string;
+  latestLoginTime?: string;
+  latestCreditAssessedTimestamp?: string;
+  latestDiligenceAssessedTimestamp?: string;
+  latestFcuAssessedTimestamp?: string;
+  tncGeneratedDate?: string;
+  tncAcceptedTimestamp?: string;
+  fcuSentDate?: string;
+  sentToRcuTimestamp?: string;
+  sentToOpsTimestamp?: string;
+  submitToOpsTimestamp?: string;
+  opsDisbursalTimestamp?: string;
+  financeDisbursedTimestamp?: string;
+
+  // Calling
+  lastCallAt?: string;
+  followupAt?: string;
+  totalCallAttempts?: number;
+  totalConnectedCalls?: number;
+  lastCallConnectedSp?: string;
+  callDuration?: string;
+  latestCallOutcome?: string;
+  lastDisposition?: string;
+
+  // Remarks / status info
+  latestRemark?: string;
+  latestRemarkBy?: string;
+  isActive?: string;
+  isAlertVisible?: string;
+  cancelReason?: string;
+  taskBucket?: string;
+  reasonPointer?: string;
+
+  // Sheet Status
+  sheetLoginPartner?: string;
+  sheetFinalStatus?: string;
+  sheetYardName?: string;
+  sheetYardCity?: string;
+  sheetDetailedRemarks?: string;
+  sheetLastDisbursalActivity?: string;
+  sheetLoginTimestamp?: string;
+
+  // Form Status
+  formRiskBucket?: string;
+  formFinalStatus?: string;
+  formCaseStage?: string;
+  formFinalRemarks?: string;
+  formDeviationRequired?: string;
+  formDetailedAsk?: string;
+
+  // Gmail / ML
+  gmailSummary?: string;
+  gmailPendencyStatus?: string;
+  gmailPendencyReason?: string;
+  gmailNextAction?: string;
+  gmailPendencySource?: string;
+  gmailPendencyDate?: string;
+  confidenceScore?: string;
+  confidenceTrendStatus?: 'Decline' | 'Stable' | 'Improving';
+  mlEstimatedDeliveryDate?: string;
+  totalListingDays?: number;
+  syncPending?: boolean;
+}
+
+export type CaseEditorDraft = Partial<CaseRow> & {
+  newRemarkAddition?: string;
+};
+
+export interface DerivedFlags {
+  isAlertCase: boolean;
+  isActiveToken: boolean;
+  isDelivered: boolean;
+  isCancelled: boolean;
+  isEddMissing: boolean;
+  isEddBreached: boolean;
+  isPmaxCase: boolean;
+  isPmaxStuck: boolean;
+  isCustomerConnectPending: boolean;
+  isHighPaymentPendingDelivery: boolean;
+  isPaymentPending: boolean;
+  isCancelledAfterPayment: boolean;
+  isOdPending: boolean;
+  isBlankPaymentType: boolean;
+}
+
+export interface DateFilter {
+  id: string;
+  dateField: string;
+  startDate: string;
+  endDate: string;
+  filterBlankDates?: boolean;
+}
+
+export interface FilterState {
+  city: string;
+  hubName: string;
+  tokenType: string;
+  tokenTypeWithNrt: string;
+  rmName: string;
+  dcName: string;
+  paymentType: string;
+  leadStage: string;
+  dealStatus: string;
+  funnelStage: string;
+  sheetFinalStatus: string;
+  formFinalStatus: string;
+  gmailPendencyStatus: string;
+  confidenceTrend: string;
+  onDemandStatus: string;
+  taskBucket: string;
+  derivedStatus: string;
+  dateField: string;
+  startDate: string;
+  endDate: string;
+  filterBlankDates?: boolean;
+  searchQuery: string;
+  eddStatus?: string;
+  cancelReason?: string;
+  leadDsChannel?: string;
+  readyToDeliver?: string;
+  dateFilters?: DateFilter[];
+  minPaymentPercentage?: string;
+  listingDaysBucket: string;
+}
+
+export interface DashboardKpis {
+  totalCases: number;
+  activeTokens: number;
+  delivered: number;
+  cancelled: number;
+  bookingsWithTasks: number;
+  totalTaskInstances: number;
+  pmaxCases: number;
+  paymentPending: number;
+  totalCollected: number;
+  totalPending: number;
+  avgPaymentPercentage: number;
+}
+
+export interface MatrixColumn {
+  key: string;
+  label: string;
+  subLabel: string;
+}
+
+export interface MatrixRow {
+  category: string;
+  name: string;
+  isPercent: boolean;
+  indent: boolean;
+  values: Record<string, string | number>;
+}
+
+export interface DashboardCharts {
+  leadStage: Record<string, number>;
+  dealStatus: Record<string, number>;
+  city: Record<string, number>;
+  hub: Record<string, number>;
+  rm: Record<string, number>;
+  dc: Record<string, number>;
+  readyToDeliver: Record<string, number>;
+  onDemandStatusDistribution: Record<string, number>;
+  totalExpectedAmountDistribution: Record<string, number>;
+  tokenType: Record<string, number>;
+  tokenTypeWithNrt: Record<string, number>;
+  paymentType: Record<string, number>;
+  funnelStage: Record<string, number>;
+  taskBucket: Record<string, number>;
+  cancellationReason: Record<string, number>;
+  sheetFinalStatus: Record<string, number>;
+  formFinalStatus: Record<string, number>;
+  eddDistribution: Record<string, number>;
+  leadDsChannel?: Record<string, number>;
+  listingDaysDistribution: Record<string, number>;
+}
+
+export interface NormalizedDateFilter {
+  field: string;
+  startDate?: string;
+  endDate?: string;
+  filterBlankDates?: boolean;
+}
+
+export interface DashboardFilterQuery {
+  city?: string[];
+  hubName?: string[];
+  tokenType?: string[];
+  tokenTypeWithNrt?: string[];
+  rmName?: string[];
+  dcName?: string[];
+  paymentType?: string[];
+  leadStage?: string[];
+  dealStatus?: string[];
+  funnelStage?: string[];
+  sheetFinalStatus?: string[];
+  formFinalStatus?: string[];
+  gmailPendencyStatus?: string[];
+  confidenceTrend?: string[];
+  onDemandStatus?: string[];
+  taskBucket?: string[];
+  derivedStatus?: string[];
+  cancelReason?: string[];
+  leadDsChannel?: string[];
+  readyToDeliver?: string[];
+  eddStatus?: string | null;
+  listingDaysBucket?: string | null;
+  searchQuery?: string | null;
+  dateField?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  filterBlankDates?: boolean;
+  dateFilters?: NormalizedDateFilter[];
+  minPaymentPercentage?: number | null;
+}
+
+export interface CaseQuery {
+  page: number;
+  pageSize: number;
+  sortField: keyof CaseRow | string;
+  sortDirection: 'asc' | 'desc';
+  filters: DashboardFilterQuery;
+}
+
+export interface CasePageResult {
+  rows: CaseRow[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface DashboardSummaryQuery {
+  filters: DashboardFilterQuery;
+}
+
+export interface DashboardSummaryResult {
+  kpis: DashboardKpis;
+  charts: DashboardCharts;
+  filteredCancelledC2dCount: number;
+  filteredCancelledC2aCount?: number;
+  filteredCancelledCr2dCount?: number;
+}
+
+export interface DashboardMatrixResult {
+  columns: MatrixColumn[];
+  rows: MatrixRow[];
+}
+
+export interface DashboardFilterOptions {
+  cities: string[];
+  hubs: string[];
+  hubsByCity: Record<string, string[]>;
+  tokenTypes: string[];
+  tokenTypesWithNrt: string[];
+  rms: string[];
+  dcs: string[];
+  paymentTypes: string[];
+  leadStages: string[];
+  dealStatuses: string[];
+  funnelStages: string[];
+  sheetFinalStatuses: string[];
+  formFinalStatuses: string[];
+  gmailPendencyStatuses: string[];
+  onDemandStatuses: string[];
+  tasks: string[];
+  cancelReasons: string[];
+  leadDsChannels: string[];
+}
+
+export interface AuditLog {
+  id?: string;
+  booking_id: string;
+  changed_by: string;
+  changed_at?: string;
+  column_name: string;
+  old_value: string | null;
+  new_value: string | null;
+}
+
+export interface UserSession {
+  id?: string;
+  user_email: string;
+  login_time?: string;
+  last_active_time?: string;
+  duration_minutes: number;
+}
+</file>
+
 <file path="supabase_schema.sql">
 -- SQL Schema Script for CARS24 Dashboard
 -- Run this script in the Supabase SQL Editor.
@@ -9803,12 +10517,26 @@ RETURNS TABLE(task TEXT)
 LANGUAGE sql
 IMMUTABLE
 AS $$
-  SELECT cleaned_task
+  SELECT normalized_task
   FROM (
-    SELECT nullif(trim(regexp_replace(piece, '^\d+\.\s*', '')), '') AS cleaned_task
-    FROM regexp_split_to_table(coalesce(task_bucket, ''), E'[,\n]+') AS piece
-  ) split_rows
-  WHERE cleaned_task IS NOT NULL;
+    SELECT nullif(
+      trim(
+        regexp_replace(
+          regexp_replace(
+            regexp_replace(coalesce(task_bucket, ''), E'\r\n?', E'\n', 'g'),
+            E'\n+',
+            ' / ',
+            'g'
+          ),
+          '\s+',
+          ' ',
+          'g'
+        )
+      ),
+      ''
+    ) AS normalized_task
+  ) normalized
+  WHERE normalized_task IS NOT NULL;
 $$;
 
 CREATE OR REPLACE FUNCTION public.dashboard_token_is_rt(token_value TEXT)
@@ -10476,7 +11204,13 @@ BEGIN
   END IF;
 
   IF NOT public.dashboard_matches_text_filter(input_filters -> 'cancelReason', c.cancel_reason) THEN RETURN false; END IF;
-  IF NOT public.dashboard_matches_text_filter(input_filters -> 'leadDsChannel', c.lead_ds_channel) THEN RETURN false; END IF;
+  IF NOT public.dashboard_matches_text_filter(
+    input_filters -> 'leadDsChannel',
+    coalesce(
+      nullif(btrim(c.lead_ds_channel), ''),
+      nullif(btrim(c.row_data ->> 'leadDsChannel'), '')
+    )
+  ) THEN RETURN false; END IF;
 
   IF input_filters ? 'readyToDeliver' AND jsonb_typeof(input_filters -> 'readyToDeliver') = 'array' AND jsonb_array_length(input_filters -> 'readyToDeliver') > 0 THEN
     IF NOT public.dashboard_matches_text_filter(input_filters -> 'readyToDeliver', ready_value) THEN
@@ -10645,7 +11379,20 @@ SELECT jsonb_build_object(
   'onDemandStatuses', coalesce((SELECT jsonb_agg(value ORDER BY value) FROM (SELECT DISTINCT nullif(btrim(row_data ->> 'onDemandStatus'), '') AS value FROM base WHERE nullif(btrim(row_data ->> 'onDemandStatus'), '') IS NOT NULL) on_demand_statuses), '[]'::jsonb),
   'tasks', coalesce((SELECT jsonb_agg(task ORDER BY task) FROM task_values), '[]'::jsonb),
   'cancelReasons', coalesce((SELECT jsonb_agg(value ORDER BY value) FROM (SELECT DISTINCT cancel_reason AS value FROM base WHERE cancel_reason IS NOT NULL) cancel_reasons), '[]'::jsonb),
-  'leadDsChannels', coalesce((SELECT jsonb_agg(value ORDER BY value) FROM (SELECT DISTINCT lead_ds_channel AS value FROM base WHERE lead_ds_channel IS NOT NULL) lead_channels), '[]'::jsonb)
+  'leadDsChannels', coalesce((
+    SELECT jsonb_agg(value ORDER BY value)
+    FROM (
+      SELECT DISTINCT coalesce(
+        nullif(btrim(lead_ds_channel), ''),
+        nullif(btrim(row_data ->> 'leadDsChannel'), '')
+      ) AS value
+      FROM base
+      WHERE coalesce(
+        nullif(btrim(lead_ds_channel), ''),
+        nullif(btrim(row_data ->> 'leadDsChannel'), '')
+      ) IS NOT NULL
+    ) lead_channels
+  ), '[]'::jsonb)
 );
 $$;
 
@@ -10717,13 +11464,6 @@ task_counts AS (
     count(split_task.task)::INTEGER AS total_task_instances
   FROM filtered
   LEFT JOIN LATERAL public.dashboard_split_tasks(filtered.task_bucket) split_task ON true
-),
-cancelled_rows AS (
-  SELECT *
-  FROM filtered
-  WHERE lead_stage IN ('CANCELLED', 'RETURNED')
-    OR deal_status = 'CANCEL'
-    OR cancel_reason IS NOT NULL
 )
 SELECT jsonb_build_object(
   'kpis', jsonb_build_object(
@@ -10971,8 +11711,12 @@ SELECT jsonb_build_object(
     'leadDsChannel', coalesce((
       SELECT jsonb_object_agg(bucket, cnt)
       FROM (
-        SELECT coalesce(nullif(lead_ds_channel, ''), 'Blank') AS bucket, count(*)::INTEGER AS cnt
-        FROM cancelled_rows
+        SELECT coalesce(
+          nullif(btrim(lead_ds_channel), ''),
+          nullif(btrim(row_data ->> 'leadDsChannel'), ''),
+          'Blank'
+        ) AS bucket, count(*)::INTEGER AS cnt
+        FROM filtered
         GROUP BY 1
       ) grouped
     ), '{}'::jsonb),
@@ -12221,397 +12965,6 @@ export default function App() {
 }
 </file>
 
-<file path="src/types.ts">
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-export interface CaseRow {
-  _rowNumber: number; // Google Sheet row index (e.g. 2, 3...)
-  bookingId: string;  // Unique ID
-  
-  // IDs and links
-  uid?: string;
-  leadId?: string;
-  userId?: string;
-  loanId?: string;
-  appointmentId?: string;
-  carRegNo?: string;
-
-  // Location and ownership
-  hubCode?: string;
-  hubName?: string;
-  city?: string;
-  allocatedRm?: string;
-  assignedDc?: string;
-  caAssignedLms?: string;
-  sm?: string;
-  tm?: string;
-  rm?: string;
-
-  // Deal and lead status
-  dealStatus?: string;
-  dealStatusUpdatedAt?: string;
-  cancellationDate?: string;
-  autoCancelledFlag?: string;
-  tokenAutoCancellationExtendedDate?: string;
-  leadStage?: string;
-  tokenType?: string;
-  tokenTypeWithNrt?: string;
-  paymentType?: string;
-  leadStatus?: string;
-  funnelStage?: string;
-
-  // Dates
-  tokenDate?: string;
-  tokenDateTime?: string;
-  bookingDate?: string;
-  expectedDeliveryDate?: string;
-  expectedDeliveryTime?: string;
-  actualDeliveryDate?: string;
-  lastPaymentDate?: string;
-  latestRemarkDate?: string;
-  updatedAt?: string;
-  cancelReqDate?: string;
-
-  // Delivery
-  deliveryStatus?: string;
-  deliverySegment?: string;
-  onDemandStatus?: string;
-
-  // Amounts
-  amountCollected?: number;
-  amountPending?: number;
-  totalExpectedAmount?: number;
-  agreedSalesPrice?: number;
-  paymentPercentage?: number;
-
-  // Actionable columns
-  readyToDeliver?: string; // 'Yes', 'No', or ''
-  expectedOdCompletionDate?: string;
-  eddReviewerDate?: string;
-  reviewerRemarks?: string;
-
-  // Vehicle
-  make?: string;
-  model?: string;
-  variant?: string;
-  manufacturingYear?: string;
-
-  // Finance and risk
-  rcCaseType?: string;
-  incomeSource?: string;
-  oglPincodeFlag?: string;
-  creditLtv?: string;
-  lastRiskBucket?: string;
-  dsRoi?: string;
-  finalRoi?: string;
-  creditRejectionReason?: string;
-  creditRejectionSubReason?: string;
-  diligenceRejectionReason?: string;
-  diligenceRejectionSubReason?: string;
-  redChannelReason?: string;
-  softDerogFlag?: string;
-  hardDerogFlag?: string;
-  nonOgl?: string;
-  contactNumber?: string;
-  redChannelFlag?: string;
-  tofRejectedFlag?: string;
-  deviationMitigationComment?: string;
-  bajajSegment?: string;
-  companyName?: string;
-  leadDsChannel?: string;
-  foir?: string;
-
-  // Milestones
-  latestLeadCreationTimestamp?: string;
-  latestLoginTime?: string;
-  latestCreditAssessedTimestamp?: string;
-  latestDiligenceAssessedTimestamp?: string;
-  latestFcuAssessedTimestamp?: string;
-  tncGeneratedDate?: string;
-  tncAcceptedTimestamp?: string;
-  fcuSentDate?: string;
-  sentToRcuTimestamp?: string;
-  sentToOpsTimestamp?: string;
-  submitToOpsTimestamp?: string;
-  opsDisbursalTimestamp?: string;
-  financeDisbursedTimestamp?: string;
-
-  // Calling
-  lastCallAt?: string;
-  followupAt?: string;
-  totalCallAttempts?: number;
-  totalConnectedCalls?: number;
-  lastCallConnectedSp?: string;
-  callDuration?: string;
-  latestCallOutcome?: string;
-  lastDisposition?: string;
-
-  // Remarks / status info
-  latestRemark?: string;
-  latestRemarkBy?: string;
-  isActive?: string;
-  isAlertVisible?: string;
-  cancelReason?: string;
-  taskBucket?: string;
-  reasonPointer?: string;
-
-  // Sheet Status
-  sheetLoginPartner?: string;
-  sheetFinalStatus?: string;
-  sheetYardName?: string;
-  sheetYardCity?: string;
-  sheetDetailedRemarks?: string;
-  sheetLastDisbursalActivity?: string;
-  sheetLoginTimestamp?: string;
-
-  // Form Status
-  formRiskBucket?: string;
-  formFinalStatus?: string;
-  formCaseStage?: string;
-  formFinalRemarks?: string;
-  formDeviationRequired?: string;
-  formDetailedAsk?: string;
-
-  // Gmail / ML
-  gmailSummary?: string;
-  gmailPendencyStatus?: string;
-  gmailPendencyReason?: string;
-  gmailNextAction?: string;
-  gmailPendencySource?: string;
-  gmailPendencyDate?: string;
-  confidenceScore?: string;
-  confidenceTrendStatus?: 'Decline' | 'Stable' | 'Improving';
-  mlEstimatedDeliveryDate?: string;
-  totalListingDays?: number;
-  syncPending?: boolean;
-}
-
-export type CaseEditorDraft = Partial<CaseRow> & {
-  newRemarkAddition?: string;
-};
-
-export interface DerivedFlags {
-  isAlertCase: boolean;
-  isActiveToken: boolean;
-  isDelivered: boolean;
-  isCancelled: boolean;
-  isEddMissing: boolean;
-  isEddBreached: boolean;
-  isPmaxCase: boolean;
-  isPmaxStuck: boolean;
-  isCustomerConnectPending: boolean;
-  isHighPaymentPendingDelivery: boolean;
-  isPaymentPending: boolean;
-  isCancelledAfterPayment: boolean;
-  isOdPending: boolean;
-  isBlankPaymentType: boolean;
-}
-
-export interface DateFilter {
-  id: string;
-  dateField: string;
-  startDate: string;
-  endDate: string;
-  filterBlankDates?: boolean;
-}
-
-export interface FilterState {
-  city: string;
-  hubName: string;
-  tokenType: string;
-  tokenTypeWithNrt: string;
-  rmName: string;
-  dcName: string;
-  paymentType: string;
-  leadStage: string;
-  dealStatus: string;
-  funnelStage: string;
-  sheetFinalStatus: string;
-  formFinalStatus: string;
-  gmailPendencyStatus: string;
-  confidenceTrend: string;
-  onDemandStatus: string;
-  taskBucket: string;
-  derivedStatus: string;
-  dateField: string;
-  startDate: string;
-  endDate: string;
-  filterBlankDates?: boolean;
-  searchQuery: string;
-  eddStatus?: string;
-  cancelReason?: string;
-  leadDsChannel?: string;
-  readyToDeliver?: string;
-  dateFilters?: DateFilter[];
-  minPaymentPercentage?: string;
-  listingDaysBucket: string;
-}
-
-export interface DashboardKpis {
-  totalCases: number;
-  activeTokens: number;
-  delivered: number;
-  cancelled: number;
-  bookingsWithTasks: number;
-  totalTaskInstances: number;
-  pmaxCases: number;
-  paymentPending: number;
-  totalCollected: number;
-  totalPending: number;
-  avgPaymentPercentage: number;
-}
-
-export interface MatrixColumn {
-  key: string;
-  label: string;
-  subLabel: string;
-}
-
-export interface MatrixRow {
-  category: string;
-  name: string;
-  isPercent: boolean;
-  indent: boolean;
-  values: Record<string, string | number>;
-}
-
-export interface DashboardCharts {
-  leadStage: Record<string, number>;
-  dealStatus: Record<string, number>;
-  city: Record<string, number>;
-  hub: Record<string, number>;
-  rm: Record<string, number>;
-  dc: Record<string, number>;
-  readyToDeliver: Record<string, number>;
-  onDemandStatusDistribution: Record<string, number>;
-  totalExpectedAmountDistribution: Record<string, number>;
-  tokenType: Record<string, number>;
-  tokenTypeWithNrt: Record<string, number>;
-  paymentType: Record<string, number>;
-  funnelStage: Record<string, number>;
-  taskBucket: Record<string, number>;
-  cancellationReason: Record<string, number>;
-  sheetFinalStatus: Record<string, number>;
-  formFinalStatus: Record<string, number>;
-  eddDistribution: Record<string, number>;
-  leadDsChannel?: Record<string, number>;
-  listingDaysDistribution: Record<string, number>;
-}
-
-export interface NormalizedDateFilter {
-  field: string;
-  startDate?: string;
-  endDate?: string;
-  filterBlankDates?: boolean;
-}
-
-export interface DashboardFilterQuery {
-  city?: string[];
-  hubName?: string[];
-  tokenType?: string[];
-  tokenTypeWithNrt?: string[];
-  rmName?: string[];
-  dcName?: string[];
-  paymentType?: string[];
-  leadStage?: string[];
-  dealStatus?: string[];
-  funnelStage?: string[];
-  sheetFinalStatus?: string[];
-  formFinalStatus?: string[];
-  gmailPendencyStatus?: string[];
-  confidenceTrend?: string[];
-  onDemandStatus?: string[];
-  taskBucket?: string[];
-  derivedStatus?: string[];
-  cancelReason?: string[];
-  leadDsChannel?: string[];
-  readyToDeliver?: string[];
-  eddStatus?: string | null;
-  listingDaysBucket?: string | null;
-  searchQuery?: string | null;
-  dateField?: string | null;
-  startDate?: string | null;
-  endDate?: string | null;
-  filterBlankDates?: boolean;
-  dateFilters?: NormalizedDateFilter[];
-  minPaymentPercentage?: number | null;
-}
-
-export interface CaseQuery {
-  page: number;
-  pageSize: number;
-  sortField: keyof CaseRow | string;
-  sortDirection: 'asc' | 'desc';
-  filters: DashboardFilterQuery;
-}
-
-export interface CasePageResult {
-  rows: CaseRow[];
-  totalCount: number;
-  page: number;
-  pageSize: number;
-}
-
-export interface DashboardSummaryQuery {
-  filters: DashboardFilterQuery;
-}
-
-export interface DashboardSummaryResult {
-  kpis: DashboardKpis;
-  charts: DashboardCharts;
-  filteredCancelledC2dCount: number;
-  filteredCancelledC2aCount?: number;
-  filteredCancelledCr2dCount?: number;
-}
-
-export interface DashboardMatrixResult {
-  columns: MatrixColumn[];
-  rows: MatrixRow[];
-}
-
-export interface DashboardFilterOptions {
-  cities: string[];
-  hubs: string[];
-  hubsByCity: Record<string, string[]>;
-  tokenTypes: string[];
-  tokenTypesWithNrt: string[];
-  rms: string[];
-  dcs: string[];
-  paymentTypes: string[];
-  leadStages: string[];
-  dealStatuses: string[];
-  funnelStages: string[];
-  sheetFinalStatuses: string[];
-  formFinalStatuses: string[];
-  gmailPendencyStatuses: string[];
-  onDemandStatuses: string[];
-  tasks: string[];
-  cancelReasons: string[];
-  leadDsChannels: string[];
-}
-
-export interface AuditLog {
-  id?: string;
-  booking_id: string;
-  changed_by: string;
-  changed_at?: string;
-  column_name: string;
-  old_value: string | null;
-  new_value: string | null;
-}
-
-export interface UserSession {
-  id?: string;
-  user_email: string;
-  login_time?: string;
-  last_active_time?: string;
-  duration_minutes: number;
-}
-</file>
-
 <file path="src/components/Dashboard.tsx">
 /**
  * @license
@@ -12736,50 +13089,7 @@ interface DashboardProps {
 }
 
 
-const AVAILABLE_ADDITIONAL_COLS: { key: keyof CaseRow; label: string }[] = [
-  { key: 'totalListingDays', label: 'Total Listing Days' },
-  { key: 'city', label: 'City' },
-  { key: 'carRegNo', label: 'Car Registration No' },
-  { key: 'make', label: 'Make' },
-  { key: 'model', label: 'Model' },
-  { key: 'variant', label: 'Variant' },
-  { key: 'hubCode', label: 'Hub Code' },
-  {key: 'cancelReason', label: 'Cancellation Reason' },
-  { key: 'leadDsChannel', label: 'DS Channel' },
-  { key: 'sheetFinalStatus', label: 'Sheet Final Status' },
-  { key: 'formFinalStatus', label: 'Form Final Status' },
-  { key: 'deviationMitigationComment', label: 'Deviation Comments' },
-  { key: 'creditLtv', label: 'Credit LTV' },
-  { key: 'contactNumber', label: 'Contact Number' },
-  // Date parameter fields requested for export selection
-  { key: 'tokenDateTime', label: 'Token Date & Time' },
-  { key: 'bookingDate', label: 'Booking Date' },
-  { key: 'expectedDeliveryTime', label: 'Expected Delivery Time' },
-  { key: 'actualDeliveryDate', label: 'Actual Delivery Date' },
-  { key: 'eddReviewerDate', label: 'EDD Date (Reviewer)' },
-  { key: 'cancelReqDate', label: 'Cancellation Req Date' },
-  { key: 'cancellationDate', label: 'Cancellation Date' },
-  { key: 'tokenAutoCancellationExtendedDate', label: 'Auto Cancel Ext Date' },
-  { key: 'dealStatusUpdatedAt', label: 'Deal Status Update Date' },
-  { key: 'latestRemarkDate', label: 'Latest Remark Date' },
-  { key: 'updatedAt', label: 'System Update Date' },
-  { key: 'lastCallAt', label: 'Last Call Date' },
-  { key: 'followupAt', label: 'Followup Date' },
-  { key: 'gmailPendencyDate', label: 'Gmail Pendency Date' },
-  { key: 'latestLeadCreationTimestamp', label: 'Lead Creation Date' },
-  { key: 'latestLoginTime', label: 'Login Time' },
-  { key: 'latestCreditAssessedTimestamp', label: 'Credit Assessed Date' },
-  { key: 'latestDiligenceAssessedTimestamp', label: 'Diligence Assessed Date' },
-  { key: 'latestFcuAssessedTimestamp', label: 'FCU Assessed Date' },
-  { key: 'tncGeneratedDate', label: 'TnC Generated Date' },
-  { key: 'tncAcceptedTimestamp', label: 'TnC Accepted Date' },
-  { key: 'fcuSentDate', label: 'FCU Sent Date' },
-  { key: 'sentToRcuTimestamp', label: 'Sent to RCU Date' },
-  { key: 'sentToOpsTimestamp', label: 'Sent to Ops Date' },
-  { key: 'submitToOpsTimestamp', label: 'Submit to Ops Date' },
-  { key: 'opsDisbursalTimestamp', label: 'Ops Disbursal Date' },
-  { key: 'financeDisbursedTimestamp', label: 'Finance Disbursed Date' }
-];
+import { AVAILABLE_ADDITIONAL_COLS } from '../lib/sheetsService';
 
 export default function Dashboard({ 
   rows, 
@@ -12800,6 +13110,8 @@ export default function Dashboard({
   const [pageSize, setPageSize] = useState(15);
   const [activeTab, setActiveTab] = useState<'ops' | 'performance' | 'loss' | 'ledger'>('ops');
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const isTopRowDropdownOpen = ['onDemandStatus', 'taskBucket', 'derivedStatus', 'cancelReason', 'leadDsChannel'].includes(openDropdown || '');
+  const isBottomRowDropdownOpen = openDropdown !== null && !isTopRowDropdownOpen;
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   // CSV Export Modal states
@@ -13272,13 +13584,11 @@ export default function Dashboard({
     setFilters(DEFAULT_FILTERS);
   };
 
-  const syncDateFilters = (dfList: DateFilter[], legacyField: string): DateFilter[] => {
-    if (legacyField === 'All') return [];
-    
+  const syncDateFilters = (dfList: DateFilter[], _legacyField: string): DateFilter[] => {
     // Filter out inactive filters (where dateField is 'All')
     const active = dfList.filter(df => df.dateField !== 'All');
     
-    // Append exactly one inactive filter at the end
+    // Always append exactly one inactive (blank) filter at the end
     return [
       ...active,
       {
@@ -13337,6 +13647,17 @@ export default function Dashboard({
     `block text-[10px] uppercase font-bold tracking-wider mb-1 transition-all duration-200 ${
       isActive ? 'text-amber-700 font-extrabold' : 'text-slate-400'
     }`;
+
+  // Shared renderer — keeps primary & additional dropdowns in perfect sync
+  const renderDateOptions = () =>
+    DATE_OPTIONS.map(group => (
+      <optgroup key={group.label} label={group.label}>
+        {group.options.map(opt => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </optgroup>
+    ));
+
 
   const isCityActive = filters.city !== 'All';
   const isHubActive = filters.hubName !== 'All';
@@ -13710,7 +14031,7 @@ export default function Dashboard({
         </div>
 
         {/* Primary Filter Grid: 6 equal-width columns */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+        <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 relative ${isTopRowDropdownOpen ? 'z-30' : 'z-10'}`}>
           {/* On Demand Status */}
           <MultiSelectDropdown
             label="On Demand Status"
@@ -13799,7 +14120,11 @@ export default function Dashboard({
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="overflow-hidden border-t border-slate-100 mt-4 pt-4"
+              className="border-t border-slate-100 mt-4 pt-4 relative"
+              style={{
+                overflow: isBottomRowDropdownOpen ? 'visible' : 'hidden',
+                zIndex: isBottomRowDropdownOpen ? 30 : 10
+              }}
             >
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3.5">
                 {/* City */}
@@ -13977,49 +14302,7 @@ export default function Dashboard({
               className={getFilterSelectClass(isDateFieldActive)}
             >
               <option value="All">No Date Filter</option>
-              <optgroup label="Core Case Dates">
-                <option value="tokenDate">Token Date</option>
-                <option value="tokenDateTime">Token Date & Time</option>
-                <option value="bookingDate">Booking Date</option>
-                <option value="expectedDeliveryDate">Expected Delivery Date</option>
-                <option value="expectedDeliveryTime">Expected Delivery Time</option>
-                <option value="actualDeliveryDate">Actual Delivery Date</option>
-                <option value="mlEstimatedDeliveryDate">ML Est Delivery Date</option>
-              </optgroup>
-              <optgroup label="Payments & OD">
-                <option value="lastPaymentDate">Last Payment Date</option>
-                <option value="expectedOdCompletionDate">OD Completion Date</option>
-                <option value="eddReviewerDate">EDD Date (Reviewer)</option>
-              </optgroup>
-              <optgroup label="Cancellations & Updates">
-                <option value="cancelReqDate">Cancellation Req Date</option>
-                <option value="cancellationDate">Cancellation Date</option>
-                <option value="tokenAutoCancellationExtendedDate">Auto Cancel Ext Date</option>
-                <option value="dealStatusUpdatedAt">Deal Status Update Date</option>
-                <option value="latestRemarkDate">Latest Remark Date</option>
-                <option value="updatedAt">System Update Date</option>
-              </optgroup>
-              <optgroup label="CRM & Outbound Calls">
-                <option value="lastCallAt">Last Call Date</option>
-                <option value="followupAt">Followup Date</option>
-                <option value="gmailPendencyDate">Gmail Pendency Date</option>
-              </optgroup>
-              <optgroup label="Milestones & Journey">
-                <option value="latestLeadCreationTimestamp">Lead Creation Date</option>
-                <option value="latestLoginTime">Login Time</option>
-                <option value="latestCreditAssessedTimestamp">Credit Assessed Date</option>
-                <option value="latestDiligenceAssessedTimestamp">Diligence Assessed Date</option>
-                <option value="latestFcuAssessedTimestamp">FCU Assessed Date</option>
-                <option value="tncGeneratedDate">TnC Generated Date</option>
-                <option value="tncAcceptedTimestamp">TnC Accepted Date</option>
-                <option value="fcuSentDate">FCU Sent Date</option>
-                <option value="sentToRcuTimestamp">Sent to RCU Date</option>
-                <option value="sentToOpsTimestamp">Sent to Ops Date</option>
-                <option value="submitToOpsTimestamp">Submit to Ops Date</option>
-                <option value="opsDisbursalTimestamp">Ops Disbursal Date</option>
-                <option value="financeDisbursedTimestamp">Finance Disbursed Date</option>
-                <option value="sheetLoginTimestamp">Sheet Login Date</option>
-              </optgroup>
+              {renderDateOptions()}
             </select>
           </div>
 
@@ -14101,8 +14384,8 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Additional Dynamic Date Filters (if active) */}
-        {filters.dateField !== 'All' && filters.dateFilters && filters.dateFilters.length > 0 && (
+        {/* Additional Dynamic Date Filters — always visible */}
+        {filters.dateFilters && filters.dateFilters.length > 0 && (
           <div className="border-t border-slate-100 pt-4 mt-2">
             <div className="flex justify-between items-center mb-3">
               <div className="flex items-center gap-2">
@@ -14139,33 +14422,7 @@ export default function Dashboard({
                         }`}
                       >
                         <option value="All">Select Additional Date Parameter...</option>
-                        <optgroup label="Core Case Dates">
-                          <option value="tokenDate">Token Date</option>
-                          <option value="tokenDateTime">Token Date & Time</option>
-                          <option value="bookingDate">Booking Date</option>
-                          <option value="expectedDeliveryDate">Expected Delivery Date</option>
-                          <option value="expectedDeliveryTime">Expected Delivery Time</option>
-                          <option value="actualDeliveryDate">Actual Delivery Date</option>
-                          <option value="mlEstimatedDeliveryDate">ML Est Delivery Date</option>
-                        </optgroup>
-                        <optgroup label="Payments & OD">
-                          <option value="lastPaymentDate">Last Payment Date</option>
-                          <option value="expectedOdCompletionDate">OD Completion Date</option>
-                          <option value="eddReviewerDate">EDD Date (Reviewer)</option>
-                        </optgroup>
-                        <optgroup label="Cancellations & Updates">
-                          <option value="cancelReqDate">Cancellation Req Date</option>
-                          <option value="cancellationDate">Cancellation Date</option>
-                          <option value="tokenAutoCancellationExtendedDate">Auto Cancel Ext Date</option>
-                          <option value="dealStatusUpdatedAt">Deal Status Update Date</option>
-                          <option value="latestRemarkDate">Latest Remark Date</option>
-                          <option value="updatedAt">System Update Date</option>
-                        </optgroup>
-                        <optgroup label="CRM & Outbound Calls">
-                          <option value="lastCallAt">Last Call Date</option>
-                          <option value="followupAt">Followup Date</option>
-                          <option value="gmailPendencyDate">Gmail Pendency Date</option>
-                        </optgroup>
+                        {renderDateOptions()}
                       </select>
                     </div>
 

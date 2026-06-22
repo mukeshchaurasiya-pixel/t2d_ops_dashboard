@@ -123,6 +123,127 @@ async function fetchPrivateSheetValues(sheetId, sheetName, accessToken) {
   return values.map(row => row.map(cell => normalizeStr(String(cell ?? ''))));
 }
 
+function parseDateStringInternal(str) {
+  const yyyymmddRegex = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:\s+|T)?(\d{1,2})?:?(\d{1,2})?:?(\d{1,2})?/;
+  const matchY = str.match(yyyymmddRegex);
+  if (matchY) {
+    const year = parseInt(matchY[1], 10);
+    const month = parseInt(matchY[2], 10) - 1;
+    const day = parseInt(matchY[3], 10);
+    const hour = matchY[4] ? parseInt(matchY[4], 10) : 0;
+    const minute = matchY[5] ? parseInt(matchY[5], 10) : 0;
+    const second = matchY[6] ? parseInt(matchY[6], 10) : 0;
+    return new Date(year, month, day, hour, minute, second);
+  }
+
+  const ddmmyyyyRegex = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4}|\d{2})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/;
+  const matchD = str.match(ddmmyyyyRegex);
+  if (matchD) {
+    const day = parseInt(matchD[1], 10);
+    const month = parseInt(matchD[2], 10) - 1;
+    let year = parseInt(matchD[3], 10);
+    if (year < 100) {
+      year += year < 50 ? 2000 : 1900;
+    }
+    const hour = matchD[4] ? parseInt(matchD[4], 10) : 0;
+    const minute = matchD[5] ? parseInt(matchD[5], 10) : 0;
+    const second = matchD[6] ? parseInt(matchD[6], 10) : 0;
+    return new Date(year, month, day, hour, minute, second);
+  }
+
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    return parsed;
+  }
+  return null;
+}
+
+const dateCache = new Map();
+function parseDateString(dateStr) {
+  if (!dateStr) return null;
+  const str = String(dateStr).trim();
+  if (!str) return null;
+
+  const cached = dateCache.get(str);
+  if (cached !== undefined) {
+    return cached === -1 ? null : new Date(cached);
+  }
+
+  const result = parseDateStringInternal(str);
+  if (result) {
+    dateCache.set(str, result.getTime());
+  } else {
+    dateCache.set(str, -1);
+  }
+  return result;
+}
+
+function cleanString(value) {
+  if (value === undefined || value === null) return null;
+  const cleaned = String(value).trim();
+  return cleaned === '' ? null : cleaned;
+}
+
+function toDateOnly(value) {
+  const cleaned = cleanString(value);
+  if (!cleaned) return null;
+  const parsed = parseDateString(cleaned);
+  if (!parsed) return null;
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function toTimestamp(value) {
+  const cleaned = cleanString(value);
+  if (!cleaned) return null;
+  const parsed = parseDateString(cleaned);
+  return parsed ? parsed.toISOString() : null;
+}
+
+function toNumeric(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function buildCaseRecord(row) {
+  return {
+    booking_id: String(row.bookingId).trim(),
+    row_data: row,
+    updated_at: new Date().toISOString(),
+    token_date: toDateOnly(row.tokenDate),
+    expected_delivery_date: toDateOnly(row.expectedDeliveryTime) || toDateOnly(row.expectedDeliveryDate),
+    actual_delivery_date: toDateOnly(row.actualDeliveryDate),
+    cancel_req_date: toDateOnly(row.cancelReqDate),
+    last_payment_date: toDateOnly(row.lastPaymentDate),
+    latest_remark_date: toTimestamp(row.latestRemarkDate),
+    expected_od_completion_date: toDateOnly(row.expectedOdCompletionDate),
+    edd_reviewer_date: toDateOnly(row.eddReviewerDate),
+    gmail_pendency_date: toDateOnly(row.gmailPendencyDate),
+    city: cleanString(row.city),
+    hub_name: cleanString(row.hubName),
+    allocated_rm: cleanString(row.allocatedRm),
+    assigned_dc: cleanString(row.assignedDc),
+    lead_stage: cleanString(row.leadStage),
+    deal_status: cleanString(row.dealStatus),
+    task_bucket: cleanString(row.taskBucket),
+    payment_type: cleanString(row.paymentType),
+    token_type: cleanString(row.tokenType),
+    token_type_with_nrt: cleanString(row.tokenTypeWithNrt),
+    sheet_final_status: cleanString(row.sheetFinalStatus),
+    form_final_status: cleanString(row.formFinalStatus),
+    gmail_pendency_status: cleanString(row.gmailPendencyStatus),
+    ready_to_deliver: cleanString(row.readyToDeliver),
+    cancel_reason: cleanString(row.cancelReason),
+    lead_ds_channel: cleanString(row.leadDsChannel),
+    total_listing_days: toNumeric(row.totalListingDays),
+    payment_percentage: toNumeric(row.paymentPercentage),
+    customer_key: cleanString(row.userId || row.uid || row.leadId),
+  };
+}
+
 async function runSync() {
   console.log('--- STARTING BACKGROUND SHEET SYNC ---');
 
@@ -197,11 +318,7 @@ async function runSync() {
   console.log(`De-duplicated to ${uniqueRows.length} unique cases.`);
 
   // 3. Upsert to Supabase
-  const payload = uniqueRows.map(row => ({
-    booking_id: String(row.bookingId).trim(),
-    row_data: row,
-    updated_at: new Date().toISOString()
-  }));
+  const payload = uniqueRows.map(row => buildCaseRecord(row));
 
   console.log(`Upserting payloads to Supabase dashboard_cases table...`);
   const chunkSize = 200;
