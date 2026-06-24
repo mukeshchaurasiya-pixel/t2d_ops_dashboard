@@ -706,6 +706,82 @@ BEGIN
 
   RETURN task_text LIKE '%' || normalized_candidate || '%';
 END;
+CREATE OR REPLACE FUNCTION public.dashboard_case_tags(c public.dashboard_cases)
+RETURNS JSONB
+LANGUAGE sql
+STABLE
+AS $$
+SELECT jsonb_build_object(
+  'isC2D', (
+    ((c.lead_stage IN ('CANCELLED', 'RETURNED') OR c.deal_status = 'CANCEL')
+     AND EXISTS (
+       SELECT 1 FROM public.dashboard_cases d
+       WHERE d.customer_key = c.customer_key
+         AND d.lead_stage = 'DELIVERED'
+         AND coalesce(d.actual_delivery_date, d.token_date) >= c.token_date
+     ))
+    OR
+    (c.lead_stage = 'DELIVERED'
+     AND EXISTS (
+       SELECT 1 FROM public.dashboard_cases d
+       WHERE d.customer_key = c.customer_key
+         AND (d.lead_stage IN ('CANCELLED', 'RETURNED') OR d.deal_status = 'CANCEL')
+         AND coalesce(c.actual_delivery_date, c.token_date) >= d.token_date
+     ))
+  ),
+  'isC2A', (
+    ((c.lead_stage IN ('CANCELLED', 'RETURNED') OR c.deal_status = 'CANCEL')
+     AND EXISTS (
+       SELECT 1 FROM public.dashboard_cases d
+       WHERE d.customer_key = c.customer_key
+         AND d.lead_stage = 'ACTIVE_TOKEN'
+         AND (
+           d.token_date >= c.token_date
+           OR (
+             EXISTS (
+               SELECT 1 FROM public.dashboard_cases prev
+               WHERE prev.customer_key = c.customer_key
+                 AND prev.token_date < c.token_date
+             )
+             AND d.token_date >= (
+               SELECT max(prev.token_date) FROM public.dashboard_cases prev
+               WHERE prev.customer_key = c.customer_key
+                 AND prev.token_date < c.token_date
+             )
+             AND d.token_date <= c.token_date
+           )
+         )
+     ))
+    OR
+    (c.lead_stage = 'ACTIVE_TOKEN'
+     AND EXISTS (
+       SELECT 1 FROM public.dashboard_cases d
+       WHERE d.customer_key = c.customer_key
+         AND (d.lead_stage IN ('CANCELLED', 'RETURNED') OR d.deal_status = 'CANCEL')
+         AND (
+           c.token_date >= d.token_date
+           OR (
+             EXISTS (
+               SELECT 1 FROM public.dashboard_cases prev
+               WHERE prev.customer_key = d.customer_key
+                 AND prev.token_date < d.token_date
+             )
+             AND c.token_date >= (
+               SELECT max(prev.token_date) FROM public.dashboard_cases prev
+               WHERE prev.customer_key = d.customer_key
+                 AND prev.token_date < d.token_date
+             )
+             AND c.token_date <= d.token_date
+           )
+         )
+     ))
+  ),
+  'isCR2D', (
+    c.lead_stage = 'DELIVERED'
+    AND c.cancel_reason IS NOT NULL
+    AND c.cancel_reason <> ''
+  )
+);
 $$;
 
 CREATE OR REPLACE FUNCTION public.dashboard_case_matches_filters(
@@ -1049,7 +1125,7 @@ BEGIN
        FROM filtered
      ),
      paged AS (
-       SELECT c.row_data || jsonb_build_object(''confidenceTrendStatus'', public.dashboard_confidence_trend(c)) as row_data
+       SELECT c.row_data || jsonb_build_object(''confidenceTrendStatus'', public.dashboard_confidence_trend(c)) || public.dashboard_case_tags(c) as row_data
        FROM public.dashboard_cases c
        INNER JOIN filtered f ON f.booking_id = c.booking_id
        ORDER BY %s %s NULLS LAST, %s ASC
@@ -1078,6 +1154,23 @@ BEGIN
     'page', safe_page,
     'pageSize', safe_page_size
   ));
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_active_token_cases(input_limit INTEGER DEFAULT 1000)
+RETURNS TABLE(row_data JSONB)
+LANGUAGE plpgsql
+STABLE
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT c.row_data 
+         || jsonb_build_object('confidenceTrendStatus', public.dashboard_confidence_trend(c)) 
+         || public.dashboard_case_tags(c) AS row_data
+  FROM public.dashboard_cases c
+  WHERE c.lead_stage = 'ACTIVE_TOKEN'
+  ORDER BY c.token_date DESC NULLS LAST
+  LIMIT input_limit;
 END;
 $$;
 

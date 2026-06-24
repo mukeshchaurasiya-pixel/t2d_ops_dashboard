@@ -163,6 +163,9 @@ export interface CaseRow {
   mlEstimatedDeliveryDate?: string;
   totalListingDays?: number;
   syncPending?: boolean;
+  isC2D?: boolean;
+  isC2A?: boolean;
+  isCR2D?: boolean;
 }
 
 export type CaseEditorDraft = Partial<CaseRow> & {

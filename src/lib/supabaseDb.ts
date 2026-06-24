@@ -183,19 +183,15 @@ export async function getCasesFromDb(): Promise<CaseRow[]> {
  * Loads the sub-1k ACTIVE_TOKEN working set into the browser for low-latency ops actions.
  */
 export async function getActiveTokenCasesFromDb(limit: number = ACTIVE_TOKEN_FETCH_LIMIT): Promise<CaseRow[]> {
-  const { data, error } = await supabase
-    .from('dashboard_cases')
-    .select('row_data')
-    .eq('lead_stage', 'ACTIVE_TOKEN')
-    .order('token_date', { ascending: false, nullsFirst: false })
-    .limit(limit);
+  const { data, error } = await supabase.rpc('get_active_token_cases', { input_limit: limit });
 
   if (error) {
     console.error('Failed to fetch ACTIVE_TOKEN working set from Supabase DB:', error.message);
     throw new Error(error.message);
   }
 
-  return (data || []).map(record => record.row_data as CaseRow);
+  const list = data as { row_data: CaseRow }[] | null;
+  return (list || []).map(record => record.row_data);
 }
 
 export async function getDashboardSummaryFromDb(query: DashboardSummaryQuery): Promise<DashboardSummaryResult> {

@@ -313,6 +313,10 @@ export function buildC2DStats(rows: CaseRow[]): C2DStats {
   });
 
   rows.forEach(row => {
+    if (row.isC2D) c2dBookingIds.add(row.bookingId);
+    if (row.isC2A) c2aBookingIds.add(row.bookingId);
+    if (row.isCR2D) cr2dBookingIds.add(row.bookingId);
+
     const flags = getDerivedFlags(row);
     const customerId = row.userId || row.uid || row.leadId;
 
