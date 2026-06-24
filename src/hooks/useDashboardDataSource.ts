@@ -23,7 +23,7 @@ import {
   getDashboardMatrixFromDb,
   getDashboardSummaryFromDb,
 } from '../lib/supabaseDb';
-import { buildDynamicFilterOptions, buildEddLabels, isRowMatchingFilter } from '../lib/dashboardFilters';
+import { buildC2DStats, buildDynamicFilterOptions, buildEddLabels, C2DStats, isRowMatchingFilter } from '../lib/dashboardFilters';
 import { getDerivedFlags, splitTasks } from '../data/mockData';
 import { parseDateString } from '../lib/dateUtils';
 
@@ -242,7 +242,8 @@ function buildLocalSnapshot(
   sortDirection: 'asc' | 'desc'
 ) {
   const eddLabels = buildEddLabels();
-  const filtered = sourceRows.filter(row => isRowMatchingFilter(row, filters, eddLabels));
+  const c2dStats = buildC2DStats(sourceRows);
+  const filtered = sourceRows.filter(row => isRowMatchingFilter(row, filters, eddLabels, undefined, c2dStats));
   const sorted = sortRows(filtered, sortField, sortDirection);
   const totalCount = sorted.length;
   const start = Math.max(0, (page - 1) * pageSize);
@@ -300,12 +301,17 @@ export function useDashboardDataSource({
     return [];
   }, [demoMode, demoRows, activeTokenFastPath, activeTokenRows]);
 
+  // 1.5 local C2D/C2A statistics
+  const localC2dStats = useMemo(() => {
+    return buildC2DStats(localSourceRows);
+  }, [localSourceRows]);
+
   // 2. Local filtering
   const localFilteredRows = useMemo(() => {
     if (localSourceRows.length === 0) return [];
     const eddLabels = buildEddLabels();
-    return localSourceRows.filter(row => isRowMatchingFilter(row, filters, eddLabels));
-  }, [localSourceRows, filters]);
+    return localSourceRows.filter(row => isRowMatchingFilter(row, filters, eddLabels, undefined, localC2dStats));
+  }, [localSourceRows, filters, localC2dStats]);
 
   // 3. Filtered Cancelled C2D Count
   const localFilteredCancelledC2dCount = useMemo(() => {

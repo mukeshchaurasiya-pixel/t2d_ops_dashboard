@@ -347,6 +347,8 @@ export const AVAILABLE_ADDITIONAL_COLS: { key: keyof CaseRow; label: string }[] 
   { key: 'make', label: 'Make' },
   { key: 'model', label: 'Model' },
   { key: 'variant', label: 'Variant' },
+  { key: 'dsRoi', label: 'DS ROI' },
+  { key: 'finalRoi', label: 'Final ROI' },
   { key: 'hubCode', label: 'Hub Code' },
   { key: 'cancelReason', label: 'Cancellation Reason' },
   { key: 'leadDsChannel', label: 'DS Channel' },

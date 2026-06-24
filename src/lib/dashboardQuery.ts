@@ -152,6 +152,7 @@ export function normalizeFilterState(filters: FilterState): DashboardFilterQuery
     filterBlankDates: Boolean(filters.filterBlankDates),
     dateFilters: normalizeDateFilters(filters.dateFilters),
     minPaymentPercentage: Number.isFinite(minPaymentPercentage) ? minPaymentPercentage : null,
+    c2dFilter: filters.c2dFilter && filters.c2dFilter !== 'All' ? filters.c2dFilter : null,
   };
 }
 

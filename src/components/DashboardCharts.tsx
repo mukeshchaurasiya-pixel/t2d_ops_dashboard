@@ -43,6 +43,8 @@ interface DashboardChartsProps {
   setCurrentPage: React.Dispatch<React.SetStateAction<number>>;
   activeTab: 'ops' | 'performance' | 'loss';
   filteredCancelledC2dCount: number;
+  filteredCancelledC2aCount?: number;
+  filteredCancelledCr2dCount?: number;
 }
 
 export default function DashboardCharts({
@@ -51,7 +53,9 @@ export default function DashboardCharts({
   setFilters,
   setCurrentPage,
   activeTab,
-  filteredCancelledC2dCount
+  filteredCancelledC2dCount,
+  filteredCancelledC2aCount = 0,
+  filteredCancelledCr2dCount = 0
 }: DashboardChartsProps) {
   
   const renderSvgBarChart = (
@@ -218,8 +222,65 @@ export default function DashboardCharts({
   }
 
   // activeTab === 'loss'
+  const tagsData = [
+    { label: 'C2D', count: filteredCancelledC2dCount, color: 'bg-rose-500', title: 'Cancelled to Delivered (C2D)' },
+    { label: 'C2A', count: filteredCancelledC2aCount, color: 'bg-amber-500', title: 'Cancelled to Active (C2A)' },
+    { label: 'CR2D', count: filteredCancelledCr2dCount, color: 'bg-emerald-500', title: 'Cancel Request to Delivered (CR2D)' },
+  ];
+  const maxTagVal = Math.max(...tagsData.map(d => d.count), 1);
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
+      {/* Conversion & Recovery Tags */}
+      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+        <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">
+          Conversion Tags
+        </h4>
+        <div className="space-y-1.5 mt-2 select-none">
+          {tagsData.map(tag => {
+            const isCurrentFilter = filters.c2dFilter === tag.label;
+            const pct = Math.min(100, Math.max(4, (tag.count / maxTagVal) * 100));
+            return (
+              <div 
+                key={tag.label} 
+                className={`text-xs p-2 rounded-xl transition-all cursor-pointer hover:bg-slate-50 active:scale-[0.99] ${
+                  isCurrentFilter ? 'bg-orange-50/50 border border-brand-orange/40 shadow-xs' : 'border border-transparent'
+                }`}
+                onClick={() => {
+                  setFilters(prev => {
+                    const currentVal = prev.c2dFilter;
+                    const newVal = currentVal === tag.label ? 'All' : tag.label;
+                    return { ...prev, c2dFilter: newVal };
+                  });
+                  setCurrentPage(1);
+                }}
+                title={tag.title}
+              >
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 items-start text-[11px] font-semibold text-slate-600 mb-1">
+                  <span className="min-w-0 break-words leading-4 flex items-center gap-1.5">
+                    {tag.label}
+                    {isCurrentFilter && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-brand-orange inline-block animate-pulse shrink-0" />
+                    )}
+                  </span>
+                  <span className={`text-right leading-4 whitespace-nowrap ${isCurrentFilter ? 'text-brand-orange font-bold' : ''}`}>
+                    {tag.count} cases
+                  </span>
+                </div>
+                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                  <motion.div 
+                    className={`h-full rounded-full ${isCurrentFilter ? 'bg-brand-orange' : tag.color}`}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${pct}%` }}
+                    transition={{ duration: 0.6, ease: "easeOut" }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Cancellation Reason Split */}
       <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
         <h4 className="text-xs font-sans font-bold tracking-tight text-slate-700 uppercase mb-3 border-b border-slate-50 pb-2">

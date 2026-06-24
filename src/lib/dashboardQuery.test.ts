@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeFilterState, isActiveTokenFastPath } from './dashboardQuery';
-import { DEFAULT_FILTERS, getConfidenceTrendStatus, isRowMatchingFilter, buildDynamicFilterOptions, buildEddLabels, getExpectedDeliveryTimeTimestamp, getNormalizedFieldTimestamp } from './dashboardFilters';
+import { DEFAULT_FILTERS, getConfidenceTrendStatus, isRowMatchingFilter, buildDynamicFilterOptions, buildEddLabels, getExpectedDeliveryTimeTimestamp, getNormalizedFieldTimestamp, buildC2DStats } from './dashboardFilters';
 import { applyReturnedLeadStage, resolveCaseRowField } from '../data/caseRowSchema.js';
 import { buildCharts, buildEddDistribution, splitTasks } from '../data/mockData';
 import { getChartBarColor, getChartEntriesForRender } from '../components/DashboardCharts';
@@ -343,5 +343,51 @@ test('task bucket charts and filter options keep each row task as a single bucke
     'Alpha EDD Pull / 2. Customer Connect Pending',
     'OD Push Priority',
   ]);
+});
+
+test('buildC2DStats and isRowMatchingFilter correctly tag and filter C2D / C2A cases', () => {
+  const eddLabels = buildEddLabels();
+  const rows = [
+    {
+      bookingId: 'B-Cancelled-1',
+      userId: 'USER-A',
+      leadStage: 'CANCELLED',
+      tokenDate: '2026-06-01',
+    },
+    {
+      bookingId: 'B-Delivered-1',
+      userId: 'USER-A',
+      leadStage: 'DELIVERED',
+      tokenDate: '2026-06-05',
+      actualDeliveryDate: '2026-06-05',
+    },
+    {
+      bookingId: 'B-Cancelled-2',
+      userId: 'USER-B',
+      leadStage: 'CANCELLED',
+      tokenDate: '2026-06-01',
+    },
+    {
+      bookingId: 'B-Active-2',
+      userId: 'USER-B',
+      leadStage: 'ACTIVE_TOKEN',
+      tokenDate: '2026-06-05',
+    },
+  ] as any[];
+
+  const c2dStats = buildC2DStats(rows);
+
+  assert.ok(c2dStats.c2dBookingIds.has('B-Cancelled-1'));
+  assert.ok(c2dStats.c2aBookingIds.has('B-Cancelled-2'));
+
+  // Test C2D filtering
+  const c2dFilters = { ...DEFAULT_FILTERS, c2dFilter: 'C2D' };
+  assert.equal(isRowMatchingFilter(rows[0], c2dFilters, eddLabels, undefined, c2dStats), true);
+  assert.equal(isRowMatchingFilter(rows[2], c2dFilters, eddLabels, undefined, c2dStats), false);
+
+  // Test C2A filtering
+  const c2aFilters = { ...DEFAULT_FILTERS, c2dFilter: 'C2A' };
+  assert.equal(isRowMatchingFilter(rows[0], c2aFilters, eddLabels, undefined, c2dStats), false);
+  assert.equal(isRowMatchingFilter(rows[2], c2aFilters, eddLabels, undefined, c2dStats), true);
 });
 

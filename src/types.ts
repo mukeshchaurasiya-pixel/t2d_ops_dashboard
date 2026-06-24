@@ -224,6 +224,7 @@ export interface FilterState {
   dateFilters?: DateFilter[];
   minPaymentPercentage?: string;
   listingDaysBucket: string;
+  c2dFilter: string;
 }
 
 export interface DashboardKpis {
@@ -314,6 +315,7 @@ export interface DashboardFilterQuery {
   filterBlankDates?: boolean;
   dateFilters?: NormalizedDateFilter[];
   minPaymentPercentage?: number | null;
+  c2dFilter?: string | null;
 }
 
 export interface CaseQuery {

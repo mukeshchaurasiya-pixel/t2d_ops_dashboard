@@ -25,6 +25,7 @@ import {
   DEFAULT_FILTERS,
   isRowMatchingFilter,
   buildEddLabels,
+  buildC2DStats,
 } from '../lib/dashboardFilters';
 import { createCaseQuery } from '../lib/dashboardQuery';
 import { getCasesPageFromDb } from '../lib/supabaseDb';
@@ -526,82 +527,7 @@ export default function Dashboard({
 
   const c2dStats = useMemo(() => {
     const sourceRows = demoMode ? rows : (activeTokenRows.length > 0 ? activeTokenRows : currentRows);
-    const grouped: Record<string, CaseRow[]> = {};
-    sourceRows.forEach(row => {
-      const id = row.userId || row.uid || row.leadId;
-      if (!id) return;
-      const key = id.trim();
-      if (!grouped[key]) grouped[key] = [];
-      grouped[key].push(row);
-    });
-
-    Object.keys(grouped).forEach(key => {
-      grouped[key].sort((a, b) => {
-        const ta = a.tokenDate ? (parseDateString(a.tokenDate)?.getTime() || 0) : 0;
-        const tb = b.tokenDate ? (parseDateString(b.tokenDate)?.getTime() || 0) : 0;
-        return ta - tb;
-      });
-    });
-
-    const c2dBookingIds = new Set<string>();
-    const c2aBookingIds = new Set<string>();
-    const cr2dBookingIds = new Set<string>();
-
-    sourceRows.forEach(row => {
-      const flags = getDerivedFlags(row);
-      const customerId = row.userId || row.uid || row.leadId;
-
-      if (row.leadStage === 'DELIVERED' && Boolean(row.cancelReason)) {
-        cr2dBookingIds.add(row.bookingId);
-      }
-
-      if (flags.isCancelled && customerId) {
-        const key = customerId.trim();
-        const customerRows = grouped[key] || [];
-        const cancelledTime = row.tokenDate ? (parseDateString(row.tokenDate)?.getTime() || 0) : 0;
-
-        const hasDeliveredAfter = customerRows.some(r => {
-          if (r.leadStage === 'DELIVERED') {
-            const delDateStr = r.actualDeliveryDate || r.tokenDate;
-            const deliveredTime = delDateStr ? (parseDateString(delDateStr)?.getTime() || 0) : 0;
-            return deliveredTime >= cancelledTime;
-          }
-          return false;
-        });
-
-        if (hasDeliveredAfter) {
-          c2dBookingIds.add(row.bookingId);
-        }
-
-        const index = customerRows.findIndex(b => b.bookingId === row.bookingId);
-        if (index !== -1) {
-          let prevTime = 0;
-          if (index > 0) {
-            const prevBooking = customerRows[index - 1];
-            prevTime = prevBooking.tokenDate ? (parseDateString(prevBooking.tokenDate)?.getTime() || 0) : 0;
-          }
-
-          const hasMatchingActive = customerRows.some(r => {
-            if (r.leadStage === 'ACTIVE_TOKEN') {
-              const activeTime = r.tokenDate ? (parseDateString(r.tokenDate)?.getTime() || 0) : 0;
-              if (activeTime >= cancelledTime) {
-                return true;
-              }
-              if (index > 0 && activeTime >= prevTime && activeTime <= cancelledTime) {
-                return true;
-              }
-            }
-            return false;
-          });
-
-          if (hasMatchingActive) {
-            c2aBookingIds.add(row.bookingId);
-          }
-        }
-      }
-    });
-
-    return { c2dBookingIds, c2aBookingIds, cr2dBookingIds };
+    return buildC2DStats(sourceRows);
   }, [activeTokenRows, currentRows, demoMode, rows]);
 
   const kpis = summary.kpis;
@@ -1626,6 +1552,8 @@ export default function Dashboard({
           setCurrentPage={setCurrentPage}
           activeTab={activeTab}
           filteredCancelledC2dCount={filteredCancelledC2dCount}
+          filteredCancelledC2aCount={filteredCancelledC2aCount}
+          filteredCancelledCr2dCount={filteredCancelledCr2dCount}
         />
       )}
 

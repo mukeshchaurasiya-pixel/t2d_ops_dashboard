@@ -727,6 +727,7 @@ DECLARE
   end_ts TIMESTAMP WITHOUT TIME ZONE;
   date_filter JSONB;
   normalized_threshold NUMERIC;
+  c2d_filter TEXT := nullif(btrim(coalesce(input_filters ->> 'c2dFilter', '')), '');
 BEGIN
   IF search_query IS NOT NULL THEN
     search_query := lower(search_query);
@@ -901,6 +902,61 @@ BEGIN
   IF input_filters ? 'readyToDeliver' AND jsonb_typeof(input_filters -> 'readyToDeliver') = 'array' AND jsonb_array_length(input_filters -> 'readyToDeliver') > 0 THEN
     IF NOT public.dashboard_matches_text_filter(input_filters -> 'readyToDeliver', ready_value) THEN
       RETURN false;
+    END IF;
+  END IF;
+
+  IF c2d_filter IS NOT NULL AND c2d_filter <> 'All' THEN
+    IF c2d_filter = 'C2D' THEN
+      IF NOT (
+        (c.lead_stage IN ('CANCELLED', 'RETURNED') OR c.deal_status = 'CANCEL')
+        AND EXISTS (
+          SELECT 1
+          FROM public.dashboard_cases d
+          WHERE d.customer_key = c.customer_key
+            AND d.lead_stage = 'DELIVERED'
+            AND coalesce(d.actual_delivery_date, d.token_date) >= c.token_date
+        )
+      ) THEN
+        RETURN false;
+      END IF;
+    ELSIF c2d_filter = 'C2A' THEN
+      IF NOT (
+        (c.lead_stage IN ('CANCELLED', 'RETURNED') OR c.deal_status = 'CANCEL')
+        AND EXISTS (
+          SELECT 1
+          FROM public.dashboard_cases d
+          WHERE d.customer_key = c.customer_key
+            AND d.lead_stage = 'ACTIVE_TOKEN'
+            AND (
+              d.token_date >= c.token_date
+              OR (
+                EXISTS (
+                  SELECT 1
+                  FROM public.dashboard_cases prev
+                  WHERE prev.customer_key = c.customer_key
+                    AND prev.token_date < c.token_date
+                )
+                AND d.token_date >= (
+                  SELECT max(prev.token_date)
+                  FROM public.dashboard_cases prev
+                  WHERE prev.customer_key = c.customer_key
+                    AND prev.token_date < c.token_date
+                )
+                AND d.token_date <= c.token_date
+              )
+            )
+        )
+      ) THEN
+        RETURN false;
+      END IF;
+    ELSIF c2d_filter = 'CR2D' THEN
+      IF NOT (
+        c.lead_stage = 'DELIVERED'
+        AND c.cancel_reason IS NOT NULL
+        AND c.cancel_reason <> ''
+      ) THEN
+        RETURN false;
+      END IF;
     END IF;
   END IF;
 
