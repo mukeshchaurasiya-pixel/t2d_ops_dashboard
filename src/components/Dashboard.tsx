@@ -763,13 +763,13 @@ export default function Dashboard({
                     <tr key={row.bookingId} className="hover:bg-slate-50/50 transition-all">
                       <td className="p-3.5 pl-5">
                         <div className="flex items-center gap-1.5">
-                          {row.userId || row.uid ? (
+                          {row.bookingId ? (
                             <a 
-                              href={`https://axle.c24.tech/b2c-lms/customer/${encodeURIComponent(row.userId || row.uid || '')}`}
+                              href={`https://axle.c24.tech/b2c-lms/t2d?query=${encodeURIComponent(row.bookingId)}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="font-semibold text-indigo-600 hover:text-indigo-850 hover:underline flex items-center gap-0.5 transition-colors"
-                              title="View Customer WMF/LMS Profile"
+                              title="View LMS Booking Details"
                               onClick={(e) => e.stopPropagation()}
                             >
                               {row.bookingId}

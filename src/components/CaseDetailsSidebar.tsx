@@ -151,15 +151,15 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                 </div>
                 <h3 className="text-lg font-sans font-bold tracking-tight text-white flex flex-wrap items-center gap-2">
                   <span>{selectedRow.bookingId}</span>
-                  {(selectedRow.userId || selectedRow.uid) && (
+                  {selectedRow.bookingId && (
                     <a 
-                      href={`https://axle.c24.tech/b2c-lms/customer/${encodeURIComponent(selectedRow.userId || selectedRow.uid || '')}`}
+                      href={`https://axle.c24.tech/b2c-lms/t2d?query=${encodeURIComponent(selectedRow.bookingId)}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 px-2 py-1 rounded bg-brand-blue hover:bg-brand-blue/90 text-white text-[10px] font-mono font-bold uppercase transition-all"
-                      title="Open WMFACT LMS customer detail page"
+                      title="Open LMS booking detail page"
                     >
-                      WMFACT <ExternalLink className="w-2.5 h-2.5 text-white/90" />
+                      LMS T2D <ExternalLink className="w-2.5 h-2.5 text-white/90" />
                     </a>
                   )}
                   {fetchingLatestRow && (
@@ -545,16 +545,16 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                       <span className="font-semibold text-slate-800">{selectedRow.hubName || '-'}</span>
                     </div>
 
-                    {(selectedRow.userId || selectedRow.uid) && (
+                    {selectedRow.bookingId && (
                       <div className="col-span-2 border-t border-slate-200/30 pt-3.5 flex flex-col gap-1">
-                        <span className="block text-[10px] text-slate-450 uppercase font-mono tracking-wider">WMFACT (LMS Customer Link)</span>
+                        <span className="block text-[10px] text-slate-450 uppercase font-mono tracking-wider">LMS Booking Link</span>
                         <a 
-                          href={`https://axle.c24.tech/b2c-lms/customer/${encodeURIComponent(selectedRow.userId || selectedRow.uid || '')}`}
+                          href={`https://axle.c24.tech/b2c-lms/t2d?query=${encodeURIComponent(selectedRow.bookingId)}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-brand-blue hover:text-brand-blue/80 font-bold underline font-mono text-[11.5px] inline-flex items-center gap-1"
                         >
-                          {selectedRow.userId || selectedRow.uid}
+                          {selectedRow.bookingId}
                           <ExternalLink className="w-3.5 h-3.5 text-brand-blue shrink-0" />
                         </a>
                       </div>
@@ -1215,7 +1215,7 @@ export const CaseDetailsSidebar: React.FC<CaseDetailsSidebarProps> = ({
                                   <div className="text-slate-600 font-mono text-[11px] break-all whitespace-pre-wrap leading-relaxed">
                                     {(key === 'userId' || key === 'uid' || key === 'leadId') ? (
                                       <a
-                                        href={`https://axle.c24.tech/b2c-lms/customer/${encodeURIComponent(String(val))}`}
+                                        href={`https://axle.c24.tech/b2c-lms/t2d?query=${encodeURIComponent(selectedRow.bookingId)}`}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="text-brand-blue hover:text-brand-blue/80 font-bold inline-flex items-center gap-1 leading-none"
