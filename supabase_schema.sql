@@ -908,44 +908,79 @@ BEGIN
   IF c2d_filter IS NOT NULL AND c2d_filter <> 'All' THEN
     IF c2d_filter = 'C2D' THEN
       IF NOT (
-        (c.lead_stage IN ('CANCELLED', 'RETURNED') OR c.deal_status = 'CANCEL')
-        AND EXISTS (
-          SELECT 1
-          FROM public.dashboard_cases d
-          WHERE d.customer_key = c.customer_key
-            AND d.lead_stage = 'DELIVERED'
-            AND coalesce(d.actual_delivery_date, d.token_date) >= c.token_date
-        )
+        ((c.lead_stage IN ('CANCELLED', 'RETURNED') OR c.deal_status = 'CANCEL')
+         AND EXISTS (
+           SELECT 1
+           FROM public.dashboard_cases d
+           WHERE d.customer_key = c.customer_key
+             AND d.lead_stage = 'DELIVERED'
+             AND coalesce(d.actual_delivery_date, d.token_date) >= c.token_date
+         ))
+        OR
+        (c.lead_stage = 'DELIVERED'
+         AND EXISTS (
+           SELECT 1
+           FROM public.dashboard_cases d
+           WHERE d.customer_key = c.customer_key
+             AND (d.lead_stage IN ('CANCELLED', 'RETURNED') OR d.deal_status = 'CANCEL')
+             AND coalesce(c.actual_delivery_date, c.token_date) >= d.token_date
+         ))
       ) THEN
         RETURN false;
       END IF;
     ELSIF c2d_filter = 'C2A' THEN
       IF NOT (
-        (c.lead_stage IN ('CANCELLED', 'RETURNED') OR c.deal_status = 'CANCEL')
-        AND EXISTS (
-          SELECT 1
-          FROM public.dashboard_cases d
-          WHERE d.customer_key = c.customer_key
-            AND d.lead_stage = 'ACTIVE_TOKEN'
-            AND (
-              d.token_date >= c.token_date
-              OR (
-                EXISTS (
-                  SELECT 1
-                  FROM public.dashboard_cases prev
-                  WHERE prev.customer_key = c.customer_key
-                    AND prev.token_date < c.token_date
-                )
-                AND d.token_date >= (
-                  SELECT max(prev.token_date)
-                  FROM public.dashboard_cases prev
-                  WHERE prev.customer_key = c.customer_key
-                    AND prev.token_date < c.token_date
-                )
-                AND d.token_date <= c.token_date
-              )
-            )
-        )
+        ((c.lead_stage IN ('CANCELLED', 'RETURNED') OR c.deal_status = 'CANCEL')
+         AND EXISTS (
+           SELECT 1
+           FROM public.dashboard_cases d
+           WHERE d.customer_key = c.customer_key
+             AND d.lead_stage = 'ACTIVE_TOKEN'
+             AND (
+               d.token_date >= c.token_date
+               OR (
+                 EXISTS (
+                   SELECT 1
+                   FROM public.dashboard_cases prev
+                   WHERE prev.customer_key = c.customer_key
+                     AND prev.token_date < c.token_date
+                 )
+                 AND d.token_date >= (
+                   SELECT max(prev.token_date)
+                   FROM public.dashboard_cases prev
+                   WHERE prev.customer_key = c.customer_key
+                     AND prev.token_date < c.token_date
+                 )
+                 AND d.token_date <= c.token_date
+               )
+             )
+         ))
+        OR
+        (c.lead_stage = 'ACTIVE_TOKEN'
+         AND EXISTS (
+           SELECT 1
+           FROM public.dashboard_cases d
+           WHERE d.customer_key = c.customer_key
+             AND (d.lead_stage IN ('CANCELLED', 'RETURNED') OR d.deal_status = 'CANCEL')
+             AND (
+               c.token_date >= d.token_date
+               OR (
+                 EXISTS (
+                   SELECT 1
+                   FROM public.dashboard_cases prev
+                   WHERE prev.customer_key = d.customer_key
+                     AND prev.token_date < d.token_date
+                 )
+                 AND c.token_date >= (
+                   SELECT max(prev.token_date)
+                   FROM public.dashboard_cases prev
+                   WHERE prev.customer_key = d.customer_key
+                     AND prev.token_date < d.token_date
+                 )
+                 AND c.token_date <= d.token_date
+               )
+             )
+         ))
       ) THEN
         RETURN false;
       END IF;

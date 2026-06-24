@@ -325,7 +325,7 @@ export function buildC2DStats(rows: CaseRow[]): C2DStats {
       const customerRows = grouped[key] || [];
       const cancelledTime = row.tokenDate ? (parseDateString(row.tokenDate)?.getTime() || 0) : 0;
 
-      const hasDeliveredAfter = customerRows.some(r => {
+      const matchingDelivereds = customerRows.filter(r => {
         if (r.leadStage === 'DELIVERED') {
           const delDateStr = r.actualDeliveryDate || r.tokenDate;
           const deliveredTime = delDateStr ? (parseDateString(delDateStr)?.getTime() || 0) : 0;
@@ -334,8 +334,11 @@ export function buildC2DStats(rows: CaseRow[]): C2DStats {
         return false;
       });
 
-      if (hasDeliveredAfter) {
+      if (matchingDelivereds.length > 0) {
         c2dBookingIds.add(row.bookingId);
+        matchingDelivereds.forEach(del => {
+          c2dBookingIds.add(del.bookingId);
+        });
       }
 
       const index = customerRows.findIndex(b => b.bookingId === row.bookingId);
@@ -346,7 +349,7 @@ export function buildC2DStats(rows: CaseRow[]): C2DStats {
           prevTime = prevBooking.tokenDate ? (parseDateString(prevBooking.tokenDate)?.getTime() || 0) : 0;
         }
 
-        const hasMatchingActive = customerRows.some(r => {
+        const matchingActives = customerRows.filter(r => {
           if (r.leadStage === 'ACTIVE_TOKEN') {
             const activeTime = r.tokenDate ? (parseDateString(r.tokenDate)?.getTime() || 0) : 0;
             if (activeTime >= cancelledTime) {
@@ -359,8 +362,11 @@ export function buildC2DStats(rows: CaseRow[]): C2DStats {
           return false;
         });
 
-        if (hasMatchingActive) {
+        if (matchingActives.length > 0) {
           c2aBookingIds.add(row.bookingId);
+          matchingActives.forEach(act => {
+            c2aBookingIds.add(act.bookingId);
+          });
         }
       }
     }

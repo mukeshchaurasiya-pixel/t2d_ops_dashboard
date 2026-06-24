@@ -378,16 +378,19 @@ test('buildC2DStats and isRowMatchingFilter correctly tag and filter C2D / C2A c
   const c2dStats = buildC2DStats(rows);
 
   assert.ok(c2dStats.c2dBookingIds.has('B-Cancelled-1'));
+  assert.ok(c2dStats.c2dBookingIds.has('B-Delivered-1')); // Converted row is also tagged C2D
   assert.ok(c2dStats.c2aBookingIds.has('B-Cancelled-2'));
+  assert.ok(c2dStats.c2aBookingIds.has('B-Active-2')); // Converted row is also tagged C2A
 
   // Test C2D filtering
   const c2dFilters = { ...DEFAULT_FILTERS, c2dFilter: 'C2D' };
   assert.equal(isRowMatchingFilter(rows[0], c2dFilters, eddLabels, undefined, c2dStats), true);
+  assert.equal(isRowMatchingFilter(rows[1], c2dFilters, eddLabels, undefined, c2dStats), true); // Converted target matches filter
   assert.equal(isRowMatchingFilter(rows[2], c2dFilters, eddLabels, undefined, c2dStats), false);
 
   // Test C2A filtering
   const c2aFilters = { ...DEFAULT_FILTERS, c2dFilter: 'C2A' };
   assert.equal(isRowMatchingFilter(rows[0], c2aFilters, eddLabels, undefined, c2dStats), false);
   assert.equal(isRowMatchingFilter(rows[2], c2aFilters, eddLabels, undefined, c2dStats), true);
+  assert.equal(isRowMatchingFilter(rows[3], c2aFilters, eddLabels, undefined, c2dStats), true); // Converted target matches filter
 });
-
