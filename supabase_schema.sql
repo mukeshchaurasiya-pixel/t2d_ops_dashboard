@@ -706,6 +706,8 @@ BEGIN
 
   RETURN task_text LIKE '%' || normalized_candidate || '%';
 END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.dashboard_case_tags(c public.dashboard_cases)
 RETURNS JSONB
 LANGUAGE sql
