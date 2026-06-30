@@ -1770,11 +1770,11 @@ BEGIN
                 AND (e.cancellation_ts IS NOT NULL OR nullif(btrim(coalesce(e.cancel_reason, '')), '') IS NOT NULL)
             )
         )::numeric AS nd,
-        count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts)::numeric AS inflow_count,
-        count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_rt(e.token_type))::numeric AS rt_inflow,
-        count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_nrt(e.token_type))::numeric AS nrt_inflow,
-        count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_pvt(e.token_type))::numeric AS pvt_inflow,
-        count(*) FILTER (
+        count(DISTINCT e.customer_key) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts)::numeric AS inflow_count,
+        count(DISTINCT e.customer_key) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_rt(e.token_type))::numeric AS rt_inflow,
+        count(DISTINCT e.customer_key) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_nrt(e.token_type))::numeric AS nrt_inflow,
+        count(DISTINCT e.customer_key) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_pvt(e.token_type))::numeric AS pvt_inflow,
+        count(DISTINCT e.customer_key) FILTER (
           WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
             AND public.dashboard_token_is_gcbl(coalesce(e.token_type, e.lead_ds_channel))
         )::numeric AS gcbl_inflow,
@@ -1809,15 +1809,15 @@ BEGIN
             AND public.dashboard_token_is_rt(e.token_type)
             AND greatest(extract(epoch from (tf.end_ts - e.token_ts)) / 86400.0, 0) > 4
         )::numeric AS active_rt_over4_count,
-        count(*) FILTER (
+        count(DISTINCT e.customer_key) FILTER (
           WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
             AND public.dashboard_token_is_nrt(coalesce(e.token_type_with_nrt, e.token_type))
         )::numeric AS nrt_upgrades,
-        count(*) FILTER (
+        count(DISTINCT e.customer_key) FILTER (
           WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
             AND public.dashboard_token_is_pvt(coalesce(e.token_type, e.token_type_with_nrt))
         )::numeric AS pvt_upgrades,
-        count(*) FILTER (
+        count(DISTINCT e.customer_key) FILTER (
           WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
             AND (
               e.login_ts IS NOT NULL
@@ -1825,7 +1825,7 @@ BEGIN
               OR upper(coalesce(e.lead_stage, '')) = 'LOGIN_COMPLETED'
             )
         )::numeric AS login_count,
-        count(*) FILTER (
+        count(DISTINCT e.customer_key) FILTER (
           WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
             AND e.login_ts IS NOT NULL
             AND extract(epoch from (e.login_ts - e.token_ts)) >= 86400
@@ -1835,30 +1835,30 @@ BEGIN
             AND upper(coalesce(e.final_payment_type, '')) = 'CF'
             AND e.cancellation_ts IS NULL
         )::numeric AS cf_attached_count,
-        count(*) FILTER (
+        count(DISTINCT e.customer_key) FILTER (
           WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
         )::numeric AS cohort_cancelled_count,
-        count(*) FILTER (
+        count(DISTINCT e.customer_key) FILTER (
           WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
             AND public.dashboard_token_is_rt(e.token_type)
         )::numeric AS cohort_rt_cancelled,
-        count(*) FILTER (
+        count(DISTINCT e.customer_key) FILTER (
           WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
             AND public.dashboard_token_is_nrt(e.token_type)
         )::numeric AS cohort_nrt_cancelled,
-        count(*) FILTER (
+        count(DISTINCT e.customer_key) FILTER (
           WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
             AND public.dashboard_token_is_pvt(e.token_type)
         )::numeric AS cohort_pvt_cancelled,
-        count(*) FILTER (
+        count(DISTINCT e.customer_key) FILTER (
           WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
             AND e.is_c2d
         )::numeric AS c2d_count,
-        count(*) FILTER (
+        count(DISTINCT e.customer_key) FILTER (
           WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
             AND e.is_c2a
         )::numeric AS c2a_count,
-        count(*) FILTER (
+        count(DISTINCT e.customer_key) FILTER (
           WHERE coalesce(e.cancellation_ts, e.actual_delivery_ts) BETWEEN tf.start_ts AND tf.end_ts
             AND e.is_cr2d
         )::numeric AS cr2d_count,
@@ -1907,11 +1907,11 @@ BEGIN
                 AND (cancellation_ts IS NOT NULL OR nullif(btrim(coalesce(cancel_reason, '')), '') IS NOT NULL)
             )
         )::numeric AS nd,
-        count(*) FILTER (WHERE token_ts IS NOT NULL)::numeric AS inflow_count,
-        count(*) FILTER (WHERE token_ts IS NOT NULL AND public.dashboard_token_is_rt(token_type))::numeric AS rt_inflow,
-        count(*) FILTER (WHERE token_ts IS NOT NULL AND public.dashboard_token_is_nrt(token_type))::numeric AS nrt_inflow,
-        count(*) FILTER (WHERE token_ts IS NOT NULL AND public.dashboard_token_is_pvt(token_type))::numeric AS pvt_inflow,
-        count(*) FILTER (
+        count(DISTINCT customer_key) FILTER (WHERE token_ts IS NOT NULL)::numeric AS inflow_count,
+        count(DISTINCT customer_key) FILTER (WHERE token_ts IS NOT NULL AND public.dashboard_token_is_rt(token_type))::numeric AS rt_inflow,
+        count(DISTINCT customer_key) FILTER (WHERE token_ts IS NOT NULL AND public.dashboard_token_is_nrt(token_type))::numeric AS nrt_inflow,
+        count(DISTINCT customer_key) FILTER (WHERE token_ts IS NOT NULL AND public.dashboard_token_is_pvt(token_type))::numeric AS pvt_inflow,
+        count(DISTINCT customer_key) FILTER (
           WHERE token_ts IS NOT NULL
             AND public.dashboard_token_is_gcbl(coalesce(token_type, lead_ds_channel))
         )::numeric AS gcbl_inflow,
@@ -1946,15 +1946,15 @@ BEGIN
             AND public.dashboard_token_is_rt(token_type)
             AND greatest(extract(epoch from (custom_end_ts - token_ts)) / 86400.0, 0) > 4
         )::numeric AS active_rt_over4_count,
-        count(*) FILTER (
+        count(DISTINCT customer_key) FILTER (
           WHERE token_ts IS NOT NULL
             AND public.dashboard_token_is_nrt(coalesce(token_type_with_nrt, token_type))
         )::numeric AS nrt_upgrades,
-        count(*) FILTER (
+        count(DISTINCT customer_key) FILTER (
           WHERE token_ts IS NOT NULL
             AND public.dashboard_token_is_pvt(coalesce(token_type, token_type_with_nrt))
         )::numeric AS pvt_upgrades,
-        count(*) FILTER (
+        count(DISTINCT customer_key) FILTER (
           WHERE token_ts IS NOT NULL
             AND (
               login_ts IS NOT NULL
@@ -1962,7 +1962,7 @@ BEGIN
               OR upper(coalesce(lead_stage, '')) = 'LOGIN_COMPLETED'
             )
         )::numeric AS login_count,
-        count(*) FILTER (
+        count(DISTINCT customer_key) FILTER (
           WHERE token_ts IS NOT NULL
             AND login_ts IS NOT NULL
             AND extract(epoch from (login_ts - token_ts)) >= 86400
@@ -1972,30 +1972,30 @@ BEGIN
             AND upper(coalesce(final_payment_type, '')) = 'CF'
             AND cancellation_ts IS NULL
         )::numeric AS cf_attached_count,
-        count(*) FILTER (
+        count(DISTINCT customer_key) FILTER (
           WHERE cancellation_ts IS NOT NULL
         )::numeric AS cohort_cancelled_count,
-        count(*) FILTER (
+        count(DISTINCT customer_key) FILTER (
           WHERE cancellation_ts IS NOT NULL
             AND public.dashboard_token_is_rt(token_type)
         )::numeric AS cohort_rt_cancelled,
-        count(*) FILTER (
+        count(DISTINCT customer_key) FILTER (
           WHERE cancellation_ts IS NOT NULL
             AND public.dashboard_token_is_nrt(token_type)
         )::numeric AS cohort_nrt_cancelled,
-        count(*) FILTER (
+        count(DISTINCT customer_key) FILTER (
           WHERE cancellation_ts IS NOT NULL
             AND public.dashboard_token_is_pvt(token_type)
         )::numeric AS cohort_pvt_cancelled,
-        count(*) FILTER (
+        count(DISTINCT customer_key) FILTER (
           WHERE cancellation_ts IS NOT NULL
             AND is_c2d
         )::numeric AS c2d_count,
-        count(*) FILTER (
+        count(DISTINCT customer_key) FILTER (
           WHERE cancellation_ts IS NOT NULL
             AND is_c2a
         )::numeric AS c2a_count,
-        count(*) FILTER (
+        count(DISTINCT customer_key) FILTER (
           WHERE coalesce(cancellation_ts, actual_delivery_ts) IS NOT NULL
             AND is_cr2d
         )::numeric AS cr2d_count,

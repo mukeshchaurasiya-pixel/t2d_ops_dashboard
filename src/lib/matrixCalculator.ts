@@ -271,17 +271,26 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
       });
     }
 
+    const getUniqueUserCount = (cases: CaseRow[]) => {
+      const userSet = new Set<string>();
+      cases.forEach(r => {
+        const userId = r.userId || r.uid || r.leadId;
+        if (userId) userSet.add(userId.trim());
+      });
+      return userSet.size;
+    };
+
     // Compute metrics
     const gd = deliveryCases.length;
     const gdCancelled = deliveryCases.filter(r => Boolean(r.cancellationDate) || Boolean(r.cancelReason)).length;
     const nd = gd - gdCancelled;
-    const inflowCount = inflowCases.length;
+    const inflowCount = getUniqueUserCount(inflowCases);
 
     // Token Type splits
-    const rtInflow = inflowCases.filter(r => isRT(r.tokenType)).length;
-    const nrtInflow = inflowCases.filter(r => isNRT(r.tokenType)).length;
-    const pvtInflow = inflowCases.filter(r => isPVT(r.tokenType)).length;
-    const gcblInflow = inflowCases.filter(r => isGCBL(r.tokenType || r.leadDsChannel)).length;
+    const rtInflow = getUniqueUserCount(inflowCases.filter(r => isRT(r.tokenType)));
+    const nrtInflow = getUniqueUserCount(inflowCases.filter(r => isNRT(r.tokenType)));
+    const pvtInflow = getUniqueUserCount(inflowCases.filter(r => isPVT(r.tokenType)));
+    const gcblInflow = getUniqueUserCount(inflowCases.filter(r => isGCBL(r.tokenType || r.leadDsChannel)));
 
     const rtShare = inflowCount ? rtInflow / inflowCount : 0;
     const nrtShare = inflowCount ? nrtInflow / inflowCount : 0;
@@ -313,27 +322,27 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
     }
 
     // Upgrades
-    const nrtUpgrades = inflowCases.filter(r => isNRT(r.tokenTypeWithNrt || r.tokenType)).length;
+    const nrtUpgrades = getUniqueUserCount(inflowCases.filter(r => isNRT(r.tokenTypeWithNrt || r.tokenType)));
     const nrtUpgradePct = inflowCount ? nrtUpgrades / inflowCount : 0;
 
-    const pvtUpgrades = inflowCases.filter(r => isPVT(r.tokenType || r.tokenTypeWithNrt)).length;
+    const pvtUpgrades = getUniqueUserCount(inflowCases.filter(r => isPVT(r.tokenType || r.tokenTypeWithNrt)));
     const pvtUpgradePct = inflowCount ? pvtUpgrades / inflowCount : 0;
 
     // Customer Finance (CF)
     const loginCases = inflowCases.filter(r => {
       return Boolean(r.latestLoginTime || r.sheetLoginTimestamp || r.sheetLoginPartner || r.leadStage === 'LOGIN_COMPLETED');
     });
-    const loginCount = loginCases.length;
+    const loginCount = getUniqueUserCount(loginCases);
     const loginPct = inflowCount ? loginCount / inflowCount : 0;
 
-    const loginT1 = loginCases.filter(r => {
+    const loginT1 = getUniqueUserCount(loginCases.filter(r => {
       const tD = parseDateString(r.tokenDate || '');
       const lD = parseDateString(r.latestLoginTime || r.sheetLoginTimestamp || '');
       if (tD && lD) {
         return (lD.getTime() - tD.getTime()) >= 24 * 60 * 60 * 1000;
       }
       return false;
-    }).length;
+    }));
     const loginT1Pct = inflowCount ? loginT1 / inflowCount : 0;
 
     const cfAttachedCases = deliveryCases.filter(r => {
@@ -344,33 +353,34 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
     const cfAttachedPct = nd ? cfAttachedCases / nd : 0;
 
     // Cohort-based cancellations (for percentages and TAT)
-    const cohortCancelPct = inflowCount ? cancellationCases.length / inflowCount : 0;
+    const cancellationCasesCount = getUniqueUserCount(cancellationCases);
+    const cohortCancelPct = inflowCount ? cancellationCasesCount / inflowCount : 0;
     
-    const cohortRtInflow = inflowCases.filter(r => isRT(r.tokenType)).length;
-    const cohortRtCancelled = cancellationCases.filter(r => isRT(r.tokenType)).length;
+    const cohortRtInflow = getUniqueUserCount(inflowCases.filter(r => isRT(r.tokenType)));
+    const cohortRtCancelled = getUniqueUserCount(cancellationCases.filter(r => isRT(r.tokenType)));
     const cohortRtCancelPct = cohortRtInflow ? cohortRtCancelled / cohortRtInflow : 0;
 
-    const cohortNrtInflow = inflowCases.filter(r => isNRT(r.tokenType)).length;
-    const cohortNrtCancelled = cancellationCases.filter(r => isNRT(r.tokenType)).length;
+    const cohortNrtInflow = getUniqueUserCount(inflowCases.filter(r => isNRT(r.tokenType)));
+    const cohortNrtCancelled = getUniqueUserCount(cancellationCases.filter(r => isNRT(r.tokenType)));
     const cohortNrtCancelPct = cohortNrtInflow ? cohortNrtCancelled / cohortNrtInflow : 0;
 
-    const cohortPvtInflow = inflowCases.filter(r => isPVT(r.tokenType)).length;
-    const cohortPvtCancelled = cancellationCases.filter(r => isPVT(r.tokenType)).length;
+    const cohortPvtInflow = getUniqueUserCount(inflowCases.filter(r => isPVT(r.tokenType)));
+    const cohortPvtCancelled = getUniqueUserCount(cancellationCases.filter(r => isPVT(r.tokenType)));
     const cohortPvtCancelPct = cohortPvtInflow ? cohortPvtCancelled / cohortPvtInflow : 0;
 
-    const c2dCount = cancellationCases.filter(r => c2dStats.c2dBookingIds.has(r.bookingId)).length;
-    const c2aCount = cancellationCases.filter(r => c2dStats.c2aBookingIds.has(r.bookingId)).length;
+    const c2dCount = getUniqueUserCount(cancellationCases.filter(r => c2dStats.c2dBookingIds.has(r.bookingId)));
+    const c2aCount = getUniqueUserCount(cancellationCases.filter(r => c2dStats.c2aBookingIds.has(r.bookingId)));
     let cr2dCount = 0;
     if (tf.key === 'custom_range') {
-      cr2dCount = customCases.filter(r => c2dStats.cr2dBookingIds.has(r.bookingId)).length;
+      cr2dCount = getUniqueUserCount(customCases.filter(r => c2dStats.cr2dBookingIds.has(r.bookingId)));
     } else {
-      cr2dCount = rows.filter(r => {
+      cr2dCount = getUniqueUserCount(rows.filter(r => {
         if (!c2dStats.cr2dBookingIds.has(r.bookingId)) return false;
         const rawDate = r.cancellationDate || r.actualDeliveryDate || '';
         if (!rawDate) return false;
         const d = parseDateString(rawDate);
         return d && d >= tf.start && d <= tf.end;
-      }).length;
+      }));
     }
 
     // TAT
