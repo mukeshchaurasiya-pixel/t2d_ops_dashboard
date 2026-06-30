@@ -5,7 +5,7 @@
 
 import { CaseRow, FilterState } from '../types';
 import { parseDateString } from './dateUtils';
-import { isRowMatchingFilter, buildEddLabels } from './dashboardFilters';
+import { isRowMatchingFilter, buildEddLabels, buildC2DStats } from './dashboardFilters';
 
 export interface MatrixRow {
   category: string;
@@ -79,6 +79,8 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
   columns: { key: string; label: string; subLabel: string }[];
   rows: MatrixRow[];
 } {
+  const c2dStats = buildC2DStats(rows);
+
   // 1. Set baseDate to yesterday (today - 1 day) relative to system local time
   const baseDate = setStartOfDay(subDays(new Date(), 1));
 
@@ -192,6 +194,9 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
     { category: 'Cancellation', name: 'RT - Token base', isPercent: true, indent: true },
     { category: 'Cancellation', name: 'NRT - Token Base', isPercent: true, indent: true },
     { category: 'Cancellation', name: 'PVT - Token Base', isPercent: true, indent: true },
+    { category: 'Cancellation', name: 'C2D', isPercent: false, indent: true },
+    { category: 'Cancellation', name: 'C2A', isPercent: false, indent: true },
+    { category: 'Cancellation', name: 'CR2D', isPercent: false, indent: true },
 
     { category: 'TAT', name: 'Delivery TAT', isPercent: false, indent: true },
     { category: 'TAT', name: 'Cancellation TAT', isPercent: false, indent: true },
@@ -353,6 +358,21 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
     const cohortPvtCancelled = cancellationCases.filter(r => isPVT(r.tokenType)).length;
     const cohortPvtCancelPct = cohortPvtInflow ? cohortPvtCancelled / cohortPvtInflow : 0;
 
+    const c2dCount = cancellationCases.filter(r => c2dStats.c2dBookingIds.has(r.bookingId)).length;
+    const c2aCount = cancellationCases.filter(r => c2dStats.c2aBookingIds.has(r.bookingId)).length;
+    let cr2dCount = 0;
+    if (tf.key === 'custom_range') {
+      cr2dCount = customCases.filter(r => c2dStats.cr2dBookingIds.has(r.bookingId)).length;
+    } else {
+      cr2dCount = rows.filter(r => {
+        if (!c2dStats.cr2dBookingIds.has(r.bookingId)) return false;
+        const rawDate = r.cancellationDate || r.actualDeliveryDate || '';
+        if (!rawDate) return false;
+        const d = parseDateString(rawDate);
+        return d && d >= tf.start && d <= tf.end;
+      }).length;
+    }
+
     // TAT
     let delTat = 0;
     if (gd > 0) {
@@ -408,6 +428,9 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
         case 'RT - Token base': val = cohortRtCancelPct; break;
         case 'NRT - Token Base': val = cohortNrtCancelPct; break;
         case 'PVT - Token Base': val = cohortPvtCancelPct; break;
+        case 'C2D': val = c2dCount; break;
+        case 'C2A': val = c2aCount; break;
+        case 'CR2D': val = cr2dCount; break;
 
         case 'Delivery TAT': val = Number(delTat.toFixed(2)); break;
         case 'Cancellation TAT': val = Number(cancTat.toFixed(2)); break;

@@ -1666,7 +1666,10 @@ BEGIN
         f.actual_delivery_date::timestamp AS actual_delivery_ts,
         public.parse_dashboard_timestamp(f.row_data ->> 'cancellationDate') AS cancellation_ts,
         public.parse_dashboard_timestamp(coalesce(f.row_data ->> 'latestLoginTime', f.row_data ->> 'sheetLoginTimestamp')) AS login_ts,
-        public.parse_dashboard_timestamp(f.row_data ->> 'sheetLoginTimestamp') AS sheet_login_ts
+        public.parse_dashboard_timestamp(f.row_data ->> 'sheetLoginTimestamp') AS sheet_login_ts,
+        (public.dashboard_case_tags(f) ->> 'isC2D')::boolean AS is_c2d,
+        (public.dashboard_case_tags(f) ->> 'isC2A')::boolean AS is_c2a,
+        (public.dashboard_case_tags(f) ->> 'isCR2D')::boolean AS is_cr2d
       FROM filtered f
     ),
     base_date AS (
@@ -1846,6 +1849,18 @@ BEGIN
           WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
             AND public.dashboard_token_is_pvt(e.token_type)
         )::numeric AS cohort_pvt_cancelled,
+        count(*) FILTER (
+          WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
+            AND e.is_c2d
+        )::numeric AS c2d_count,
+        count(*) FILTER (
+          WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
+            AND e.is_c2a
+        )::numeric AS c2a_count,
+        count(*) FILTER (
+          WHERE coalesce(e.cancellation_ts, e.actual_delivery_ts) BETWEEN tf.start_ts AND tf.end_ts
+            AND e.is_cr2d
+        )::numeric AS cr2d_count,
         avg(
           CASE
             WHEN e.actual_delivery_ts BETWEEN tf.start_ts AND tf.end_ts AND e.token_ts IS NOT NULL
@@ -1871,7 +1886,10 @@ BEGIN
         c.token_date::timestamp AS token_ts,
         c.actual_delivery_date::timestamp AS actual_delivery_ts,
         public.parse_dashboard_timestamp(c.row_data ->> 'cancellationDate') AS cancellation_ts,
-        public.parse_dashboard_timestamp(coalesce(c.row_data ->> 'latestLoginTime', c.row_data ->> 'sheetLoginTimestamp')) AS login_ts
+        public.parse_dashboard_timestamp(coalesce(c.row_data ->> 'latestLoginTime', c.row_data ->> 'sheetLoginTimestamp')) AS login_ts,
+        (public.dashboard_case_tags(c) ->> 'isC2D')::boolean AS is_c2d,
+        (public.dashboard_case_tags(c) ->> 'isC2A')::boolean AS is_c2a,
+        (public.dashboard_case_tags(c) ->> 'isCR2D')::boolean AS is_cr2d
       FROM public.dashboard_cases c
       WHERE public.dashboard_case_matches_filters(c, input_filters)
     ),
@@ -1968,6 +1986,18 @@ BEGIN
           WHERE cancellation_ts IS NOT NULL
             AND public.dashboard_token_is_pvt(token_type)
         )::numeric AS cohort_pvt_cancelled,
+        count(*) FILTER (
+          WHERE cancellation_ts IS NOT NULL
+            AND is_c2d
+        )::numeric AS c2d_count,
+        count(*) FILTER (
+          WHERE cancellation_ts IS NOT NULL
+            AND is_c2a
+        )::numeric AS c2a_count,
+        count(*) FILTER (
+          WHERE coalesce(cancellation_ts, actual_delivery_ts) IS NOT NULL
+            AND is_cr2d
+        )::numeric AS cr2d_count,
         avg(
           CASE
             WHEN actual_delivery_ts IS NOT NULL AND token_ts IS NOT NULL
@@ -2024,8 +2054,11 @@ BEGIN
         (18, 'Cancellation', 'RT - Token base', true),
         (19, 'Cancellation', 'NRT - Token Base', true),
         (20, 'Cancellation', 'PVT - Token Base', true),
-        (21, 'TAT', 'Delivery TAT', false),
-        (22, 'TAT', 'Cancellation TAT', false)
+        (21, 'Cancellation', 'C2D', false),
+        (22, 'Cancellation', 'C2A', false),
+        (23, 'Cancellation', 'CR2D', false),
+        (24, 'TAT', 'Delivery TAT', false),
+        (25, 'TAT', 'Cancellation TAT', false)
       ) AS rows(sort_order, category, name, is_percent)
     ),
     rows_json AS (
@@ -2065,6 +2098,9 @@ BEGIN
               WHEN 'RT - Token base' THEN CASE WHEN m.rt_inflow = 0 THEN 0 ELSE m.cohort_rt_cancelled / m.rt_inflow END
               WHEN 'NRT - Token Base' THEN CASE WHEN m.nrt_inflow = 0 THEN 0 ELSE m.cohort_nrt_cancelled / m.nrt_inflow END
               WHEN 'PVT - Token Base' THEN CASE WHEN m.pvt_inflow = 0 THEN 0 ELSE m.cohort_pvt_cancelled / m.pvt_inflow END
+              WHEN 'C2D' THEN coalesce(m.c2d_count, 0)
+              WHEN 'C2A' THEN coalesce(m.c2a_count, 0)
+              WHEN 'CR2D' THEN coalesce(m.cr2d_count, 0)
               WHEN 'Delivery TAT' THEN round(coalesce(m.delivery_tat, 0)::numeric, 2)
               WHEN 'Cancellation TAT' THEN round(coalesce(m.cancellation_tat, 0)::numeric, 2)
               ELSE 0
