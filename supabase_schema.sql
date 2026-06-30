@@ -1827,12 +1827,9 @@ BEGIN
             AND extract(epoch from (e.login_ts - e.token_ts)) >= 86400
         )::numeric AS login_t1_count,
         count(*) FILTER (
-          WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
-            AND (
-              nullif(btrim(coalesce(e.row_data ->> 'loanId', '')), '') IS NOT NULL
-              OR upper(coalesce(e.payment_type, '')) LIKE '%PMAX%'
-              OR upper(coalesce(e.payment_type, '')) LIKE '%LOAN%'
-            )
+          WHERE e.actual_delivery_ts BETWEEN tf.start_ts AND tf.end_ts
+            AND upper(coalesce(e.final_payment_type, '')) = 'CF'
+            AND e.cancellation_ts IS NULL
         )::numeric AS cf_attached_count,
         count(*) FILTER (
           WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
@@ -1952,12 +1949,9 @@ BEGIN
             AND extract(epoch from (login_ts - token_ts)) >= 86400
         )::numeric AS login_t1_count,
         count(*) FILTER (
-          WHERE token_ts IS NOT NULL
-            AND (
-              nullif(btrim(coalesce(row_data ->> 'loanId', '')), '') IS NOT NULL
-              OR upper(coalesce(payment_type, '')) LIKE '%PMAX%'
-              OR upper(coalesce(payment_type, '')) LIKE '%LOAN%'
-            )
+          WHERE actual_delivery_ts IS NOT NULL
+            AND upper(coalesce(final_payment_type, '')) = 'CF'
+            AND cancellation_ts IS NULL
         )::numeric AS cf_attached_count,
         count(*) FILTER (
           WHERE cancellation_ts IS NOT NULL
@@ -2066,7 +2060,7 @@ BEGIN
               WHEN 'PVT Upgrade' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.pvt_upgrades / m.inflow_count END
               WHEN 'Login on Token base' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.login_count / m.inflow_count END
               WHEN 'Login >=(T+1)' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.login_t1_count / m.inflow_count END
-              WHEN 'CF attached (%)' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.cf_attached_count / m.inflow_count END
+              WHEN 'CF attached (%)' THEN CASE WHEN m.nd = 0 THEN 0 ELSE m.cf_attached_count / m.nd END
               WHEN 'Unique Token Cancellation %' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.cohort_cancelled_count / m.inflow_count END
               WHEN 'RT - Token base' THEN CASE WHEN m.rt_inflow = 0 THEN 0 ELSE m.cohort_rt_cancelled / m.rt_inflow END
               WHEN 'NRT - Token Base' THEN CASE WHEN m.nrt_inflow = 0 THEN 0 ELSE m.cohort_nrt_cancelled / m.nrt_inflow END

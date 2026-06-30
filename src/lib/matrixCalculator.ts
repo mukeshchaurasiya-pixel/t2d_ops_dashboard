@@ -331,10 +331,12 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
     }).length;
     const loginT1Pct = inflowCount ? loginT1 / inflowCount : 0;
 
-    const cfAttachedCases = inflowCases.filter(r => {
-      return Boolean(r.loanId || String(r.paymentType).toUpperCase().includes('PMAX') || String(r.paymentType).toUpperCase().includes('LOAN'));
+    const cfAttachedCases = deliveryCases.filter(r => {
+      const isCf = String(r.finalPaymentType || '').toUpperCase() === 'CF';
+      const isCancelled = Boolean(r.cancellationDate);
+      return isCf && !isCancelled;
     }).length;
-    const cfAttachedPct = inflowCount ? cfAttachedCases / inflowCount : 0;
+    const cfAttachedPct = nd ? cfAttachedCases / nd : 0;
 
     // Cohort-based cancellations (for percentages and TAT)
     const cohortCancelPct = inflowCount ? cancellationCases.length / inflowCount : 0;
