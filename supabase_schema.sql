@@ -1612,313 +1612,480 @@ CREATE OR REPLACE FUNCTION public.get_dashboard_matrix_summary(
   input_filters JSONB DEFAULT '{}'::JSONB
 )
 RETURNS JSONB
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 AS $$
-WITH filtered AS MATERIALIZED (
-  SELECT *
-  FROM public.dashboard_cases c
-  WHERE public.dashboard_case_matches_filters(c, input_filters)
-),
-enriched AS MATERIALIZED (
-  SELECT
-    f.*,
-    f.token_date::timestamp AS token_ts,
-    f.actual_delivery_date::timestamp AS actual_delivery_ts,
-    f.cancel_req_date::timestamp AS cancel_req_ts,
-    public.parse_dashboard_timestamp(coalesce(f.row_data ->> 'latestLoginTime', f.row_data ->> 'sheetLoginTimestamp')) AS login_ts,
-    public.parse_dashboard_timestamp(f.row_data ->> 'sheetLoginTimestamp') AS sheet_login_ts
-  FROM filtered f
-),
-base_date AS (
-  SELECT date_trunc('day', now())::date - 1 AS base_day
-),
-timeframes AS (
-  SELECT 'mtd'::text AS key, 'MTD'::text AS label,
-    to_char(date_trunc('month', base_day)::date, 'FMDD/FMMon/YYYY') AS ignored_label,
-    public.dashboard_format_human_date(date_trunc('month', base_day)::date) AS ignored_label_2,
-    to_char(date_trunc('month', base_day)::date, 'DD/MM/YYYY') || ' - ' || to_char(base_day, 'DD/MM/YYYY') AS sub_label,
-    date_trunc('month', base_day)::timestamp AS start_ts,
-    (base_day + 1)::timestamp - interval '1 millisecond' AS end_ts
-  FROM base_date
-  UNION ALL
-  SELECT 'last_mtd', 'Last MTD',
-    '', '',
-    to_char(date_trunc('month', (base_day - interval '1 month'))::date, 'DD/MM/YYYY') || ' - ' ||
-      to_char(
-        make_date(
-          extract(year from (base_day - interval '1 month'))::integer,
-          extract(month from (base_day - interval '1 month'))::integer,
-          least(
-            extract(day from base_day)::integer,
-            extract(day from (date_trunc('month', (base_day - interval '1 month')) + interval '1 month - 1 day'))::integer
+DECLARE
+  non_date_filters JSONB;
+  has_date_filter BOOLEAN;
+  custom_label TEXT := 'Selected Range';
+  custom_sub_label TEXT := 'Custom Range';
+  custom_start TIMESTAMP;
+  custom_end TIMESTAMP;
+  custom_end_ts TIMESTAMP;
+  result_json JSONB;
+BEGIN
+  -- Strip date fields from input_filters for the standard cohort comparison
+  non_date_filters := input_filters - 'dateField' - 'startDate' - 'endDate' - 'filterBlankDates' - 'dateFilters';
+
+  has_date_filter := (
+    (input_filters ->> 'dateField' IS NOT NULL AND input_filters ->> 'dateField' <> 'All')
+    OR (input_filters -> 'dateFilters' IS NOT NULL AND jsonb_array_length(input_filters -> 'dateFilters') > 0)
+  );
+
+  custom_end_ts := COALESCE(
+    public.parse_dashboard_timestamp(input_filters ->> 'endDate'),
+    (date_trunc('day', now())::date)::timestamp - interval '1 millisecond'
+  );
+
+  IF has_date_filter THEN
+    IF input_filters ->> 'dateField' IS NOT NULL AND input_filters ->> 'dateField' <> 'All' THEN
+      custom_start := public.parse_dashboard_timestamp(input_filters ->> 'startDate');
+      custom_end := public.parse_dashboard_timestamp(input_filters ->> 'endDate');
+      IF custom_start IS NOT NULL AND custom_end IS NOT NULL THEN
+        custom_sub_label := to_char(custom_start, 'DD/MM/YYYY') || ' - ' || to_char(custom_end, 'DD/MM/YYYY');
+      ELSIF coalesce((input_filters ->> 'filterBlankDates')::BOOLEAN, false) THEN
+        custom_sub_label := 'Blank Dates';
+      END IF;
+    END IF;
+  END IF;
+
+  RETURN (
+    WITH filtered AS MATERIALIZED (
+      SELECT *
+      FROM public.dashboard_cases c
+      WHERE public.dashboard_case_matches_filters(c, non_date_filters)
+    ),
+    enriched AS MATERIALIZED (
+      SELECT
+        f.*,
+        f.token_date::timestamp AS token_ts,
+        f.actual_delivery_date::timestamp AS actual_delivery_ts,
+        f.cancel_req_date::timestamp AS cancel_req_ts,
+        public.parse_dashboard_timestamp(coalesce(f.row_data ->> 'latestLoginTime', f.row_data ->> 'sheetLoginTimestamp')) AS login_ts,
+        public.parse_dashboard_timestamp(f.row_data ->> 'sheetLoginTimestamp') AS sheet_login_ts
+      FROM filtered f
+    ),
+    base_date AS (
+      SELECT date_trunc('day', now())::date - 1 AS base_day
+    ),
+    timeframes AS (
+      SELECT 'mtd'::text AS key, 'MTD'::text AS label,
+        to_char(date_trunc('month', base_day)::date, 'FMDD/FMMon/YYYY') AS ignored_label,
+        public.dashboard_format_human_date(date_trunc('month', base_day)::date) AS ignored_label_2,
+        to_char(date_trunc('month', base_day)::date, 'DD/MM/YYYY') || ' - ' || to_char(base_day, 'DD/MM/YYYY') AS sub_label,
+        date_trunc('month', base_day)::timestamp AS start_ts,
+        (base_day + 1)::timestamp - interval '1 millisecond' AS end_ts
+      FROM base_date
+      UNION ALL
+      SELECT 'last_mtd', 'Last MTD',
+        '', '',
+        to_char(date_trunc('month', (base_day - interval '1 month'))::date, 'DD/MM/YYYY') || ' - ' ||
+          to_char(
+            make_date(
+              extract(year from (base_day - interval '1 month'))::integer,
+              extract(month from (base_day - interval '1 month'))::integer,
+              least(
+                extract(day from base_day)::integer,
+                extract(day from (date_trunc('month', (base_day - interval '1 month')) + interval '1 month - 1 day'))::integer
+              )
+            ),
+            'DD/MM/YYYY'
+          ) AS sub_label,
+        date_trunc('month', (base_day - interval '1 month'))::timestamp AS start_ts,
+        (
+          make_date(
+            extract(year from (base_day - interval '1 month'))::integer,
+            extract(month from (base_day - interval '1 month'))::integer,
+            least(
+              extract(day from base_day)::integer,
+              extract(day from (date_trunc('month', (base_day - interval '1 month')) + interval '1 month - 1 day'))::integer
+            )
+          ) + 1
+        )::timestamp - interval '1 millisecond' AS end_ts
+      FROM base_date
+      UNION ALL
+      SELECT 'llm', 'LLM', '', '',
+        to_char(date_trunc('month', (base_day - interval '1 month'))::date, 'DD/MM/YYYY') || ' - ' ||
+          to_char((date_trunc('month', base_day)::date - 1), 'DD/MM/YYYY') AS sub_label,
+        date_trunc('month', (base_day - interval '1 month'))::timestamp AS start_ts,
+        date_trunc('month', base_day)::timestamp - interval '1 millisecond' AS end_ts
+      FROM base_date
+      UNION ALL
+      SELECT 'w', 'W', '', '',
+        to_char((base_day - ((extract(isodow from base_day)::integer) - 1))::date, 'DD/MM/YYYY') || ' - ' || to_char(base_day, 'DD/MM/YYYY') AS sub_label,
+        (base_day - ((extract(isodow from base_day)::integer) - 1))::timestamp AS start_ts,
+        (base_day + 1)::timestamp - interval '1 millisecond' AS end_ts
+      FROM base_date
+      UNION ALL
+      SELECT 'lw', 'LW', '', '',
+        to_char(((base_day - ((extract(isodow from base_day)::integer) - 1))::date - 7), 'DD/MM/YYYY') || ' - ' ||
+          to_char((((base_day - ((extract(isodow from base_day)::integer) - 1))::date - 7) + 6), 'DD/MM/YYYY') AS sub_label,
+        ((base_day - ((extract(isodow from base_day)::integer) - 1))::date - 7)::timestamp AS start_ts,
+        ((((base_day - ((extract(isodow from base_day)::integer) - 1))::date - 7) + 7)::timestamp - interval '1 millisecond') AS end_ts
+      FROM base_date
+      UNION ALL
+      SELECT 'llw', 'LLW', '', '',
+        to_char(((base_day - ((extract(isodow from base_day)::integer) - 1))::date - 14), 'DD/MM/YYYY') || ' - ' ||
+          to_char((((base_day - ((extract(isodow from base_day)::integer) - 1))::date - 14) + 6), 'DD/MM/YYYY') AS sub_label,
+        ((base_day - ((extract(isodow from base_day)::integer) - 1))::date - 14)::timestamp AS start_ts,
+        ((((base_day - ((extract(isodow from base_day)::integer) - 1))::date - 14) + 7)::timestamp - interval '1 millisecond') AS end_ts
+      FROM base_date
+      UNION ALL
+      SELECT 'd1', to_char(base_day, 'DD/MM/YYYY'), '','Yesterday',
+        'Yesterday' AS sub_label,
+        base_day::timestamp AS start_ts,
+        (base_day + 1)::timestamp - interval '1 millisecond' AS end_ts
+      FROM base_date
+      UNION ALL
+      SELECT 'd2', to_char(base_day - 1, 'DD/MM/YYYY'), '','T-2',
+        'T-2' AS sub_label,
+        (base_day - 1)::timestamp AS start_ts,
+        base_day::timestamp - interval '1 millisecond' AS end_ts
+      FROM base_date
+      UNION ALL
+      SELECT 'd3', to_char(base_day - 2, 'DD/MM/YYYY'), '','T-3',
+        'T-3' AS sub_label,
+        (base_day - 2)::timestamp AS start_ts,
+        (base_day - 1)::timestamp - interval '1 millisecond' AS end_ts
+      FROM base_date
+    ),
+    metrics AS (
+      SELECT
+        tf.key,
+        tf.label,
+        tf.sub_label,
+        count(*) FILTER (WHERE e.actual_delivery_ts BETWEEN tf.start_ts AND tf.end_ts)::numeric AS gd,
+        (
+          count(*) FILTER (WHERE e.actual_delivery_ts BETWEEN tf.start_ts AND tf.end_ts)
+          - count(*) FILTER (WHERE e.cancel_req_ts BETWEEN tf.start_ts AND tf.end_ts)
+        )::numeric AS nd,
+        count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts)::numeric AS inflow_count,
+        count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_rt(e.token_type))::numeric AS rt_inflow,
+        count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_nrt(e.token_type))::numeric AS nrt_inflow,
+        count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_pvt(e.token_type))::numeric AS pvt_inflow,
+        count(*) FILTER (
+          WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
+            AND public.dashboard_token_is_gcbl(coalesce(e.token_type, e.lead_ds_channel))
+        )::numeric AS gcbl_inflow,
+        count(*) FILTER (
+          WHERE e.token_ts IS NOT NULL
+            AND e.token_ts <= tf.end_ts
+            AND (e.actual_delivery_ts IS NULL OR e.actual_delivery_ts > tf.end_ts)
+            AND (e.cancel_req_ts IS NULL OR e.cancel_req_ts > tf.end_ts)
+        )::numeric AS active_count,
+        avg(
+          CASE
+            WHEN e.token_ts IS NOT NULL
+              AND e.token_ts <= tf.end_ts
+              AND (e.actual_delivery_ts IS NULL OR e.actual_delivery_ts > tf.end_ts)
+              AND (e.cancel_req_ts IS NULL OR e.cancel_req_ts > tf.end_ts)
+            THEN greatest(extract(epoch from (tf.end_ts - e.token_ts)) / 86400.0, 0)
+            ELSE NULL
+          END
+        )::numeric AS avg_age,
+        count(*) FILTER (
+          WHERE e.token_ts IS NOT NULL
+            AND e.token_ts <= tf.end_ts
+            AND (e.actual_delivery_ts IS NULL OR e.actual_delivery_ts > tf.end_ts)
+            AND (e.cancel_req_ts IS NULL OR e.cancel_req_ts > tf.end_ts)
+            AND public.dashboard_token_is_rt(e.token_type)
+        )::numeric AS active_rt_count,
+        count(*) FILTER (
+          WHERE e.token_ts IS NOT NULL
+            AND e.token_ts <= tf.end_ts
+            AND (e.actual_delivery_ts IS NULL OR e.actual_delivery_ts > tf.end_ts)
+            AND (e.cancel_req_ts IS NULL OR e.cancel_req_ts > tf.end_ts)
+            AND public.dashboard_token_is_rt(e.token_type)
+            AND greatest(extract(epoch from (tf.end_ts - e.token_ts)) / 86400.0, 0) > 4
+        )::numeric AS active_rt_over4_count,
+        count(*) FILTER (
+          WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
+            AND public.dashboard_token_is_nrt(coalesce(e.token_type_with_nrt, e.token_type))
+        )::numeric AS nrt_upgrades,
+        count(*) FILTER (
+          WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
+            AND public.dashboard_token_is_pvt(coalesce(e.token_type, e.token_type_with_nrt))
+        )::numeric AS pvt_upgrades,
+        count(*) FILTER (
+          WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
+            AND (
+              e.login_ts IS NOT NULL
+              OR nullif(btrim(coalesce(e.row_data ->> 'sheetLoginPartner', '')), '') IS NOT NULL
+              OR upper(coalesce(e.lead_stage, '')) = 'LOGIN_COMPLETED'
+            )
+        )::numeric AS login_count,
+        count(*) FILTER (
+          WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
+            AND e.login_ts IS NOT NULL
+            AND extract(epoch from (e.login_ts - e.token_ts)) >= 86400
+        )::numeric AS login_t1_count,
+        count(*) FILTER (
+          WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
+            AND (
+              nullif(btrim(coalesce(e.row_data ->> 'loanId', '')), '') IS NOT NULL
+              OR upper(coalesce(e.payment_type, '')) LIKE '%PMAX%'
+              OR upper(coalesce(e.payment_type, '')) LIKE '%LOAN%'
+            )
+        )::numeric AS cf_attached_count,
+        count(*) FILTER (
+          WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
+            AND e.cancel_req_ts IS NOT NULL
+        )::numeric AS cohort_cancelled_count,
+        count(*) FILTER (
+          WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
+            AND public.dashboard_token_is_rt(e.token_type)
+            AND e.cancel_req_ts IS NOT NULL
+        )::numeric AS cohort_rt_cancelled,
+        count(*) FILTER (
+          WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
+            AND public.dashboard_token_is_nrt(e.token_type)
+            AND e.cancel_req_ts IS NOT NULL
+        )::numeric AS cohort_nrt_cancelled,
+        count(*) FILTER (
+          WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
+            AND public.dashboard_token_is_pvt(e.token_type)
+            AND e.cancel_req_ts IS NOT NULL
+        )::numeric AS cohort_pvt_cancelled,
+        avg(
+          CASE
+            WHEN e.actual_delivery_ts BETWEEN tf.start_ts AND tf.end_ts AND e.token_ts IS NOT NULL
+            THEN extract(epoch from (e.actual_delivery_ts - e.token_ts)) / 86400.0
+            ELSE NULL
+          END
+        )::numeric AS delivery_tat,
+        avg(
+          CASE
+            WHEN e.token_ts BETWEEN tf.start_ts AND tf.end_ts
+              AND e.cancel_req_ts IS NOT NULL
+              AND e.token_ts IS NOT NULL
+            THEN extract(epoch from (e.cancel_req_ts - e.token_ts)) / 86400.0
+            ELSE NULL
+          END
+        )::numeric AS cancellation_tat
+      FROM timeframes tf
+      LEFT JOIN enriched e ON true
+      GROUP BY tf.key, tf.label, tf.sub_label, tf.start_ts, tf.end_ts
+    ),
+    custom_enriched AS (
+      SELECT
+        c.*,
+        c.token_date::timestamp AS token_ts,
+        c.actual_delivery_date::timestamp AS actual_delivery_ts,
+        c.cancel_req_date::timestamp AS cancel_req_ts,
+        public.parse_dashboard_timestamp(coalesce(c.row_data ->> 'latestLoginTime', c.row_data ->> 'sheetLoginTimestamp')) AS login_ts
+      FROM public.dashboard_cases c
+      WHERE public.dashboard_case_matches_filters(c, input_filters)
+    ),
+    custom_metrics AS (
+      SELECT
+        'custom_range'::text AS key,
+        custom_label::text AS label,
+        custom_sub_label::text AS sub_label,
+        count(*) FILTER (WHERE actual_delivery_ts IS NOT NULL)::numeric AS gd,
+        (
+          count(*) FILTER (WHERE actual_delivery_ts IS NOT NULL)
+          - count(*) FILTER (WHERE cancel_req_ts IS NOT NULL)
+        )::numeric AS nd,
+        count(*) FILTER (WHERE token_ts IS NOT NULL)::numeric AS inflow_count,
+        count(*) FILTER (WHERE token_ts IS NOT NULL AND public.dashboard_token_is_rt(token_type))::numeric AS rt_inflow,
+        count(*) FILTER (WHERE token_ts IS NOT NULL AND public.dashboard_token_is_nrt(token_type))::numeric AS nrt_inflow,
+        count(*) FILTER (WHERE token_ts IS NOT NULL AND public.dashboard_token_is_pvt(token_type))::numeric AS pvt_inflow,
+        count(*) FILTER (
+          WHERE token_ts IS NOT NULL
+            AND public.dashboard_token_is_gcbl(coalesce(token_type, lead_ds_channel))
+        )::numeric AS gcbl_inflow,
+        count(*) FILTER (
+          WHERE token_ts IS NOT NULL
+            AND token_ts <= custom_end_ts
+            AND (actual_delivery_ts IS NULL OR actual_delivery_ts > custom_end_ts)
+            AND (cancel_req_ts IS NULL OR cancel_req_ts > custom_end_ts)
+        )::numeric AS active_count,
+        avg(
+          CASE
+            WHEN token_ts IS NOT NULL
+              AND token_ts <= custom_end_ts
+              AND (actual_delivery_ts IS NULL OR actual_delivery_ts > custom_end_ts)
+              AND (cancel_req_ts IS NULL OR cancel_req_ts > custom_end_ts)
+            THEN greatest(extract(epoch from (custom_end_ts - token_ts)) / 86400.0, 0)
+            ELSE NULL
+          END
+        )::numeric AS avg_age,
+        count(*) FILTER (
+          WHERE token_ts IS NOT NULL
+            AND token_ts <= custom_end_ts
+            AND (actual_delivery_ts IS NULL OR actual_delivery_ts > custom_end_ts)
+            AND (cancel_req_ts IS NULL OR cancel_req_ts > custom_end_ts)
+            AND public.dashboard_token_is_rt(token_type)
+        )::numeric AS active_rt_count,
+        count(*) FILTER (
+          WHERE token_ts IS NOT NULL
+            AND token_ts <= custom_end_ts
+            AND (actual_delivery_ts IS NULL OR actual_delivery_ts > custom_end_ts)
+            AND (cancel_req_ts IS NULL OR cancel_req_ts > custom_end_ts)
+            AND public.dashboard_token_is_rt(token_type)
+            AND greatest(extract(epoch from (custom_end_ts - token_ts)) / 86400.0, 0) > 4
+        )::numeric AS active_rt_over4_count,
+        count(*) FILTER (
+          WHERE token_ts IS NOT NULL
+            AND public.dashboard_token_is_nrt(coalesce(token_type_with_nrt, token_type))
+        )::numeric AS nrt_upgrades,
+        count(*) FILTER (
+          WHERE token_ts IS NOT NULL
+            AND public.dashboard_token_is_pvt(coalesce(token_type, token_type_with_nrt))
+        )::numeric AS pvt_upgrades,
+        count(*) FILTER (
+          WHERE token_ts IS NOT NULL
+            AND (
+              login_ts IS NOT NULL
+              OR nullif(btrim(coalesce(row_data ->> 'sheetLoginPartner', '')), '') IS NOT NULL
+              OR upper(coalesce(lead_stage, '')) = 'LOGIN_COMPLETED'
+            )
+        )::numeric AS login_count,
+        count(*) FILTER (
+          WHERE token_ts IS NOT NULL
+            AND login_ts IS NOT NULL
+            AND extract(epoch from (login_ts - token_ts)) >= 86400
+        )::numeric AS login_t1_count,
+        count(*) FILTER (
+          WHERE token_ts IS NOT NULL
+            AND (
+              nullif(btrim(coalesce(row_data ->> 'loanId', '')), '') IS NOT NULL
+              OR upper(coalesce(payment_type, '')) LIKE '%PMAX%'
+              OR upper(coalesce(payment_type, '')) LIKE '%LOAN%'
+            )
+        )::numeric AS cf_attached_count,
+        count(*) FILTER (
+          WHERE token_ts IS NOT NULL
+            AND cancel_req_ts IS NOT NULL
+        )::numeric AS cohort_cancelled_count,
+        count(*) FILTER (
+          WHERE token_ts IS NOT NULL
+            AND public.dashboard_token_is_rt(token_type)
+            AND cancel_req_ts IS NOT NULL
+        )::numeric AS cohort_rt_cancelled,
+        count(*) FILTER (
+          WHERE token_ts IS NOT NULL
+            AND public.dashboard_token_is_nrt(token_type)
+            AND cancel_req_ts IS NOT NULL
+        )::numeric AS cohort_nrt_cancelled,
+        count(*) FILTER (
+          WHERE token_ts IS NOT NULL
+            AND public.dashboard_token_is_pvt(token_type)
+            AND cancel_req_ts IS NOT NULL
+        )::numeric AS cohort_pvt_cancelled,
+        avg(
+          CASE
+            WHEN actual_delivery_ts IS NOT NULL AND token_ts IS NOT NULL
+            THEN extract(epoch from (actual_delivery_ts - token_ts)) / 86400.0
+            ELSE NULL
+          END
+        )::numeric AS delivery_tat,
+        avg(
+          CASE
+            WHEN token_ts IS NOT NULL
+              AND cancel_req_ts IS NOT NULL
+            THEN extract(epoch from (cancel_req_ts - token_ts)) / 86400.0
+            ELSE NULL
+          END
+        )::numeric AS cancellation_tat
+      FROM custom_enriched
+    ),
+    combined_metrics AS (
+      SELECT * FROM metrics
+      UNION ALL
+      SELECT * FROM custom_metrics WHERE has_date_filter
+    ),
+    columns_json AS (
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'key', key,
+          'label', label,
+          'subLabel', sub_label
+        )
+        ORDER BY array_position(ARRAY['mtd','last_mtd','llm','w','lw','llw','d1','d2','d3','custom_range'], key)
+      ) AS value
+      FROM combined_metrics
+    ),
+    row_specs AS (
+      SELECT *
+      FROM (VALUES
+        (1, 'Overall', 'GD', false),
+        (2, 'Overall', 'ND', false),
+        (3, 'Overall', 'Unique Token (Inflow)', false),
+        (4, 'Overall', 'RT Share (Overall)', true),
+        (5, 'Overall', 'NRT Share (Overall)', true),
+        (6, 'Overall', 'PVT Share (Overall)', true),
+        (7, 'Overall', 'GCBL Share (Overall)', true),
+        (8, 'Token', 'Active token (Till End Date)', false),
+        (9, 'Token', 'Token Age', false),
+        (10, 'Token', 'RT Share', true),
+        (11, 'Token', 'RT Share (>4 Days)', true),
+        (12, 'Upgrade', 'NRT Upgrade', true),
+        (13, 'Upgrade', 'PVT Upgrade', true),
+        (14, 'CF', 'Login on Token base', true),
+        (15, 'CF', 'Login >=(T+1)', true),
+        (16, 'CF', 'CF attached (%)', true),
+        (17, 'Cancellation', 'Unique Token Cancellation %', true),
+        (18, 'Cancellation', 'RT - Token base', true),
+        (19, 'Cancellation', 'NRT - Token Base', true),
+        (20, 'Cancellation', 'PVT - Token Base', true),
+        (21, 'TAT', 'Delivery TAT', false),
+        (22, 'TAT', 'Cancellation TAT', false)
+      ) AS rows(sort_order, category, name, is_percent)
+    ),
+    rows_json AS (
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'category', rs.category,
+          'name', rs.name,
+          'isPercent', rs.is_percent,
+          'indent', true,
+          'values', metric_values.value
+        )
+        ORDER BY rs.sort_order
+      ) AS value
+      FROM row_specs rs
+      CROSS JOIN LATERAL (
+        SELECT jsonb_object_agg(
+          m.key,
+          to_jsonb(
+            CASE rs.name
+              WHEN 'GD' THEN m.gd
+              WHEN 'ND' THEN m.nd
+              WHEN 'Unique Token (Inflow)' THEN m.inflow_count
+              WHEN 'RT Share (Overall)' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.rt_inflow / m.inflow_count END
+              WHEN 'NRT Share (Overall)' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.nrt_inflow / m.inflow_count END
+              WHEN 'PVT Share (Overall)' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.pvt_inflow / m.inflow_count END
+              WHEN 'GCBL Share (Overall)' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.gcbl_inflow / m.inflow_count END
+              WHEN 'Active token (Till End Date)' THEN m.active_count
+              WHEN 'Token Age' THEN round(coalesce(m.avg_age, 0)::numeric, 2)
+              WHEN 'RT Share' THEN CASE WHEN m.active_count = 0 THEN 0 ELSE m.active_rt_count / m.active_count END
+              WHEN 'RT Share (>4 Days)' THEN CASE WHEN m.active_rt_count = 0 THEN 0 ELSE m.active_rt_over4_count / m.active_rt_count END
+              WHEN 'NRT Upgrade' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.nrt_upgrades / m.inflow_count END
+              WHEN 'PVT Upgrade' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.pvt_upgrades / m.inflow_count END
+              WHEN 'Login on Token base' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.login_count / m.inflow_count END
+              WHEN 'Login >=(T+1)' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.login_t1_count / m.inflow_count END
+              WHEN 'CF attached (%)' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.cf_attached_count / m.inflow_count END
+              WHEN 'Unique Token Cancellation %' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.cohort_cancelled_count / m.inflow_count END
+              WHEN 'RT - Token base' THEN CASE WHEN m.rt_inflow = 0 THEN 0 ELSE m.cohort_rt_cancelled / m.rt_inflow END
+              WHEN 'NRT - Token Base' THEN CASE WHEN m.nrt_inflow = 0 THEN 0 ELSE m.cohort_nrt_cancelled / m.nrt_inflow END
+              WHEN 'PVT - Token Base' THEN CASE WHEN m.pvt_inflow = 0 THEN 0 ELSE m.cohort_pvt_cancelled / m.pvt_inflow END
+              WHEN 'Delivery TAT' THEN round(coalesce(m.delivery_tat, 0)::numeric, 2)
+              WHEN 'Cancellation TAT' THEN round(coalesce(m.cancellation_tat, 0)::numeric, 2)
+              ELSE 0
+            END
           )
-        ),
-        'DD/MM/YYYY'
-      ) AS sub_label,
-    date_trunc('month', (base_day - interval '1 month'))::timestamp AS start_ts,
-    (
-      make_date(
-        extract(year from (base_day - interval '1 month'))::integer,
-        extract(month from (base_day - interval '1 month'))::integer,
-        least(
-          extract(day from base_day)::integer,
-          extract(day from (date_trunc('month', (base_day - interval '1 month')) + interval '1 month - 1 day'))::integer
-        )
-      ) + 1
-    )::timestamp - interval '1 millisecond' AS end_ts
-  FROM base_date
-  UNION ALL
-  SELECT 'llm', 'LLM', '', '',
-    to_char(date_trunc('month', (base_day - interval '1 month'))::date, 'DD/MM/YYYY') || ' - ' ||
-      to_char((date_trunc('month', base_day)::date - 1), 'DD/MM/YYYY') AS sub_label,
-    date_trunc('month', (base_day - interval '1 month'))::timestamp AS start_ts,
-    date_trunc('month', base_day)::timestamp - interval '1 millisecond' AS end_ts
-  FROM base_date
-  UNION ALL
-  SELECT 'w', 'W', '', '',
-    to_char((base_day - ((extract(isodow from base_day)::integer) - 1))::date, 'DD/MM/YYYY') || ' - ' || to_char(base_day, 'DD/MM/YYYY') AS sub_label,
-    (base_day - ((extract(isodow from base_day)::integer) - 1))::timestamp AS start_ts,
-    (base_day + 1)::timestamp - interval '1 millisecond' AS end_ts
-  FROM base_date
-  UNION ALL
-  SELECT 'lw', 'LW', '', '',
-    to_char(((base_day - ((extract(isodow from base_day)::integer) - 1))::date - 7), 'DD/MM/YYYY') || ' - ' ||
-      to_char((((base_day - ((extract(isodow from base_day)::integer) - 1))::date - 7) + 6), 'DD/MM/YYYY') AS sub_label,
-    ((base_day - ((extract(isodow from base_day)::integer) - 1))::date - 7)::timestamp AS start_ts,
-    ((((base_day - ((extract(isodow from base_day)::integer) - 1))::date - 7) + 7)::timestamp - interval '1 millisecond') AS end_ts
-  FROM base_date
-  UNION ALL
-  SELECT 'llw', 'LLW', '', '',
-    to_char(((base_day - ((extract(isodow from base_day)::integer) - 1))::date - 14), 'DD/MM/YYYY') || ' - ' ||
-      to_char((((base_day - ((extract(isodow from base_day)::integer) - 1))::date - 14) + 6), 'DD/MM/YYYY') AS sub_label,
-    ((base_day - ((extract(isodow from base_day)::integer) - 1))::date - 14)::timestamp AS start_ts,
-    ((((base_day - ((extract(isodow from base_day)::integer) - 1))::date - 14) + 7)::timestamp - interval '1 millisecond') AS end_ts
-  FROM base_date
-  UNION ALL
-  SELECT 'd1', to_char(base_day, 'DD/MM/YYYY'), '','Yesterday',
-    'Yesterday' AS sub_label,
-    base_day::timestamp AS start_ts,
-    (base_day + 1)::timestamp - interval '1 millisecond' AS end_ts
-  FROM base_date
-  UNION ALL
-  SELECT 'd2', to_char(base_day - 1, 'DD/MM/YYYY'), '','T-2',
-    'T-2' AS sub_label,
-    (base_day - 1)::timestamp AS start_ts,
-    base_day::timestamp - interval '1 millisecond' AS end_ts
-  FROM base_date
-  UNION ALL
-  SELECT 'd3', to_char(base_day - 2, 'DD/MM/YYYY'), '','T-3',
-    'T-3' AS sub_label,
-    (base_day - 2)::timestamp AS start_ts,
-    (base_day - 1)::timestamp - interval '1 millisecond' AS end_ts
-  FROM base_date
-),
-metrics AS (
-  SELECT
-    tf.key,
-    tf.label,
-    tf.sub_label,
-    count(*) FILTER (WHERE e.actual_delivery_ts BETWEEN tf.start_ts AND tf.end_ts)::numeric AS gd,
-    (
-      count(*) FILTER (WHERE e.actual_delivery_ts BETWEEN tf.start_ts AND tf.end_ts)
-      - count(*) FILTER (WHERE e.cancel_req_ts BETWEEN tf.start_ts AND tf.end_ts)
-    )::numeric AS nd,
-    count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts)::numeric AS inflow_count,
-    count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_rt(e.token_type))::numeric AS rt_inflow,
-    count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_nrt(e.token_type))::numeric AS nrt_inflow,
-    count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_pvt(e.token_type))::numeric AS pvt_inflow,
-    count(*) FILTER (
-      WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
-        AND public.dashboard_token_is_gcbl(coalesce(e.token_type, e.lead_ds_channel))
-    )::numeric AS gcbl_inflow,
-    count(*) FILTER (
-      WHERE e.token_ts IS NOT NULL
-        AND e.token_ts <= tf.end_ts
-        AND (e.actual_delivery_ts IS NULL OR e.actual_delivery_ts > tf.end_ts)
-        AND (e.cancel_req_ts IS NULL OR e.cancel_req_ts > tf.end_ts)
-    )::numeric AS active_count,
-    avg(
-      CASE
-        WHEN e.token_ts IS NOT NULL
-          AND e.token_ts <= tf.end_ts
-          AND (e.actual_delivery_ts IS NULL OR e.actual_delivery_ts > tf.end_ts)
-          AND (e.cancel_req_ts IS NULL OR e.cancel_req_ts > tf.end_ts)
-        THEN greatest(extract(epoch from (tf.end_ts - e.token_ts)) / 86400.0, 0)
-        ELSE NULL
-      END
-    )::numeric AS avg_age,
-    count(*) FILTER (
-      WHERE e.token_ts IS NOT NULL
-        AND e.token_ts <= tf.end_ts
-        AND (e.actual_delivery_ts IS NULL OR e.actual_delivery_ts > tf.end_ts)
-        AND (e.cancel_req_ts IS NULL OR e.cancel_req_ts > tf.end_ts)
-        AND public.dashboard_token_is_rt(e.token_type)
-    )::numeric AS active_rt_count,
-    count(*) FILTER (
-      WHERE e.token_ts IS NOT NULL
-        AND e.token_ts <= tf.end_ts
-        AND (e.actual_delivery_ts IS NULL OR e.actual_delivery_ts > tf.end_ts)
-        AND (e.cancel_req_ts IS NULL OR e.cancel_req_ts > tf.end_ts)
-        AND public.dashboard_token_is_rt(e.token_type)
-        AND greatest(extract(epoch from (tf.end_ts - e.token_ts)) / 86400.0, 0) > 4
-    )::numeric AS active_rt_over4_count,
-    count(*) FILTER (
-      WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
-        AND public.dashboard_token_is_nrt(coalesce(e.token_type_with_nrt, e.token_type))
-    )::numeric AS nrt_upgrades,
-    count(*) FILTER (
-      WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
-        AND public.dashboard_token_is_pvt(coalesce(e.token_type, e.token_type_with_nrt))
-    )::numeric AS pvt_upgrades,
-    count(*) FILTER (
-      WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
-        AND (
-          e.login_ts IS NOT NULL
-          OR nullif(btrim(coalesce(e.row_data ->> 'sheetLoginPartner', '')), '') IS NOT NULL
-          OR upper(coalesce(e.lead_stage, '')) = 'LOGIN_COMPLETED'
-        )
-    )::numeric AS login_count,
-    count(*) FILTER (
-      WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
-        AND e.login_ts IS NOT NULL
-        AND extract(epoch from (e.login_ts - e.token_ts)) >= 86400
-    )::numeric AS login_t1_count,
-    count(*) FILTER (
-      WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
-        AND (
-          nullif(btrim(coalesce(e.row_data ->> 'loanId', '')), '') IS NOT NULL
-          OR upper(coalesce(e.payment_type, '')) LIKE '%PMAX%'
-          OR upper(coalesce(e.payment_type, '')) LIKE '%LOAN%'
-        )
-    )::numeric AS cf_attached_count,
-    count(*) FILTER (
-      WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
-        AND e.cancel_req_ts IS NOT NULL
-    )::numeric AS cohort_cancelled_count,
-    count(*) FILTER (
-      WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
-        AND public.dashboard_token_is_rt(e.token_type)
-        AND e.cancel_req_ts IS NOT NULL
-    )::numeric AS cohort_rt_cancelled,
-    count(*) FILTER (
-      WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
-        AND public.dashboard_token_is_nrt(e.token_type)
-        AND e.cancel_req_ts IS NOT NULL
-    )::numeric AS cohort_nrt_cancelled,
-    count(*) FILTER (
-      WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
-        AND public.dashboard_token_is_pvt(e.token_type)
-        AND e.cancel_req_ts IS NOT NULL
-    )::numeric AS cohort_pvt_cancelled,
-    avg(
-      CASE
-        WHEN e.actual_delivery_ts BETWEEN tf.start_ts AND tf.end_ts AND e.token_ts IS NOT NULL
-        THEN extract(epoch from (e.actual_delivery_ts - e.token_ts)) / 86400.0
-        ELSE NULL
-      END
-    )::numeric AS delivery_tat,
-    avg(
-      CASE
-        WHEN e.token_ts BETWEEN tf.start_ts AND tf.end_ts
-          AND e.cancel_req_ts IS NOT NULL
-          AND e.token_ts IS NOT NULL
-        THEN extract(epoch from (e.cancel_req_ts - e.token_ts)) / 86400.0
-        ELSE NULL
-      END
-    )::numeric AS cancellation_tat
-  FROM timeframes tf
-  LEFT JOIN enriched e ON true
-  GROUP BY tf.key, tf.label, tf.sub_label, tf.start_ts, tf.end_ts
-),
-columns_json AS (
-  SELECT jsonb_agg(
-    jsonb_build_object(
-      'key', key,
-      'label', label,
-      'subLabel', sub_label
+        ) AS value
+        FROM combined_metrics m
+      ) metric_values
     )
-    ORDER BY array_position(ARRAY['mtd','last_mtd','llm','w','lw','llw','d1','d2','d3'], key)
-  ) AS value
-  FROM metrics
-),
-row_specs AS (
-  SELECT *
-  FROM (VALUES
-    (1, 'Overall', 'GD', false),
-    (2, 'Overall', 'ND', false),
-    (3, 'Overall', 'Unique Token (Inflow)', false),
-    (4, 'Overall', 'RT Share (Overall)', true),
-    (5, 'Overall', 'NRT Share (Overall)', true),
-    (6, 'Overall', 'PVT Share (Overall)', true),
-    (7, 'Overall', 'GCBL Share (Overall)', true),
-    (8, 'Token', 'Active token (Till End Date)', false),
-    (9, 'Token', 'Token Age', false),
-    (10, 'Token', 'RT Share', true),
-    (11, 'Token', 'RT Share (>4 Days)', true),
-    (12, 'Upgrade', 'NRT Upgrade', true),
-    (13, 'Upgrade', 'PVT Upgrade', true),
-    (14, 'CF', 'Login on Token base', true),
-    (15, 'CF', 'Login >=(T+1)', true),
-    (16, 'CF', 'CF attached (%)', true),
-    (17, 'Cancellation', 'Unique Token Cancellation %', true),
-    (18, 'Cancellation', 'RT - Token base', true),
-    (19, 'Cancellation', 'NRT - Token Base', true),
-    (20, 'Cancellation', 'PVT - Token Base', true),
-    (21, 'TAT', 'Delivery TAT', false),
-    (22, 'TAT', 'Cancellation TAT', false)
-  ) AS rows(sort_order, category, name, is_percent)
-),
-rows_json AS (
-  SELECT jsonb_agg(
-    jsonb_build_object(
-      'category', rs.category,
-      'name', rs.name,
-      'isPercent', rs.is_percent,
-      'indent', true,
-      'values', metric_values.value
+    SELECT jsonb_build_object(
+      'columns', coalesce((SELECT value FROM columns_json), '[]'::jsonb),
+      'rows', coalesce((SELECT value FROM rows_json), '[]'::jsonb)
     )
-    ORDER BY rs.sort_order
-  ) AS value
-  FROM row_specs rs
-  CROSS JOIN LATERAL (
-    SELECT jsonb_object_agg(
-      m.key,
-      to_jsonb(
-        CASE rs.name
-          WHEN 'GD' THEN m.gd
-          WHEN 'ND' THEN m.nd
-          WHEN 'Unique Token (Inflow)' THEN m.inflow_count
-          WHEN 'RT Share (Overall)' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.rt_inflow / m.inflow_count END
-          WHEN 'NRT Share (Overall)' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.nrt_inflow / m.inflow_count END
-          WHEN 'PVT Share (Overall)' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.pvt_inflow / m.inflow_count END
-          WHEN 'GCBL Share (Overall)' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.gcbl_inflow / m.inflow_count END
-          WHEN 'Active token (Till End Date)' THEN m.active_count
-          WHEN 'Token Age' THEN round(coalesce(m.avg_age, 0)::numeric, 2)
-          WHEN 'RT Share' THEN CASE WHEN m.active_count = 0 THEN 0 ELSE m.active_rt_count / m.active_count END
-          WHEN 'RT Share (>4 Days)' THEN CASE WHEN m.active_rt_count = 0 THEN 0 ELSE m.active_rt_over4_count / m.active_rt_count END
-          WHEN 'NRT Upgrade' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.nrt_upgrades / m.inflow_count END
-          WHEN 'PVT Upgrade' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.pvt_upgrades / m.inflow_count END
-          WHEN 'Login on Token base' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.login_count / m.inflow_count END
-          WHEN 'Login >=(T+1)' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.login_t1_count / m.inflow_count END
-          WHEN 'CF attached (%)' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.cf_attached_count / m.inflow_count END
-          WHEN 'Unique Token Cancellation %' THEN CASE WHEN m.inflow_count = 0 THEN 0 ELSE m.cohort_cancelled_count / m.inflow_count END
-          WHEN 'RT - Token base' THEN CASE WHEN m.rt_inflow = 0 THEN 0 ELSE m.cohort_rt_cancelled / m.rt_inflow END
-          WHEN 'NRT - Token Base' THEN CASE WHEN m.nrt_inflow = 0 THEN 0 ELSE m.cohort_nrt_cancelled / m.nrt_inflow END
-          WHEN 'PVT - Token Base' THEN CASE WHEN m.pvt_inflow = 0 THEN 0 ELSE m.cohort_pvt_cancelled / m.pvt_inflow END
-          WHEN 'Delivery TAT' THEN round(coalesce(m.delivery_tat, 0)::numeric, 2)
-          WHEN 'Cancellation TAT' THEN round(coalesce(m.cancellation_tat, 0)::numeric, 2)
-          ELSE 0
-        END
-      )
-    ) AS value
-    FROM metrics m
-  ) metric_values
-)
-SELECT jsonb_build_object(
-  'columns', coalesce((SELECT value FROM columns_json), '[]'::jsonb),
-  'rows', coalesce((SELECT value FROM rows_json), '[]'::jsonb)
-);
+  );
+END;
 $$;
 
 CREATE TABLE IF NOT EXISTS public.shared_config (

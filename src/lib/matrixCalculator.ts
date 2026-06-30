@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { CaseRow } from '../types';
+import { CaseRow, FilterState } from '../types';
 import { parseDateString } from './dateUtils';
+import { isRowMatchingFilter, buildEddLabels } from './dashboardFilters';
 
 export interface MatrixRow {
   category: string;
@@ -74,7 +75,7 @@ const isGCBL = (type: string) => {
 // ----------------------------------------------------
 // Core Calculation Logic
 // ----------------------------------------------------
-export function calculateOperationsMatrix(rows: CaseRow[]): {
+export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState): {
   columns: { key: string; label: string; subLabel: string }[];
   rows: MatrixRow[];
 } {
@@ -108,7 +109,7 @@ export function calculateOperationsMatrix(rows: CaseRow[]): {
   }
 
   const LLW_Start = getMonday(subDays(baseDate, 14));
-  const LLW_End = setEndOfDay(addDays(LLW_Start, 6));
+  const LLW_End = setEndOfDay(addDays(LW_Start, 6)); // Keep LLW setup clean
 
   const D1_Date = baseDate;
   const D2_Date = subDays(baseDate, 1);
@@ -125,6 +126,38 @@ export function calculateOperationsMatrix(rows: CaseRow[]): {
     { key: 'd2', label: formatDateLabel(D2_Date), subLabel: 'T-2', start: setStartOfDay(D2_Date), end: setEndOfDay(D2_Date) },
     { key: 'd3', label: formatDateLabel(D3_Date), subLabel: 'T-3', start: setStartOfDay(D3_Date), end: setEndOfDay(D3_Date) },
   ];
+
+  // Check if date filter is active
+  const isDateFilterActive = filters && (
+    (filters.dateField && filters.dateField !== 'All') ||
+    (filters.dateFilters && filters.dateFilters.some(df => df.dateField !== 'All'))
+  );
+
+  let customCases: CaseRow[] = [];
+  let customEnd = baseDate;
+
+  if (isDateFilterActive && filters) {
+    customCases = rows.filter(r => isRowMatchingFilter(r, filters, buildEddLabels()));
+    if (filters.endDate) {
+      const parsed = parseDateString(filters.endDate);
+      if (parsed) customEnd = parsed;
+    }
+    
+    let subLabel = 'Custom Range';
+    if (filters.dateField && filters.dateField !== 'All') {
+      const start = filters.startDate ? formatDateLabel(parseDateString(filters.startDate) || new Date()) : '';
+      const end = filters.endDate ? formatDateLabel(parseDateString(filters.endDate) || new Date()) : '';
+      subLabel = start && end ? `${start} - ${end}` : (filters.filterBlankDates ? 'Blank Dates' : 'Custom');
+    }
+
+    timeframes.push({
+      key: 'custom_range',
+      label: 'Selected Range',
+      subLabel: subLabel,
+      start: filters.startDate ? (parseDateString(filters.startDate) || new Date(0)) : new Date(0),
+      end: customEnd
+    });
+  }
 
   // 3. Columns configuration for UI
   const columns = timeframes.map(tf => ({
@@ -175,39 +208,63 @@ export function calculateOperationsMatrix(rows: CaseRow[]): {
   // 5. Populate values for each timeframe
   timeframes.forEach(tf => {
 
-    // Filter relevant rows for this timeframe
-    const inflowCases = rows.filter(r => {
-      if (!r.tokenDate) return false;
-      const d = parseDateString(r.tokenDate);
-      return d && d >= tf.start && d <= tf.end;
-    });
+    let inflowCases: CaseRow[];
+    let deliveryCases: CaseRow[];
+    let cancellationCases: CaseRow[];
+    let activeTokens: CaseRow[];
 
-    const deliveryCases = rows.filter(r => {
-      if (!r.actualDeliveryDate) return false;
-      const d = parseDateString(r.actualDeliveryDate);
-      return d && d >= tf.start && d <= tf.end;
-    });
+    if (tf.key === 'custom_range') {
+      inflowCases = customCases.filter(r => Boolean(r.tokenDate));
+      deliveryCases = customCases.filter(r => Boolean(r.actualDeliveryDate));
+      cancellationCases = customCases.filter(r => Boolean(r.cancelReqDate));
+      activeTokens = customCases.filter(r => {
+        if (!r.tokenDate) return false;
+        const tD = parseDateString(r.tokenDate);
+        if (!tD || tD > customEnd) return false;
 
-    const cancellationCases = rows.filter(r => {
-      if (!r.cancelReqDate) return false;
-      const d = parseDateString(r.cancelReqDate);
-      return d && d >= tf.start && d <= tf.end;
-    });
+        const delD = r.actualDeliveryDate ? parseDateString(r.actualDeliveryDate) : null;
+        if (delD && delD <= customEnd) return false;
 
-    // Active tokens logic: Token date <= end date AND (actualDeliveryDate > end date or blank) AND (cancelReqDate > end date or blank)
-    const activeTokens = rows.filter(r => {
-      if (!r.tokenDate) return false;
-      const tD = parseDateString(r.tokenDate);
-      if (!tD || tD > tf.end) return false;
+        const cancD = r.cancelReqDate ? parseDateString(r.cancelReqDate) : null;
+        if (cancD && cancD <= customEnd) return false;
 
-      const delD = r.actualDeliveryDate ? parseDateString(r.actualDeliveryDate) : null;
-      if (delD && delD <= tf.end) return false;
+        return true;
+      });
+    } else {
+      // Filter relevant rows for this timeframe
+      inflowCases = rows.filter(r => {
+        if (!r.tokenDate) return false;
+        const d = parseDateString(r.tokenDate);
+        return d && d >= tf.start && d <= tf.end;
+      });
 
-      const cancD = r.cancelReqDate ? parseDateString(r.cancelReqDate) : null;
-      if (cancD && cancD <= tf.end) return false;
+      deliveryCases = rows.filter(r => {
+        if (!r.actualDeliveryDate) return false;
+        const d = parseDateString(r.actualDeliveryDate);
+        return d && d >= tf.start && d <= tf.end;
+      });
 
-      return true;
-    });
+      cancellationCases = rows.filter(r => {
+        if (!r.cancelReqDate) return false;
+        const d = parseDateString(r.cancelReqDate);
+        return d && d >= tf.start && d <= tf.end;
+      });
+
+      // Active tokens logic: Token date <= end date AND (actualDeliveryDate > end date or blank) AND (cancelReqDate > end date or blank)
+      activeTokens = rows.filter(r => {
+        if (!r.tokenDate) return false;
+        const tD = parseDateString(r.tokenDate);
+        if (!tD || tD > tf.end) return false;
+
+        const delD = r.actualDeliveryDate ? parseDateString(r.actualDeliveryDate) : null;
+        if (delD && delD <= tf.end) return false;
+
+        const cancD = r.cancelReqDate ? parseDateString(r.cancelReqDate) : null;
+        if (cancD && cancD <= tf.end) return false;
+
+        return true;
+      });
+    }
 
     // Compute metrics
     const gd = deliveryCases.length;

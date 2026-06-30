@@ -357,8 +357,8 @@ export function useDashboardDataSource({
   // 5. Local Matrix
   const localMatrix = useMemo(() => {
     if (localSourceRows.length === 0) return EMPTY_DASHBOARD_MATRIX;
-    return buildLocalDashboardMatrix(localFilteredRowsForMatrix);
-  }, [localFilteredRowsForMatrix, localSourceRows.length]);
+    return buildLocalDashboardMatrix(localFilteredRowsForMatrix, filters);
+  }, [localFilteredRowsForMatrix, filters, localSourceRows.length]);
 
   // 6. Local Filter Options
   const localFilterOptions = useMemo(() => {
@@ -479,97 +479,6 @@ export function useDashboardDataSource({
     reloadNonce,
   ]);
 
-  // Memoize non-date filters for matrix queries to prevent unnecessary runs and date filter leakage
-  const nonDateFilters = useMemo(() => {
-    const {
-      city,
-      hubName,
-      tokenType,
-      tokenTypeWithNrt,
-      rmName,
-      dcName,
-      paymentType,
-      leadStage,
-      dealStatus,
-      funnelStage,
-      sheetFinalStatus,
-      formFinalStatus,
-      gmailPendencyStatus,
-      confidenceTrend,
-      onDemandStatus,
-      taskBucket,
-      derivedStatus,
-      cancelReason,
-      leadDsChannel,
-      readyToDeliver,
-      eddStatus,
-      listingDaysBucket,
-      searchQuery,
-      minPaymentPercentage,
-      c2dFilter,
-    } = filters;
-
-    // Use default/blank values for date filters to prevent date range filtration
-    return normalizeFilterState({
-      city,
-      hubName,
-      tokenType,
-      tokenTypeWithNrt,
-      rmName,
-      dcName,
-      paymentType,
-      leadStage,
-      dealStatus,
-      funnelStage,
-      sheetFinalStatus,
-      formFinalStatus,
-      gmailPendencyStatus,
-      confidenceTrend,
-      onDemandStatus,
-      taskBucket,
-      derivedStatus,
-      cancelReason,
-      leadDsChannel,
-      readyToDeliver,
-      eddStatus,
-      listingDaysBucket,
-      searchQuery,
-      minPaymentPercentage,
-      c2dFilter,
-      dateField: 'All',
-      startDate: '',
-      endDate: '',
-      filterBlankDates: false,
-      dateFilters: [],
-    });
-  }, [
-    filters.city,
-    filters.hubName,
-    filters.tokenType,
-    filters.tokenTypeWithNrt,
-    filters.rmName,
-    filters.dcName,
-    filters.paymentType,
-    filters.leadStage,
-    filters.dealStatus,
-    filters.funnelStage,
-    filters.sheetFinalStatus,
-    filters.formFinalStatus,
-    filters.gmailPendencyStatus,
-    filters.confidenceTrend,
-    filters.onDemandStatus,
-    filters.taskBucket,
-    filters.derivedStatus,
-    filters.cancelReason,
-    filters.leadDsChannel,
-    filters.readyToDeliver,
-    filters.eddStatus,
-    filters.listingDaysBucket,
-    filters.searchQuery,
-    filters.minPaymentPercentage,
-    filters.c2dFilter,
-  ]);
-
   useEffect(() => {
     if (demoMode || activeTokenFastPath) {
       return;
@@ -585,7 +494,7 @@ export function useDashboardDataSource({
     const loadMatrix = async () => {
       setLoadingMatrix(true);
       try {
-        const matrixResult = await getDashboardMatrixFromDb({ filters: nonDateFilters });
+        const matrixResult = await getDashboardMatrixFromDb({ filters: query.filters });
         if (!cancelled) {
           setMatrix(matrixResult);
         }
@@ -603,7 +512,7 @@ export function useDashboardDataSource({
     return () => {
       cancelled = true;
     };
-  }, [activeTab, activeTokenFastPath, demoMode, nonDateFilters, reloadNonce]);
+  }, [activeTab, activeTokenFastPath, demoMode, query.filters, reloadNonce]);
 
   return {
     pageRows,

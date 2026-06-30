@@ -196,6 +196,6 @@ export function buildLocalDashboardSummary(
   };
 }
 
-export function buildLocalDashboardMatrix(rows: CaseRow[]): DashboardMatrixResult {
-  return calculateOperationsMatrix(rows);
+export function buildLocalDashboardMatrix(rows: CaseRow[], filters?: FilterState): DashboardMatrixResult {
+  return calculateOperationsMatrix(rows, filters);
 }
