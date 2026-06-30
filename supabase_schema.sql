@@ -1758,7 +1758,10 @@ BEGIN
         count(*) FILTER (WHERE e.actual_delivery_ts BETWEEN tf.start_ts AND tf.end_ts)::numeric AS gd,
         (
           count(*) FILTER (WHERE e.actual_delivery_ts BETWEEN tf.start_ts AND tf.end_ts)
-          - count(*) FILTER (WHERE e.cancel_req_ts BETWEEN tf.start_ts AND tf.end_ts)
+          - count(*) FILTER (
+              WHERE e.actual_delivery_ts BETWEEN tf.start_ts AND tf.end_ts
+                AND (e.cancel_req_ts IS NOT NULL OR nullif(btrim(coalesce(e.cancel_reason, '')), '') IS NOT NULL)
+            )
         )::numeric AS nd,
         count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts)::numeric AS inflow_count,
         count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_rt(e.token_type))::numeric AS rt_inflow,
@@ -1885,7 +1888,10 @@ BEGIN
         count(*) FILTER (WHERE actual_delivery_ts IS NOT NULL)::numeric AS gd,
         (
           count(*) FILTER (WHERE actual_delivery_ts IS NOT NULL)
-          - count(*) FILTER (WHERE cancel_req_ts IS NOT NULL)
+          - count(*) FILTER (
+              WHERE actual_delivery_ts IS NOT NULL
+                AND (cancel_req_ts IS NOT NULL OR nullif(btrim(coalesce(cancel_reason, '')), '') IS NOT NULL)
+            )
         )::numeric AS nd,
         count(*) FILTER (WHERE token_ts IS NOT NULL)::numeric AS inflow_count,
         count(*) FILTER (WHERE token_ts IS NOT NULL AND public.dashboard_token_is_rt(token_type))::numeric AS rt_inflow,

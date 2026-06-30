@@ -268,7 +268,8 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
 
     // Compute metrics
     const gd = deliveryCases.length;
-    const nd = gd - cancellationCases.length;
+    const gdCancelled = deliveryCases.filter(r => Boolean(r.cancelReqDate) || Boolean(r.cancelReason)).length;
+    const nd = gd - gdCancelled;
     const inflowCount = inflowCases.length;
 
     // Token Type splits
