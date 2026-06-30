@@ -337,19 +337,18 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
     const cfAttachedPct = inflowCount ? cfAttachedCases / inflowCount : 0;
 
     // Cohort-based cancellations (for percentages and TAT)
-    const cohortCancelledCases = inflowCases.filter(r => Boolean(r.cancellationDate));
-    const cohortCancelPct = inflowCount ? cohortCancelledCases.length / inflowCount : 0;
+    const cohortCancelPct = inflowCount ? cancellationCases.length / inflowCount : 0;
     
     const cohortRtInflow = inflowCases.filter(r => isRT(r.tokenType)).length;
-    const cohortRtCancelled = cohortCancelledCases.filter(r => isRT(r.tokenType)).length;
+    const cohortRtCancelled = cancellationCases.filter(r => isRT(r.tokenType)).length;
     const cohortRtCancelPct = cohortRtInflow ? cohortRtCancelled / cohortRtInflow : 0;
 
     const cohortNrtInflow = inflowCases.filter(r => isNRT(r.tokenType)).length;
-    const cohortNrtCancelled = cohortCancelledCases.filter(r => isNRT(r.tokenType)).length;
+    const cohortNrtCancelled = cancellationCases.filter(r => isNRT(r.tokenType)).length;
     const cohortNrtCancelPct = cohortNrtInflow ? cohortNrtCancelled / cohortNrtInflow : 0;
 
     const cohortPvtInflow = inflowCases.filter(r => isPVT(r.tokenType)).length;
-    const cohortPvtCancelled = cohortCancelledCases.filter(r => isPVT(r.tokenType)).length;
+    const cohortPvtCancelled = cancellationCases.filter(r => isPVT(r.tokenType)).length;
     const cohortPvtCancelPct = cohortPvtInflow ? cohortPvtCancelled / cohortPvtInflow : 0;
 
     // TAT
@@ -367,16 +366,16 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
     }
 
     let cancTat = 0;
-    if (cohortCancelledCases.length > 0) {
+    if (cancellationCases.length > 0) {
       let sum = 0;
-      cohortCancelledCases.forEach(r => {
+      cancellationCases.forEach(r => {
         const tD = parseDateString(r.tokenDate || '');
         const cD = parseDateString(r.cancellationDate || '');
         if (tD && cD) {
           sum += (cD.getTime() - tD.getTime()) / (1000 * 60 * 60 * 24);
         }
       });
-      cancTat = sum / cohortCancelledCases.length;
+      cancTat = sum / cancellationCases.length;
     }
 
     // Map computed values to correct row indices

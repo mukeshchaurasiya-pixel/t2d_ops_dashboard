@@ -1832,23 +1832,19 @@ BEGIN
             )
         )::numeric AS cf_attached_count,
         count(*) FILTER (
-          WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
-            AND e.cancellation_ts IS NOT NULL
+          WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
         )::numeric AS cohort_cancelled_count,
         count(*) FILTER (
-          WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
+          WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
             AND public.dashboard_token_is_rt(e.token_type)
-            AND e.cancellation_ts IS NOT NULL
         )::numeric AS cohort_rt_cancelled,
         count(*) FILTER (
-          WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
+          WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
             AND public.dashboard_token_is_nrt(e.token_type)
-            AND e.cancellation_ts IS NOT NULL
         )::numeric AS cohort_nrt_cancelled,
         count(*) FILTER (
-          WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
+          WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
             AND public.dashboard_token_is_pvt(e.token_type)
-            AND e.cancellation_ts IS NOT NULL
         )::numeric AS cohort_pvt_cancelled,
         avg(
           CASE
@@ -1859,8 +1855,7 @@ BEGIN
         )::numeric AS delivery_tat,
         avg(
           CASE
-            WHEN e.token_ts BETWEEN tf.start_ts AND tf.end_ts
-              AND e.cancellation_ts IS NOT NULL
+            WHEN e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
               AND e.token_ts IS NOT NULL
             THEN extract(epoch from (e.cancellation_ts - e.token_ts)) / 86400.0
             ELSE NULL
@@ -1962,23 +1957,19 @@ BEGIN
             )
         )::numeric AS cf_attached_count,
         count(*) FILTER (
-          WHERE token_ts IS NOT NULL
-            AND cancellation_ts IS NOT NULL
+          WHERE cancellation_ts IS NOT NULL
         )::numeric AS cohort_cancelled_count,
         count(*) FILTER (
-          WHERE token_ts IS NOT NULL
+          WHERE cancellation_ts IS NOT NULL
             AND public.dashboard_token_is_rt(token_type)
-            AND cancellation_ts IS NOT NULL
         )::numeric AS cohort_rt_cancelled,
         count(*) FILTER (
-          WHERE token_ts IS NOT NULL
+          WHERE cancellation_ts IS NOT NULL
             AND public.dashboard_token_is_nrt(token_type)
-            AND cancellation_ts IS NOT NULL
         )::numeric AS cohort_nrt_cancelled,
         count(*) FILTER (
-          WHERE token_ts IS NOT NULL
+          WHERE cancellation_ts IS NOT NULL
             AND public.dashboard_token_is_pvt(token_type)
-            AND cancellation_ts IS NOT NULL
         )::numeric AS cohort_pvt_cancelled,
         avg(
           CASE
@@ -1989,8 +1980,8 @@ BEGIN
         )::numeric AS delivery_tat,
         avg(
           CASE
-            WHEN token_ts IS NOT NULL
-              AND cancellation_ts IS NOT NULL
+            WHEN cancellation_ts IS NOT NULL
+              AND token_ts IS NOT NULL
             THEN extract(epoch from (cancellation_ts - token_ts)) / 86400.0
             ELSE NULL
           END
