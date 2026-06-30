@@ -1655,7 +1655,11 @@ BEGIN
 
   RETURN (
     WITH filtered AS MATERIALIZED (
-      SELECT *
+      SELECT
+        c.*,
+        (public.dashboard_case_tags(c) ->> 'isC2D')::boolean AS is_c2d,
+        (public.dashboard_case_tags(c) ->> 'isC2A')::boolean AS is_c2a,
+        (public.dashboard_case_tags(c) ->> 'isCR2D')::boolean AS is_cr2d
       FROM public.dashboard_cases c
       WHERE public.dashboard_case_matches_filters(c, non_date_filters)
     ),
@@ -1666,10 +1670,7 @@ BEGIN
         f.actual_delivery_date::timestamp AS actual_delivery_ts,
         public.parse_dashboard_timestamp(f.row_data ->> 'cancellationDate') AS cancellation_ts,
         public.parse_dashboard_timestamp(coalesce(f.row_data ->> 'latestLoginTime', f.row_data ->> 'sheetLoginTimestamp')) AS login_ts,
-        public.parse_dashboard_timestamp(f.row_data ->> 'sheetLoginTimestamp') AS sheet_login_ts,
-        (public.dashboard_case_tags(f) ->> 'isC2D')::boolean AS is_c2d,
-        (public.dashboard_case_tags(f) ->> 'isC2A')::boolean AS is_c2a,
-        (public.dashboard_case_tags(f) ->> 'isCR2D')::boolean AS is_cr2d
+        public.parse_dashboard_timestamp(f.row_data ->> 'sheetLoginTimestamp') AS sheet_login_ts
       FROM filtered f
     ),
     base_date AS (
