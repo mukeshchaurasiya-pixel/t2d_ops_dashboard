@@ -293,6 +293,7 @@ ALTER TABLE public.dashboard_cases
   ADD COLUMN IF NOT EXISTS gmail_pendency_status TEXT,
   ADD COLUMN IF NOT EXISTS ready_to_deliver TEXT,
   ADD COLUMN IF NOT EXISTS cancel_reason TEXT,
+  ADD COLUMN IF NOT EXISTS final_payment_type TEXT,
   ADD COLUMN IF NOT EXISTS lead_ds_channel TEXT,
   ADD COLUMN IF NOT EXISTS total_listing_days NUMERIC,
   ADD COLUMN IF NOT EXISTS payment_percentage NUMERIC,
@@ -324,6 +325,7 @@ BEGIN
   NEW.deal_status := nullif(btrim(coalesce(NEW.row_data ->> 'dealStatus', '')), '');
   NEW.task_bucket := nullif(btrim(coalesce(NEW.row_data ->> 'taskBucket', '')), '');
   NEW.payment_type := nullif(btrim(coalesce(NEW.row_data ->> 'paymentType', '')), '');
+  NEW.final_payment_type := nullif(btrim(coalesce(NEW.row_data ->> 'finalPaymentType', '')), '');
   NEW.token_type := nullif(btrim(coalesce(NEW.row_data ->> 'tokenType', '')), '');
   NEW.token_type_with_nrt := nullif(btrim(coalesce(NEW.row_data ->> 'tokenTypeWithNrt', '')), '');
   NEW.sheet_final_status := nullif(btrim(coalesce(NEW.row_data ->> 'sheetFinalStatus', '')), '');
@@ -371,6 +373,7 @@ CREATE INDEX IF NOT EXISTS idx_dashboard_cases_hub_name ON public.dashboard_case
 CREATE INDEX IF NOT EXISTS idx_dashboard_cases_allocated_rm ON public.dashboard_cases (allocated_rm);
 CREATE INDEX IF NOT EXISTS idx_dashboard_cases_assigned_dc ON public.dashboard_cases (assigned_dc);
 CREATE INDEX IF NOT EXISTS idx_dashboard_cases_payment_type ON public.dashboard_cases (payment_type);
+CREATE INDEX IF NOT EXISTS idx_dashboard_cases_final_payment_type ON public.dashboard_cases (final_payment_type);
 CREATE INDEX IF NOT EXISTS idx_dashboard_cases_task_bucket ON public.dashboard_cases (task_bucket);
 CREATE INDEX IF NOT EXISTS idx_dashboard_cases_total_listing_days ON public.dashboard_cases (total_listing_days);
 CREATE INDEX IF NOT EXISTS idx_dashboard_cases_customer_key ON public.dashboard_cases (customer_key);

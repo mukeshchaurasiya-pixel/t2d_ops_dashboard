@@ -36,6 +36,7 @@ export interface CaseRow {
   tokenType?: string;
   tokenTypeWithNrt?: string;
   paymentType?: string;
+  finalPaymentType?: string;
   leadStatus?: string;
   funnelStage?: string;
 

@@ -230,6 +230,7 @@ function buildCaseRecord(row) {
     deal_status: cleanString(row.dealStatus),
     task_bucket: cleanString(row.taskBucket),
     payment_type: cleanString(row.paymentType),
+    final_payment_type: cleanString(row.finalPaymentType),
     token_type: cleanString(row.tokenType),
     token_type_with_nrt: cleanString(row.tokenTypeWithNrt),
     sheet_final_status: cleanString(row.sheetFinalStatus),
