@@ -216,7 +216,7 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
     if (tf.key === 'custom_range') {
       inflowCases = customCases.filter(r => Boolean(r.tokenDate));
       deliveryCases = customCases.filter(r => Boolean(r.actualDeliveryDate));
-      cancellationCases = customCases.filter(r => Boolean(r.cancelReqDate));
+      cancellationCases = customCases.filter(r => Boolean(r.cancellationDate));
       activeTokens = customCases.filter(r => {
         if (!r.tokenDate) return false;
         const tD = parseDateString(r.tokenDate);
@@ -225,7 +225,7 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
         const delD = r.actualDeliveryDate ? parseDateString(r.actualDeliveryDate) : null;
         if (delD && delD <= customEnd) return false;
 
-        const cancD = r.cancelReqDate ? parseDateString(r.cancelReqDate) : null;
+        const cancD = r.cancellationDate ? parseDateString(r.cancellationDate) : null;
         if (cancD && cancD <= customEnd) return false;
 
         return true;
@@ -245,12 +245,12 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
       });
 
       cancellationCases = rows.filter(r => {
-        if (!r.cancelReqDate) return false;
-        const d = parseDateString(r.cancelReqDate);
+        if (!r.cancellationDate) return false;
+        const d = parseDateString(r.cancellationDate);
         return d && d >= tf.start && d <= tf.end;
       });
 
-      // Active tokens logic: Token date <= end date AND (actualDeliveryDate > end date or blank) AND (cancelReqDate > end date or blank)
+      // Active tokens logic: Token date <= end date AND (actualDeliveryDate > end date or blank) AND (cancellationDate > end date or blank)
       activeTokens = rows.filter(r => {
         if (!r.tokenDate) return false;
         const tD = parseDateString(r.tokenDate);
@@ -259,7 +259,7 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
         const delD = r.actualDeliveryDate ? parseDateString(r.actualDeliveryDate) : null;
         if (delD && delD <= tf.end) return false;
 
-        const cancD = r.cancelReqDate ? parseDateString(r.cancelReqDate) : null;
+        const cancD = r.cancellationDate ? parseDateString(r.cancellationDate) : null;
         if (cancD && cancD <= tf.end) return false;
 
         return true;
@@ -268,7 +268,7 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
 
     // Compute metrics
     const gd = deliveryCases.length;
-    const gdCancelled = deliveryCases.filter(r => Boolean(r.cancelReqDate) || Boolean(r.cancelReason)).length;
+    const gdCancelled = deliveryCases.filter(r => Boolean(r.cancellationDate) || Boolean(r.cancelReason)).length;
     const nd = gd - gdCancelled;
     const inflowCount = inflowCases.length;
 
@@ -337,7 +337,7 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
     const cfAttachedPct = inflowCount ? cfAttachedCases / inflowCount : 0;
 
     // Cohort-based cancellations (for percentages and TAT)
-    const cohortCancelledCases = inflowCases.filter(r => Boolean(r.cancelReqDate));
+    const cohortCancelledCases = inflowCases.filter(r => Boolean(r.cancellationDate));
     const cohortCancelPct = inflowCount ? cohortCancelledCases.length / inflowCount : 0;
     
     const cohortRtInflow = inflowCases.filter(r => isRT(r.tokenType)).length;
@@ -371,7 +371,7 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
       let sum = 0;
       cohortCancelledCases.forEach(r => {
         const tD = parseDateString(r.tokenDate || '');
-        const cD = parseDateString(r.cancelReqDate || '');
+        const cD = parseDateString(r.cancellationDate || '');
         if (tD && cD) {
           sum += (cD.getTime() - tD.getTime()) / (1000 * 60 * 60 * 24);
         }
