@@ -164,6 +164,7 @@ export default function Dashboard({
     filterOptions,
     totalCount,
     loadingPage,
+    loadingMatrix,
     activeTokenFastPath,
     reload,
   } = useDashboardDataSource({
@@ -1619,54 +1620,65 @@ export default function Dashboard({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700 font-mono">
-                {/* Group rows by category */}
-                {Object.entries(
-                  matrix.rows.reduce<Record<string, MatrixRow[]>>((acc, row) => {
-                    if (!acc[row.category]) acc[row.category] = [];
-                    acc[row.category].push(row);
-                    return acc;
-                  }, {})
-                ).map(([category, catRows]) => {
-                  const rowsList = catRows as MatrixRow[];
-                  return (
-                    <React.Fragment key={category}>
-                      {/* Category Header Row */}
-                      <tr className="bg-slate-50/75 font-sans font-bold text-slate-700">
-                        <td 
-                          className="p-2.5 pl-5 border-r border-slate-200 sticky left-0 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500" 
-                          colSpan={matrix.columns.length + 1}
-                        >
-                          {category}
-                        </td>
-                      </tr>
-                      {rowsList.map(row => (
-                      <tr key={row.name} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="p-2.5 pl-8 border-r border-slate-200 sticky left-0 bg-white font-sans font-semibold text-slate-650 min-w-[200px]">
-                          {row.name}
-                        </td>
-                        {matrix.columns.map(col => {
-                          const val = row.values[col.key];
-                          const displayVal = val === undefined || val === null ? '-' :
-                            row.isPercent ? `${(Number(val) * 100).toFixed(2)}%` : val;
-                          
-                          // Style target columns
-                          const isTarget = col.key.startsWith('target');
-                          
-                          return (
-                            <td 
-                              key={col.key} 
-                              className={`p-2.5 text-center border-r border-slate-100 text-[11px] ${
-                                isTarget ? 'text-slate-400 bg-slate-50/20' : 'text-slate-800'
-                              }`}
-                            >
-                              {displayVal}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </React.Fragment>
-                ); })}
+                {loadingMatrix ? (
+                  <tr>
+                    <td colSpan={matrix.columns.length + 1} className="p-10 text-center text-slate-400 font-sans font-medium">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <RefreshCw className="w-5 h-5 text-amber-500 animate-spin" />
+                        <span>Recalculating executive cohorts ledger metrics...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  /* Group rows by category */
+                  Object.entries(
+                    matrix.rows.reduce<Record<string, MatrixRow[]>>((acc, row) => {
+                      if (!acc[row.category]) acc[row.category] = [];
+                      acc[row.category].push(row);
+                      return acc;
+                    }, {})
+                  ).map(([category, catRows]) => {
+                    const rowsList = catRows as MatrixRow[];
+                    return (
+                      <React.Fragment key={category}>
+                        {/* Category Header Row */}
+                        <tr className="bg-slate-50/75 font-sans font-bold text-slate-700">
+                          <td 
+                            className="p-2.5 pl-5 border-r border-slate-200 sticky left-0 bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500" 
+                            colSpan={matrix.columns.length + 1}
+                          >
+                            {category}
+                          </td>
+                        </tr>
+                        {rowsList.map(row => (
+                        <tr key={row.name} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="p-2.5 pl-8 border-r border-slate-200 sticky left-0 bg-white font-sans font-semibold text-slate-650 min-w-[200px]">
+                            {row.name}
+                          </td>
+                          {matrix.columns.map(col => {
+                            const val = row.values[col.key];
+                            const displayVal = val === undefined || val === null ? '-' :
+                              row.isPercent ? `${(Number(val) * 100).toFixed(2)}%` : val;
+                            
+                            // Style target columns
+                            const isTarget = col.key.startsWith('target');
+                            
+                            return (
+                              <td 
+                                key={col.key} 
+                                className={`p-2.5 text-center border-r border-slate-100 text-[11px] ${
+                                  isTarget ? 'text-slate-400 bg-slate-50/20' : 'text-slate-800'
+                                }`}
+                              >
+                                {displayVal}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  ); })
+                )}
               </tbody>
             </table>
           </div>

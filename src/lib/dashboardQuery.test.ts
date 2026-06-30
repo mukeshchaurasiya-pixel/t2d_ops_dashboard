@@ -186,24 +186,29 @@ test('getNormalizedFieldTimestamp links tokenDateTime to tokenDate correctly', (
 });
 
 test('buildEddDistribution and eddStatus filtering prioritize expectedDeliveryTime', () => {
-  
+  const futureDate = new Date();
+  futureDate.setDate(futureDate.getDate() + 9);
+  const year = futureDate.getFullYear();
+  const month = String(futureDate.getMonth() + 1).padStart(2, '0');
+  const day = String(futureDate.getDate()).padStart(2, '0');
+  const expectedDeliveryTimeStr = `${year}-${month}-${day} 15:00:00`;
+
   // Row with expectedDeliveryTime having a date
   const rowWithTime = {
     bookingId: 'B-2001',
-    expectedDeliveryTime: '2026-06-25 15:00:00',
+    expectedDeliveryTime: expectedDeliveryTimeStr,
     expectedDeliveryDate: '2026-06-17',
   } as any;
 
   // Let's verify the distribution output keys/buckets
   const dist = buildEddDistribution([rowWithTime]);
-  // The value should go to the bucket for 2026-06-25 instead of 2026-06-17
-  // Since 2026-06-25 is far in the future relative to today (2026-06-16 is current local time), it should be in the +7 days bucket or similar.
+  // The value should go to the bucket for the future date instead of 2026-06-17
+  // Since it is far in the future relative to today, it should be in the +7 days bucket or similar.
   const overdueCount = dist['Overdue / Breached'] || 0;
   assert.equal(overdueCount, 0);
 
   // Verify filtering behaves the same
   const eddLabels = buildEddLabels();
-  // Today is 2026-06-16 in local test context or system date
   // Let's test filter match
   const matchTodayFilter = isRowMatchingFilter(
     rowWithTime,

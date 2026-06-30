@@ -15,6 +15,7 @@ import {
   EMPTY_DASHBOARD_SUMMARY,
   EMPTY_FILTER_OPTIONS,
   isActiveTokenFastPath,
+  normalizeFilterState,
 } from '../lib/dashboardQuery';
 import {
   getActiveTokenCasesFromDb,
@@ -346,11 +347,18 @@ export function useDashboardDataSource({
     localSourceRows.length
   ]);
 
+  // 4.5 Local filtering for matrix (ignoring date range filters so columns aren't truncated)
+  const localFilteredRowsForMatrix = useMemo(() => {
+    if (localSourceRows.length === 0) return [];
+    const eddLabels = buildEddLabels();
+    return localSourceRows.filter(row => isRowMatchingFilter(row, filters, eddLabels, 'dateRange', localC2dStats));
+  }, [localSourceRows, filters, localC2dStats]);
+
   // 5. Local Matrix
   const localMatrix = useMemo(() => {
     if (localSourceRows.length === 0) return EMPTY_DASHBOARD_MATRIX;
-    return buildLocalDashboardMatrix(localFilteredRows);
-  }, [localFilteredRows, localSourceRows.length]);
+    return buildLocalDashboardMatrix(localFilteredRowsForMatrix);
+  }, [localFilteredRowsForMatrix, localSourceRows.length]);
 
   // 6. Local Filter Options
   const localFilterOptions = useMemo(() => {
@@ -471,6 +479,97 @@ export function useDashboardDataSource({
     reloadNonce,
   ]);
 
+  // Memoize non-date filters for matrix queries to prevent unnecessary runs and date filter leakage
+  const nonDateFilters = useMemo(() => {
+    const {
+      city,
+      hubName,
+      tokenType,
+      tokenTypeWithNrt,
+      rmName,
+      dcName,
+      paymentType,
+      leadStage,
+      dealStatus,
+      funnelStage,
+      sheetFinalStatus,
+      formFinalStatus,
+      gmailPendencyStatus,
+      confidenceTrend,
+      onDemandStatus,
+      taskBucket,
+      derivedStatus,
+      cancelReason,
+      leadDsChannel,
+      readyToDeliver,
+      eddStatus,
+      listingDaysBucket,
+      searchQuery,
+      minPaymentPercentage,
+      c2dFilter,
+    } = filters;
+
+    // Use default/blank values for date filters to prevent date range filtration
+    return normalizeFilterState({
+      city,
+      hubName,
+      tokenType,
+      tokenTypeWithNrt,
+      rmName,
+      dcName,
+      paymentType,
+      leadStage,
+      dealStatus,
+      funnelStage,
+      sheetFinalStatus,
+      formFinalStatus,
+      gmailPendencyStatus,
+      confidenceTrend,
+      onDemandStatus,
+      taskBucket,
+      derivedStatus,
+      cancelReason,
+      leadDsChannel,
+      readyToDeliver,
+      eddStatus,
+      listingDaysBucket,
+      searchQuery,
+      minPaymentPercentage,
+      c2dFilter,
+      dateField: 'All',
+      startDate: '',
+      endDate: '',
+      filterBlankDates: false,
+      dateFilters: [],
+    });
+  }, [
+    filters.city,
+    filters.hubName,
+    filters.tokenType,
+    filters.tokenTypeWithNrt,
+    filters.rmName,
+    filters.dcName,
+    filters.paymentType,
+    filters.leadStage,
+    filters.dealStatus,
+    filters.funnelStage,
+    filters.sheetFinalStatus,
+    filters.formFinalStatus,
+    filters.gmailPendencyStatus,
+    filters.confidenceTrend,
+    filters.onDemandStatus,
+    filters.taskBucket,
+    filters.derivedStatus,
+    filters.cancelReason,
+    filters.leadDsChannel,
+    filters.readyToDeliver,
+    filters.eddStatus,
+    filters.listingDaysBucket,
+    filters.searchQuery,
+    filters.minPaymentPercentage,
+    filters.c2dFilter,
+  ]);
+
   useEffect(() => {
     if (demoMode || activeTokenFastPath) {
       return;
@@ -486,7 +585,7 @@ export function useDashboardDataSource({
     const loadMatrix = async () => {
       setLoadingMatrix(true);
       try {
-        const matrixResult = await getDashboardMatrixFromDb({ filters: query.filters });
+        const matrixResult = await getDashboardMatrixFromDb({ filters: nonDateFilters });
         if (!cancelled) {
           setMatrix(matrixResult);
         }
@@ -504,7 +603,7 @@ export function useDashboardDataSource({
     return () => {
       cancelled = true;
     };
-  }, [activeTab, activeTokenFastPath, demoMode, query.filters, reloadNonce]);
+  }, [activeTab, activeTokenFastPath, demoMode, nonDateFilters, reloadNonce]);
 
   return {
     pageRows,
