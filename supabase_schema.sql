@@ -299,13 +299,25 @@ ALTER TABLE public.dashboard_cases
   ADD COLUMN IF NOT EXISTS payment_percentage NUMERIC,
   ADD COLUMN IF NOT EXISTS customer_key TEXT;
 
--- Populate existing rows for customer_key and final_payment_type
+ALTER TABLE public.dashboard_cases
+  ADD COLUMN IF NOT EXISTS cancellation_ts TIMESTAMP WITHOUT TIME ZONE,
+  ADD COLUMN IF NOT EXISTS login_ts TIMESTAMP WITHOUT TIME ZONE;
+
+-- Populate existing rows
 UPDATE public.dashboard_cases
 SET customer_key = nullif(btrim(coalesce(row_data ->> 'userId', '')), '');
 
 UPDATE public.dashboard_cases
 SET final_payment_type = nullif(btrim(coalesce(row_data ->> 'finalPaymentType', '')), '')
 WHERE final_payment_type IS NULL;
+
+UPDATE public.dashboard_cases
+SET cancellation_ts = public.parse_dashboard_timestamp(row_data ->> 'cancellationDate')
+WHERE cancellation_ts IS NULL AND row_data ->> 'cancellationDate' IS NOT NULL;
+
+UPDATE public.dashboard_cases
+SET login_ts = public.parse_dashboard_timestamp(coalesce(row_data ->> 'latestLoginTime', row_data ->> 'sheetLoginTimestamp'))
+WHERE login_ts IS NULL AND (row_data ->> 'latestLoginTime' IS NOT NULL OR row_data ->> 'sheetLoginTimestamp' IS NOT NULL);
 
 CREATE OR REPLACE FUNCTION public.dashboard_cases_sync_structured_columns()
 RETURNS TRIGGER
@@ -345,6 +357,8 @@ BEGIN
   NEW.total_listing_days := public.dashboard_numeric(NEW.row_data ->> 'totalListingDays');
   NEW.payment_percentage := public.dashboard_numeric(NEW.row_data ->> 'paymentPercentage');
   NEW.customer_key := nullif(btrim(coalesce(NEW.row_data ->> 'userId', '')), '');
+  NEW.cancellation_ts := public.parse_dashboard_timestamp(NEW.row_data ->> 'cancellationDate');
+  NEW.login_ts := public.parse_dashboard_timestamp(coalesce(NEW.row_data ->> 'latestLoginTime', NEW.row_data ->> 'sheetLoginTimestamp'));
   RETURN NEW;
 END;
 $$;
@@ -1738,10 +1752,7 @@ BEGIN
       SELECT
         f.*,
         f.token_date::timestamp AS token_ts,
-        f.actual_delivery_date::timestamp AS actual_delivery_ts,
-        public.parse_dashboard_timestamp(f.row_data ->> 'cancellationDate') AS cancellation_ts,
-        public.parse_dashboard_timestamp(coalesce(f.row_data ->> 'latestLoginTime', f.row_data ->> 'sheetLoginTimestamp')) AS login_ts,
-        public.parse_dashboard_timestamp(f.row_data ->> 'sheetLoginTimestamp') AS sheet_login_ts
+        f.actual_delivery_date::timestamp AS actual_delivery_ts
       FROM filtered f
     ),
     base_date AS (
@@ -1957,9 +1968,7 @@ BEGIN
         c.*,
         c.customer_key AS unique_user_id,
         c.token_date::timestamp AS token_ts,
-        c.actual_delivery_date::timestamp AS actual_delivery_ts,
-        public.parse_dashboard_timestamp(c.row_data ->> 'cancellationDate') AS cancellation_ts,
-        public.parse_dashboard_timestamp(coalesce(c.row_data ->> 'latestLoginTime', c.row_data ->> 'sheetLoginTimestamp')) AS login_ts
+        c.actual_delivery_date::timestamp AS actual_delivery_ts
       FROM public.dashboard_cases c
       WHERE public.dashboard_case_matches_filters(c, input_filters)
     ),
