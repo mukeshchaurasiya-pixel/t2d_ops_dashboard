@@ -1660,15 +1660,79 @@ BEGIN
   END IF;
 
   RETURN (
-    WITH filtered AS MATERIALIZED (
+    WITH base_filtered AS MATERIALIZED (
       SELECT
         c.*,
-        c.customer_key AS unique_user_id,
-        (public.dashboard_case_tags(c) ->> 'isC2D')::boolean AS is_c2d,
-        (public.dashboard_case_tags(c) ->> 'isC2A')::boolean AS is_c2a,
-        (public.dashboard_case_tags(c) ->> 'isCR2D')::boolean AS is_cr2d
+        c.customer_key AS unique_user_id
       FROM public.dashboard_cases c
       WHERE public.dashboard_case_matches_filters(c, non_date_filters)
+    ),
+    -- Pre-compute which customer_keys have DELIVERED rows (for C2D tagging)
+    delivered_customers AS MATERIALIZED (
+      SELECT customer_key, token_date,
+             coalesce(actual_delivery_date, token_date) AS effective_delivery_date
+      FROM base_filtered
+      WHERE lead_stage = 'DELIVERED'
+        AND customer_key IS NOT NULL AND customer_key <> ''
+    ),
+    -- Pre-compute which customer_keys have CANCELLED rows (for C2D reverse tagging)
+    cancelled_customers AS MATERIALIZED (
+      SELECT customer_key, token_date
+      FROM base_filtered
+      WHERE (lead_stage IN ('CANCELLED', 'RETURNED') OR deal_status = 'CANCEL')
+        AND customer_key IS NOT NULL AND customer_key <> ''
+    ),
+    -- Pre-compute which customer_keys have ACTIVE_TOKEN rows (for C2A tagging)
+    active_token_customers AS MATERIALIZED (
+      SELECT customer_key, token_date
+      FROM base_filtered
+      WHERE lead_stage = 'ACTIVE_TOKEN'
+        AND customer_key IS NOT NULL AND customer_key <> ''
+    ),
+    filtered AS MATERIALIZED (
+      SELECT
+        bf.*,
+        -- C2D: cancelled row with a delivered sibling after it, OR delivered row with a cancelled sibling before it
+        COALESCE(
+          CASE
+            WHEN (bf.lead_stage IN ('CANCELLED', 'RETURNED') OR bf.deal_status = 'CANCEL')
+            THEN EXISTS (
+              SELECT 1 FROM delivered_customers dc
+              WHERE dc.customer_key = bf.customer_key
+                AND dc.effective_delivery_date >= bf.token_date
+            )
+            WHEN bf.lead_stage = 'DELIVERED'
+            THEN EXISTS (
+              SELECT 1 FROM cancelled_customers cc
+              WHERE cc.customer_key = bf.customer_key
+                AND coalesce(bf.actual_delivery_date, bf.token_date) >= cc.token_date
+            )
+            ELSE false
+          END,
+          false
+        ) AS is_c2d,
+        -- C2A: cancelled row with active_token sibling, OR active_token row with cancelled sibling
+        COALESCE(
+          CASE
+            WHEN (bf.lead_stage IN ('CANCELLED', 'RETURNED') OR bf.deal_status = 'CANCEL')
+            THEN EXISTS (
+              SELECT 1 FROM active_token_customers atc
+              WHERE atc.customer_key = bf.customer_key
+                AND atc.token_date >= bf.token_date
+            )
+            WHEN bf.lead_stage = 'ACTIVE_TOKEN'
+            THEN EXISTS (
+              SELECT 1 FROM cancelled_customers cc
+              WHERE cc.customer_key = bf.customer_key
+                AND bf.token_date >= cc.token_date
+            )
+            ELSE false
+          END,
+          false
+        ) AS is_c2a,
+        -- CR2D: delivered with a cancel reason
+        (bf.lead_stage = 'DELIVERED' AND bf.cancel_reason IS NOT NULL AND bf.cancel_reason <> '') AS is_cr2d
+      FROM base_filtered bf
     ),
     enriched AS MATERIALIZED (
       SELECT
@@ -1888,19 +1952,77 @@ BEGIN
       LEFT JOIN enriched e ON true
       GROUP BY tf.key, tf.label, tf.sub_label, tf.start_ts, tf.end_ts
     ),
-    custom_enriched AS (
+    custom_base AS MATERIALIZED (
       SELECT
         c.*,
         c.customer_key AS unique_user_id,
         c.token_date::timestamp AS token_ts,
         c.actual_delivery_date::timestamp AS actual_delivery_ts,
         public.parse_dashboard_timestamp(c.row_data ->> 'cancellationDate') AS cancellation_ts,
-        public.parse_dashboard_timestamp(coalesce(c.row_data ->> 'latestLoginTime', c.row_data ->> 'sheetLoginTimestamp')) AS login_ts,
-        (public.dashboard_case_tags(c) ->> 'isC2D')::boolean AS is_c2d,
-        (public.dashboard_case_tags(c) ->> 'isC2A')::boolean AS is_c2a,
-        (public.dashboard_case_tags(c) ->> 'isCR2D')::boolean AS is_cr2d
+        public.parse_dashboard_timestamp(coalesce(c.row_data ->> 'latestLoginTime', c.row_data ->> 'sheetLoginTimestamp')) AS login_ts
       FROM public.dashboard_cases c
       WHERE public.dashboard_case_matches_filters(c, input_filters)
+    ),
+    custom_delivered AS MATERIALIZED (
+      SELECT customer_key, token_date,
+             coalesce(actual_delivery_date, token_date) AS effective_delivery_date
+      FROM custom_base
+      WHERE lead_stage = 'DELIVERED'
+        AND customer_key IS NOT NULL AND customer_key <> ''
+    ),
+    custom_cancelled AS MATERIALIZED (
+      SELECT customer_key, token_date
+      FROM custom_base
+      WHERE (lead_stage IN ('CANCELLED', 'RETURNED') OR deal_status = 'CANCEL')
+        AND customer_key IS NOT NULL AND customer_key <> ''
+    ),
+    custom_active_token AS MATERIALIZED (
+      SELECT customer_key, token_date
+      FROM custom_base
+      WHERE lead_stage = 'ACTIVE_TOKEN'
+        AND customer_key IS NOT NULL AND customer_key <> ''
+    ),
+    custom_enriched AS (
+      SELECT
+        cb.*,
+        COALESCE(
+          CASE
+            WHEN (cb.lead_stage IN ('CANCELLED', 'RETURNED') OR cb.deal_status = 'CANCEL')
+            THEN EXISTS (
+              SELECT 1 FROM custom_delivered cd
+              WHERE cd.customer_key = cb.customer_key
+                AND cd.effective_delivery_date >= cb.token_date
+            )
+            WHEN cb.lead_stage = 'DELIVERED'
+            THEN EXISTS (
+              SELECT 1 FROM custom_cancelled cc
+              WHERE cc.customer_key = cb.customer_key
+                AND coalesce(cb.actual_delivery_date, cb.token_date) >= cc.token_date
+            )
+            ELSE false
+          END,
+          false
+        ) AS is_c2d,
+        COALESCE(
+          CASE
+            WHEN (cb.lead_stage IN ('CANCELLED', 'RETURNED') OR cb.deal_status = 'CANCEL')
+            THEN EXISTS (
+              SELECT 1 FROM custom_active_token cat
+              WHERE cat.customer_key = cb.customer_key
+                AND cat.token_date >= cb.token_date
+            )
+            WHEN cb.lead_stage = 'ACTIVE_TOKEN'
+            THEN EXISTS (
+              SELECT 1 FROM custom_cancelled cc
+              WHERE cc.customer_key = cb.customer_key
+                AND cb.token_date >= cc.token_date
+            )
+            ELSE false
+          END,
+          false
+        ) AS is_c2a,
+        (cb.lead_stage = 'DELIVERED' AND cb.cancel_reason IS NOT NULL AND cb.cancel_reason <> '') AS is_cr2d
+      FROM custom_base cb
     ),
     custom_metrics AS (
       SELECT
