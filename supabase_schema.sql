@@ -1303,7 +1303,7 @@ filtered_cancelled_c2d AS (
     AND EXISTS (
       SELECT 1
       FROM public.dashboard_cases d
-      WHERE d.customer_key = f.customer_key
+      WHERE public.dashboard_customer_key(d) = public.dashboard_customer_key(f)
         AND d.lead_stage = 'DELIVERED'
         AND coalesce(d.actual_delivery_date, d.token_date) >= f.token_date
     )
@@ -1315,7 +1315,7 @@ filtered_cancelled_c2a AS (
     AND EXISTS (
       SELECT 1
       FROM public.dashboard_cases d
-      WHERE d.customer_key = f.customer_key
+      WHERE public.dashboard_customer_key(d) = public.dashboard_customer_key(f)
         AND d.lead_stage = 'ACTIVE_TOKEN'
         AND (
           d.token_date >= f.token_date
@@ -1323,13 +1323,13 @@ filtered_cancelled_c2a AS (
             EXISTS (
               SELECT 1
               FROM public.dashboard_cases prev
-              WHERE prev.customer_key = f.customer_key
+              WHERE public.dashboard_customer_key(prev) = public.dashboard_customer_key(f)
                 AND prev.token_date < f.token_date
             )
             AND d.token_date >= (
               SELECT max(prev.token_date)
               FROM public.dashboard_cases prev
-              WHERE prev.customer_key = f.customer_key
+              WHERE public.dashboard_customer_key(prev) = public.dashboard_customer_key(f)
                 AND prev.token_date < f.token_date
             )
             AND d.token_date <= f.token_date
@@ -1846,7 +1846,7 @@ BEGIN
         )::numeric AS login_t1_count,
         count(*) FILTER (
           WHERE e.actual_delivery_ts BETWEEN tf.start_ts AND tf.end_ts
-            AND upper(coalesce(e.final_payment_type, '')) = 'CF'
+            AND upper(coalesce(e.row_data ->> 'finalPaymentType', '')) = 'CF'
             AND e.cancellation_ts IS NULL
         )::numeric AS cf_attached_count,
         count(DISTINCT e.unique_user_id) FILTER (
@@ -1984,7 +1984,7 @@ BEGIN
         )::numeric AS login_t1_count,
         count(*) FILTER (
           WHERE actual_delivery_ts IS NOT NULL
-            AND upper(coalesce(final_payment_type, '')) = 'CF'
+            AND upper(coalesce(row_data ->> 'finalPaymentType', '')) = 'CF'
             AND cancellation_ts IS NULL
         )::numeric AS cf_attached_count,
         count(DISTINCT unique_user_id) FILTER (
