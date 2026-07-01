@@ -299,6 +299,25 @@ ALTER TABLE public.dashboard_cases
   ADD COLUMN IF NOT EXISTS payment_percentage NUMERIC,
   ADD COLUMN IF NOT EXISTS customer_key TEXT;
 
+-- Populate existing rows for customer_key and final_payment_type
+UPDATE public.dashboard_cases
+SET customer_key = nullif(
+  btrim(
+    coalesce(
+      row_data ->> 'userId',
+      row_data ->> 'uid',
+      row_data ->> 'leadId',
+      ''
+    )
+  ),
+  ''
+)
+WHERE customer_key IS NULL;
+
+UPDATE public.dashboard_cases
+SET final_payment_type = nullif(btrim(coalesce(row_data ->> 'finalPaymentType', '')), '')
+WHERE final_payment_type IS NULL;
+
 CREATE OR REPLACE FUNCTION public.dashboard_cases_sync_structured_columns()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -734,7 +753,7 @@ SELECT jsonb_build_object(
     ((c.lead_stage IN ('CANCELLED', 'RETURNED') OR c.deal_status = 'CANCEL')
      AND EXISTS (
        SELECT 1 FROM public.dashboard_cases d
-       WHERE public.dashboard_customer_key(d) = public.dashboard_customer_key(c)
+       WHERE d.customer_key = c.customer_key
          AND d.lead_stage = 'DELIVERED'
          AND coalesce(d.actual_delivery_date, d.token_date) >= c.token_date
      ))
@@ -742,7 +761,7 @@ SELECT jsonb_build_object(
     (c.lead_stage = 'DELIVERED'
      AND EXISTS (
        SELECT 1 FROM public.dashboard_cases d
-       WHERE public.dashboard_customer_key(d) = public.dashboard_customer_key(c)
+       WHERE d.customer_key = c.customer_key
          AND (d.lead_stage IN ('CANCELLED', 'RETURNED') OR d.deal_status = 'CANCEL')
          AND coalesce(c.actual_delivery_date, c.token_date) >= d.token_date
      ))
@@ -751,19 +770,19 @@ SELECT jsonb_build_object(
     ((c.lead_stage IN ('CANCELLED', 'RETURNED') OR c.deal_status = 'CANCEL')
      AND EXISTS (
        SELECT 1 FROM public.dashboard_cases d
-       WHERE public.dashboard_customer_key(d) = public.dashboard_customer_key(c)
+       WHERE d.customer_key = c.customer_key
          AND d.lead_stage = 'ACTIVE_TOKEN'
          AND (
            d.token_date >= c.token_date
            OR (
              EXISTS (
                SELECT 1 FROM public.dashboard_cases prev
-               WHERE public.dashboard_customer_key(prev) = public.dashboard_customer_key(c)
+               WHERE prev.customer_key = c.customer_key
                  AND prev.token_date < c.token_date
              )
              AND d.token_date >= (
                SELECT max(prev.token_date) FROM public.dashboard_cases prev
-               WHERE public.dashboard_customer_key(prev) = public.dashboard_customer_key(c)
+               WHERE prev.customer_key = c.customer_key
                  AND prev.token_date < c.token_date
              )
              AND d.token_date <= c.token_date
@@ -774,19 +793,19 @@ SELECT jsonb_build_object(
     (c.lead_stage = 'ACTIVE_TOKEN'
      AND EXISTS (
        SELECT 1 FROM public.dashboard_cases d
-       WHERE public.dashboard_customer_key(d) = public.dashboard_customer_key(c)
+       WHERE d.customer_key = c.customer_key
          AND (d.lead_stage IN ('CANCELLED', 'RETURNED') OR d.deal_status = 'CANCEL')
          AND (
            c.token_date >= d.token_date
            OR (
              EXISTS (
                SELECT 1 FROM public.dashboard_cases prev
-               WHERE public.dashboard_customer_key(prev) = public.dashboard_customer_key(d)
+               WHERE prev.customer_key = d.customer_key
                  AND prev.token_date < d.token_date
              )
              AND c.token_date >= (
                SELECT max(prev.token_date) FROM public.dashboard_cases prev
-               WHERE public.dashboard_customer_key(prev) = public.dashboard_customer_key(d)
+               WHERE prev.customer_key = d.customer_key
                  AND prev.token_date < d.token_date
              )
              AND c.token_date <= d.token_date
@@ -1006,7 +1025,7 @@ BEGIN
          AND EXISTS (
            SELECT 1
            FROM public.dashboard_cases d
-           WHERE public.dashboard_customer_key(d) = public.dashboard_customer_key(c)
+           WHERE d.customer_key = c.customer_key
              AND d.lead_stage = 'DELIVERED'
              AND coalesce(d.actual_delivery_date, d.token_date) >= c.token_date
          ))
@@ -1015,7 +1034,7 @@ BEGIN
          AND EXISTS (
            SELECT 1
            FROM public.dashboard_cases d
-           WHERE public.dashboard_customer_key(d) = public.dashboard_customer_key(c)
+           WHERE d.customer_key = c.customer_key
              AND (d.lead_stage IN ('CANCELLED', 'RETURNED') OR d.deal_status = 'CANCEL')
              AND coalesce(c.actual_delivery_date, c.token_date) >= d.token_date
          ))
@@ -1028,7 +1047,7 @@ BEGIN
          AND EXISTS (
            SELECT 1
            FROM public.dashboard_cases d
-           WHERE public.dashboard_customer_key(d) = public.dashboard_customer_key(c)
+           WHERE d.customer_key = c.customer_key
              AND d.lead_stage = 'ACTIVE_TOKEN'
              AND (
                d.token_date >= c.token_date
@@ -1036,13 +1055,13 @@ BEGIN
                  EXISTS (
                    SELECT 1
                    FROM public.dashboard_cases prev
-                   WHERE public.dashboard_customer_key(prev) = public.dashboard_customer_key(c)
+                   WHERE prev.customer_key = c.customer_key
                      AND prev.token_date < c.token_date
                  )
                  AND d.token_date >= (
                    SELECT max(prev.token_date)
                    FROM public.dashboard_cases prev
-                   WHERE public.dashboard_customer_key(prev) = public.dashboard_customer_key(c)
+                   WHERE prev.customer_key = c.customer_key
                      AND prev.token_date < c.token_date
                  )
                  AND d.token_date <= c.token_date
@@ -1054,7 +1073,7 @@ BEGIN
          AND EXISTS (
            SELECT 1
            FROM public.dashboard_cases d
-           WHERE public.dashboard_customer_key(d) = public.dashboard_customer_key(c)
+           WHERE d.customer_key = c.customer_key
              AND (d.lead_stage IN ('CANCELLED', 'RETURNED') OR d.deal_status = 'CANCEL')
              AND (
                c.token_date >= d.token_date
@@ -1062,13 +1081,13 @@ BEGIN
                  EXISTS (
                    SELECT 1
                    FROM public.dashboard_cases prev
-                   WHERE public.dashboard_customer_key(prev) = public.dashboard_customer_key(d)
+                   WHERE prev.customer_key = d.customer_key
                      AND prev.token_date < d.token_date
                  )
                  AND c.token_date >= (
                    SELECT max(prev.token_date)
                    FROM public.dashboard_cases prev
-                   WHERE public.dashboard_customer_key(prev) = public.dashboard_customer_key(d)
+                   WHERE prev.customer_key = d.customer_key
                      AND prev.token_date < d.token_date
                  )
                  AND c.token_date <= d.token_date
@@ -1303,7 +1322,7 @@ filtered_cancelled_c2d AS (
     AND EXISTS (
       SELECT 1
       FROM public.dashboard_cases d
-      WHERE public.dashboard_customer_key(d) = public.dashboard_customer_key(f)
+      WHERE d.customer_key = f.customer_key
         AND d.lead_stage = 'DELIVERED'
         AND coalesce(d.actual_delivery_date, d.token_date) >= f.token_date
     )
@@ -1315,7 +1334,7 @@ filtered_cancelled_c2a AS (
     AND EXISTS (
       SELECT 1
       FROM public.dashboard_cases d
-      WHERE public.dashboard_customer_key(d) = public.dashboard_customer_key(f)
+      WHERE d.customer_key = f.customer_key
         AND d.lead_stage = 'ACTIVE_TOKEN'
         AND (
           d.token_date >= f.token_date
@@ -1323,13 +1342,13 @@ filtered_cancelled_c2a AS (
             EXISTS (
               SELECT 1
               FROM public.dashboard_cases prev
-              WHERE public.dashboard_customer_key(prev) = public.dashboard_customer_key(f)
+              WHERE prev.customer_key = f.customer_key
                 AND prev.token_date < f.token_date
             )
             AND d.token_date >= (
               SELECT max(prev.token_date)
               FROM public.dashboard_cases prev
-              WHERE public.dashboard_customer_key(prev) = public.dashboard_customer_key(f)
+              WHERE prev.customer_key = f.customer_key
                 AND prev.token_date < f.token_date
             )
             AND d.token_date <= f.token_date
@@ -1670,7 +1689,7 @@ BEGIN
     WITH filtered AS MATERIALIZED (
       SELECT
         c.*,
-        public.dashboard_customer_key(c) AS unique_user_id,
+        c.customer_key AS unique_user_id,
         (public.dashboard_case_tags(c) ->> 'isC2D')::boolean AS is_c2d,
         (public.dashboard_case_tags(c) ->> 'isC2A')::boolean AS is_c2a,
         (public.dashboard_case_tags(c) ->> 'isCR2D')::boolean AS is_cr2d
@@ -1898,7 +1917,7 @@ BEGIN
     custom_enriched AS (
       SELECT
         c.*,
-        public.dashboard_customer_key(c) AS unique_user_id,
+        c.customer_key AS unique_user_id,
         c.token_date::timestamp AS token_ts,
         c.actual_delivery_date::timestamp AS actual_delivery_ts,
         public.parse_dashboard_timestamp(c.row_data ->> 'cancellationDate') AS cancellation_ts,
