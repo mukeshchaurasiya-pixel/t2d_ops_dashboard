@@ -299,25 +299,13 @@ ALTER TABLE public.dashboard_cases
   ADD COLUMN IF NOT EXISTS payment_percentage NUMERIC,
   ADD COLUMN IF NOT EXISTS customer_key TEXT;
 
-ALTER TABLE public.dashboard_cases
-  ADD COLUMN IF NOT EXISTS cancellation_ts TIMESTAMP WITHOUT TIME ZONE,
-  ADD COLUMN IF NOT EXISTS login_ts TIMESTAMP WITHOUT TIME ZONE;
-
--- Populate existing rows
+-- Populate existing rows for customer_key and final_payment_type
 UPDATE public.dashboard_cases
 SET customer_key = nullif(btrim(coalesce(row_data ->> 'userId', '')), '');
 
 UPDATE public.dashboard_cases
 SET final_payment_type = nullif(btrim(coalesce(row_data ->> 'finalPaymentType', '')), '')
 WHERE final_payment_type IS NULL;
-
-UPDATE public.dashboard_cases
-SET cancellation_ts = public.parse_dashboard_timestamp(row_data ->> 'cancellationDate')
-WHERE cancellation_ts IS NULL AND row_data ->> 'cancellationDate' IS NOT NULL;
-
-UPDATE public.dashboard_cases
-SET login_ts = public.parse_dashboard_timestamp(coalesce(row_data ->> 'latestLoginTime', row_data ->> 'sheetLoginTimestamp'))
-WHERE login_ts IS NULL AND (row_data ->> 'latestLoginTime' IS NOT NULL OR row_data ->> 'sheetLoginTimestamp' IS NOT NULL);
 
 CREATE OR REPLACE FUNCTION public.dashboard_cases_sync_structured_columns()
 RETURNS TRIGGER
@@ -357,8 +345,6 @@ BEGIN
   NEW.total_listing_days := public.dashboard_numeric(NEW.row_data ->> 'totalListingDays');
   NEW.payment_percentage := public.dashboard_numeric(NEW.row_data ->> 'paymentPercentage');
   NEW.customer_key := nullif(btrim(coalesce(NEW.row_data ->> 'userId', '')), '');
-  NEW.cancellation_ts := public.parse_dashboard_timestamp(NEW.row_data ->> 'cancellationDate');
-  NEW.login_ts := public.parse_dashboard_timestamp(coalesce(NEW.row_data ->> 'latestLoginTime', NEW.row_data ->> 'sheetLoginTimestamp'));
   RETURN NEW;
 END;
 $$;
@@ -721,14 +707,6 @@ BEGIN
 
   RETURN task_text LIKE '%' || normalized_candidate || '%';
 END;
-$$;
-
-CREATE OR REPLACE FUNCTION public.dashboard_customer_key(c public.dashboard_cases)
-RETURNS TEXT
-LANGUAGE sql
-STABLE
-AS $$
-SELECT coalesce(nullif(btrim(coalesce(c.row_data ->> 'userId', '')), ''), '');
 $$;
 
 CREATE OR REPLACE FUNCTION public.dashboard_case_tags(c public.dashboard_cases)
@@ -1674,85 +1652,22 @@ BEGIN
   END IF;
 
   RETURN (
-    WITH base_filtered AS MATERIALIZED (
-      SELECT
-        c.*,
-        c.customer_key AS unique_user_id
+    WITH filtered AS MATERIALIZED (
+      SELECT *
       FROM public.dashboard_cases c
       WHERE public.dashboard_case_matches_filters(c, non_date_filters)
-    ),
-    -- Pre-compute which customer_keys have DELIVERED rows (for C2D tagging)
-    delivered_customers AS MATERIALIZED (
-      SELECT customer_key, token_date,
-             coalesce(actual_delivery_date, token_date) AS effective_delivery_date
-      FROM base_filtered
-      WHERE lead_stage = 'DELIVERED'
-        AND customer_key IS NOT NULL AND customer_key <> ''
-    ),
-    -- Pre-compute which customer_keys have CANCELLED rows (for C2D reverse tagging)
-    cancelled_customers AS MATERIALIZED (
-      SELECT customer_key, token_date
-      FROM base_filtered
-      WHERE (lead_stage IN ('CANCELLED', 'RETURNED') OR deal_status = 'CANCEL')
-        AND customer_key IS NOT NULL AND customer_key <> ''
-    ),
-    -- Pre-compute which customer_keys have ACTIVE_TOKEN rows (for C2A tagging)
-    active_token_customers AS MATERIALIZED (
-      SELECT customer_key, token_date
-      FROM base_filtered
-      WHERE lead_stage = 'ACTIVE_TOKEN'
-        AND customer_key IS NOT NULL AND customer_key <> ''
-    ),
-    filtered AS MATERIALIZED (
-      SELECT
-        bf.*,
-        -- C2D: cancelled row with a delivered sibling after it, OR delivered row with a cancelled sibling before it
-        COALESCE(
-          CASE
-            WHEN (bf.lead_stage IN ('CANCELLED', 'RETURNED') OR bf.deal_status = 'CANCEL')
-            THEN EXISTS (
-              SELECT 1 FROM delivered_customers dc
-              WHERE dc.customer_key = bf.customer_key
-                AND dc.effective_delivery_date >= bf.token_date
-            )
-            WHEN bf.lead_stage = 'DELIVERED'
-            THEN EXISTS (
-              SELECT 1 FROM cancelled_customers cc
-              WHERE cc.customer_key = bf.customer_key
-                AND coalesce(bf.actual_delivery_date, bf.token_date) >= cc.token_date
-            )
-            ELSE false
-          END,
-          false
-        ) AS is_c2d,
-        -- C2A: cancelled row with active_token sibling, OR active_token row with cancelled sibling
-        COALESCE(
-          CASE
-            WHEN (bf.lead_stage IN ('CANCELLED', 'RETURNED') OR bf.deal_status = 'CANCEL')
-            THEN EXISTS (
-              SELECT 1 FROM active_token_customers atc
-              WHERE atc.customer_key = bf.customer_key
-                AND atc.token_date >= bf.token_date
-            )
-            WHEN bf.lead_stage = 'ACTIVE_TOKEN'
-            THEN EXISTS (
-              SELECT 1 FROM cancelled_customers cc
-              WHERE cc.customer_key = bf.customer_key
-                AND bf.token_date >= cc.token_date
-            )
-            ELSE false
-          END,
-          false
-        ) AS is_c2a,
-        -- CR2D: delivered with a cancel reason
-        (bf.lead_stage = 'DELIVERED' AND bf.cancel_reason IS NOT NULL AND bf.cancel_reason <> '') AS is_cr2d
-      FROM base_filtered bf
     ),
     enriched AS MATERIALIZED (
       SELECT
         f.*,
         f.token_date::timestamp AS token_ts,
-        f.actual_delivery_date::timestamp AS actual_delivery_ts
+        f.actual_delivery_date::timestamp AS actual_delivery_ts,
+        public.parse_dashboard_timestamp(f.row_data ->> 'cancellationDate') AS cancellation_ts,
+        public.parse_dashboard_timestamp(coalesce(f.row_data ->> 'latestLoginTime', f.row_data ->> 'sheetLoginTimestamp')) AS login_ts,
+        public.parse_dashboard_timestamp(f.row_data ->> 'sheetLoginTimestamp') AS sheet_login_ts,
+        (public.dashboard_case_tags(f) ->> 'isC2D')::boolean AS is_c2d,
+        (public.dashboard_case_tags(f) ->> 'isC2A')::boolean AS is_c2a,
+        (public.dashboard_case_tags(f) ->> 'isCR2D')::boolean AS is_cr2d
       FROM filtered f
     ),
     base_date AS (
@@ -1852,11 +1767,11 @@ BEGIN
                 AND (e.cancellation_ts IS NOT NULL OR nullif(btrim(coalesce(e.cancel_reason, '')), '') IS NOT NULL)
             )
         )::numeric AS nd,
-        count(DISTINCT e.unique_user_id) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts)::numeric AS inflow_count,
-        count(DISTINCT e.unique_user_id) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_rt(e.token_type))::numeric AS rt_inflow,
-        count(DISTINCT e.unique_user_id) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_nrt(e.token_type))::numeric AS nrt_inflow,
-        count(DISTINCT e.unique_user_id) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_pvt(e.token_type))::numeric AS pvt_inflow,
-        count(DISTINCT e.unique_user_id) FILTER (
+        count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts)::numeric AS inflow_count,
+        count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_rt(e.token_type))::numeric AS rt_inflow,
+        count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_nrt(e.token_type))::numeric AS nrt_inflow,
+        count(*) FILTER (WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts AND public.dashboard_token_is_pvt(e.token_type))::numeric AS pvt_inflow,
+        count(*) FILTER (
           WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
             AND public.dashboard_token_is_gcbl(coalesce(e.token_type, e.lead_ds_channel))
         )::numeric AS gcbl_inflow,
@@ -1891,15 +1806,15 @@ BEGIN
             AND public.dashboard_token_is_rt(e.token_type)
             AND greatest(extract(epoch from (tf.end_ts - e.token_ts)) / 86400.0, 0) > 4
         )::numeric AS active_rt_over4_count,
-        count(DISTINCT e.unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
             AND public.dashboard_token_is_nrt(coalesce(e.token_type_with_nrt, e.token_type))
         )::numeric AS nrt_upgrades,
-        count(DISTINCT e.unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
             AND public.dashboard_token_is_pvt(coalesce(e.token_type, e.token_type_with_nrt))
         )::numeric AS pvt_upgrades,
-        count(DISTINCT e.unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
             AND (
               e.login_ts IS NOT NULL
@@ -1907,40 +1822,40 @@ BEGIN
               OR upper(coalesce(e.lead_stage, '')) = 'LOGIN_COMPLETED'
             )
         )::numeric AS login_count,
-        count(DISTINCT e.unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE e.token_ts BETWEEN tf.start_ts AND tf.end_ts
             AND e.login_ts IS NOT NULL
             AND extract(epoch from (e.login_ts - e.token_ts)) >= 86400
         )::numeric AS login_t1_count,
         count(*) FILTER (
           WHERE e.actual_delivery_ts BETWEEN tf.start_ts AND tf.end_ts
-            AND upper(coalesce(e.row_data ->> 'finalPaymentType', '')) = 'CF'
+            AND upper(coalesce(e.final_payment_type, '')) = 'CF'
             AND e.cancellation_ts IS NULL
         )::numeric AS cf_attached_count,
-        count(DISTINCT e.unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
         )::numeric AS cohort_cancelled_count,
-        count(DISTINCT e.unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
             AND public.dashboard_token_is_rt(e.token_type)
         )::numeric AS cohort_rt_cancelled,
-        count(DISTINCT e.unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
             AND public.dashboard_token_is_nrt(e.token_type)
         )::numeric AS cohort_nrt_cancelled,
-        count(DISTINCT e.unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
             AND public.dashboard_token_is_pvt(e.token_type)
         )::numeric AS cohort_pvt_cancelled,
-        count(DISTINCT e.unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
             AND e.is_c2d
         )::numeric AS c2d_count,
-        count(DISTINCT e.unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE e.cancellation_ts BETWEEN tf.start_ts AND tf.end_ts
             AND e.is_c2a
         )::numeric AS c2a_count,
-        count(DISTINCT e.unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE coalesce(e.cancellation_ts, e.actual_delivery_ts) BETWEEN tf.start_ts AND tf.end_ts
             AND e.is_cr2d
         )::numeric AS cr2d_count,
@@ -1963,75 +1878,18 @@ BEGIN
       LEFT JOIN enriched e ON true
       GROUP BY tf.key, tf.label, tf.sub_label, tf.start_ts, tf.end_ts
     ),
-    custom_base AS MATERIALIZED (
-      SELECT
-        c.*,
-        c.customer_key AS unique_user_id,
-        c.token_date::timestamp AS token_ts,
-        c.actual_delivery_date::timestamp AS actual_delivery_ts
-      FROM public.dashboard_cases c
-      WHERE public.dashboard_case_matches_filters(c, input_filters)
-    ),
-    custom_delivered AS MATERIALIZED (
-      SELECT customer_key, token_date,
-             coalesce(actual_delivery_date, token_date) AS effective_delivery_date
-      FROM custom_base
-      WHERE lead_stage = 'DELIVERED'
-        AND customer_key IS NOT NULL AND customer_key <> ''
-    ),
-    custom_cancelled AS MATERIALIZED (
-      SELECT customer_key, token_date
-      FROM custom_base
-      WHERE (lead_stage IN ('CANCELLED', 'RETURNED') OR deal_status = 'CANCEL')
-        AND customer_key IS NOT NULL AND customer_key <> ''
-    ),
-    custom_active_token AS MATERIALIZED (
-      SELECT customer_key, token_date
-      FROM custom_base
-      WHERE lead_stage = 'ACTIVE_TOKEN'
-        AND customer_key IS NOT NULL AND customer_key <> ''
-    ),
     custom_enriched AS (
       SELECT
-        cb.*,
-        COALESCE(
-          CASE
-            WHEN (cb.lead_stage IN ('CANCELLED', 'RETURNED') OR cb.deal_status = 'CANCEL')
-            THEN EXISTS (
-              SELECT 1 FROM custom_delivered cd
-              WHERE cd.customer_key = cb.customer_key
-                AND cd.effective_delivery_date >= cb.token_date
-            )
-            WHEN cb.lead_stage = 'DELIVERED'
-            THEN EXISTS (
-              SELECT 1 FROM custom_cancelled cc
-              WHERE cc.customer_key = cb.customer_key
-                AND coalesce(cb.actual_delivery_date, cb.token_date) >= cc.token_date
-            )
-            ELSE false
-          END,
-          false
-        ) AS is_c2d,
-        COALESCE(
-          CASE
-            WHEN (cb.lead_stage IN ('CANCELLED', 'RETURNED') OR cb.deal_status = 'CANCEL')
-            THEN EXISTS (
-              SELECT 1 FROM custom_active_token cat
-              WHERE cat.customer_key = cb.customer_key
-                AND cat.token_date >= cb.token_date
-            )
-            WHEN cb.lead_stage = 'ACTIVE_TOKEN'
-            THEN EXISTS (
-              SELECT 1 FROM custom_cancelled cc
-              WHERE cc.customer_key = cb.customer_key
-                AND cb.token_date >= cc.token_date
-            )
-            ELSE false
-          END,
-          false
-        ) AS is_c2a,
-        (cb.lead_stage = 'DELIVERED' AND cb.cancel_reason IS NOT NULL AND cb.cancel_reason <> '') AS is_cr2d
-      FROM custom_base cb
+        c.*,
+        c.token_date::timestamp AS token_ts,
+        c.actual_delivery_date::timestamp AS actual_delivery_ts,
+        public.parse_dashboard_timestamp(c.row_data ->> 'cancellationDate') AS cancellation_ts,
+        public.parse_dashboard_timestamp(coalesce(c.row_data ->> 'latestLoginTime', c.row_data ->> 'sheetLoginTimestamp')) AS login_ts,
+        (public.dashboard_case_tags(c) ->> 'isC2D')::boolean AS is_c2d,
+        (public.dashboard_case_tags(c) ->> 'isC2A')::boolean AS is_c2a,
+        (public.dashboard_case_tags(c) ->> 'isCR2D')::boolean AS is_cr2d
+      FROM public.dashboard_cases c
+      WHERE public.dashboard_case_matches_filters(c, input_filters)
     ),
     custom_metrics AS (
       SELECT
@@ -2046,11 +1904,11 @@ BEGIN
                 AND (cancellation_ts IS NOT NULL OR nullif(btrim(coalesce(cancel_reason, '')), '') IS NOT NULL)
             )
         )::numeric AS nd,
-        count(DISTINCT unique_user_id) FILTER (WHERE token_ts IS NOT NULL)::numeric AS inflow_count,
-        count(DISTINCT unique_user_id) FILTER (WHERE token_ts IS NOT NULL AND public.dashboard_token_is_rt(token_type))::numeric AS rt_inflow,
-        count(DISTINCT unique_user_id) FILTER (WHERE token_ts IS NOT NULL AND public.dashboard_token_is_nrt(token_type))::numeric AS nrt_inflow,
-        count(DISTINCT unique_user_id) FILTER (WHERE token_ts IS NOT NULL AND public.dashboard_token_is_pvt(token_type))::numeric AS pvt_inflow,
-        count(DISTINCT unique_user_id) FILTER (
+        count(*) FILTER (WHERE token_ts IS NOT NULL)::numeric AS inflow_count,
+        count(*) FILTER (WHERE token_ts IS NOT NULL AND public.dashboard_token_is_rt(token_type))::numeric AS rt_inflow,
+        count(*) FILTER (WHERE token_ts IS NOT NULL AND public.dashboard_token_is_nrt(token_type))::numeric AS nrt_inflow,
+        count(*) FILTER (WHERE token_ts IS NOT NULL AND public.dashboard_token_is_pvt(token_type))::numeric AS pvt_inflow,
+        count(*) FILTER (
           WHERE token_ts IS NOT NULL
             AND public.dashboard_token_is_gcbl(coalesce(token_type, lead_ds_channel))
         )::numeric AS gcbl_inflow,
@@ -2085,15 +1943,15 @@ BEGIN
             AND public.dashboard_token_is_rt(token_type)
             AND greatest(extract(epoch from (custom_end_ts - token_ts)) / 86400.0, 0) > 4
         )::numeric AS active_rt_over4_count,
-        count(DISTINCT unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE token_ts IS NOT NULL
             AND public.dashboard_token_is_nrt(coalesce(token_type_with_nrt, token_type))
         )::numeric AS nrt_upgrades,
-        count(DISTINCT unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE token_ts IS NOT NULL
             AND public.dashboard_token_is_pvt(coalesce(token_type, token_type_with_nrt))
         )::numeric AS pvt_upgrades,
-        count(DISTINCT unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE token_ts IS NOT NULL
             AND (
               login_ts IS NOT NULL
@@ -2101,40 +1959,40 @@ BEGIN
               OR upper(coalesce(lead_stage, '')) = 'LOGIN_COMPLETED'
             )
         )::numeric AS login_count,
-        count(DISTINCT unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE token_ts IS NOT NULL
             AND login_ts IS NOT NULL
             AND extract(epoch from (login_ts - token_ts)) >= 86400
         )::numeric AS login_t1_count,
         count(*) FILTER (
           WHERE actual_delivery_ts IS NOT NULL
-            AND upper(coalesce(row_data ->> 'finalPaymentType', '')) = 'CF'
+            AND upper(coalesce(final_payment_type, '')) = 'CF'
             AND cancellation_ts IS NULL
         )::numeric AS cf_attached_count,
-        count(DISTINCT unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE cancellation_ts IS NOT NULL
         )::numeric AS cohort_cancelled_count,
-        count(DISTINCT unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE cancellation_ts IS NOT NULL
             AND public.dashboard_token_is_rt(token_type)
         )::numeric AS cohort_rt_cancelled,
-        count(DISTINCT unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE cancellation_ts IS NOT NULL
             AND public.dashboard_token_is_nrt(token_type)
         )::numeric AS cohort_nrt_cancelled,
-        count(DISTINCT unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE cancellation_ts IS NOT NULL
             AND public.dashboard_token_is_pvt(token_type)
         )::numeric AS cohort_pvt_cancelled,
-        count(DISTINCT unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE cancellation_ts IS NOT NULL
             AND is_c2d
         )::numeric AS c2d_count,
-        count(DISTINCT unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE cancellation_ts IS NOT NULL
             AND is_c2a
         )::numeric AS c2a_count,
-        count(DISTINCT unique_user_id) FILTER (
+        count(*) FILTER (
           WHERE coalesce(cancellation_ts, actual_delivery_ts) IS NOT NULL
             AND is_cr2d
         )::numeric AS cr2d_count,
