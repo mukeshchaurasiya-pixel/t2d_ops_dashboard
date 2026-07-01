@@ -274,7 +274,7 @@ export function calculateOperationsMatrix(rows: CaseRow[], filters?: FilterState
     const getUniqueUserCount = (cases: CaseRow[]) => {
       const userSet = new Set<string>();
       cases.forEach(r => {
-        const userId = r.userId || r.uid || r.leadId;
+        const userId = r.userId;
         if (userId) userSet.add(userId.trim());
       });
       return userSet.size;

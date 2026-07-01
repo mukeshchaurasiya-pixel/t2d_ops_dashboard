@@ -301,18 +301,7 @@ ALTER TABLE public.dashboard_cases
 
 -- Populate existing rows for customer_key and final_payment_type
 UPDATE public.dashboard_cases
-SET customer_key = nullif(
-  btrim(
-    coalesce(
-      row_data ->> 'userId',
-      row_data ->> 'uid',
-      row_data ->> 'leadId',
-      ''
-    )
-  ),
-  ''
-)
-WHERE customer_key IS NULL;
+SET customer_key = nullif(btrim(coalesce(row_data ->> 'userId', '')), '');
 
 UPDATE public.dashboard_cases
 SET final_payment_type = nullif(btrim(coalesce(row_data ->> 'finalPaymentType', '')), '')
@@ -355,17 +344,7 @@ BEGIN
   NEW.lead_ds_channel := nullif(btrim(coalesce(NEW.row_data ->> 'leadDsChannel', '')), '');
   NEW.total_listing_days := public.dashboard_numeric(NEW.row_data ->> 'totalListingDays');
   NEW.payment_percentage := public.dashboard_numeric(NEW.row_data ->> 'paymentPercentage');
-  NEW.customer_key := nullif(
-    btrim(
-      coalesce(
-        NEW.row_data ->> 'userId',
-        NEW.row_data ->> 'uid',
-        NEW.row_data ->> 'leadId',
-        ''
-      )
-    ),
-    ''
-  );
+  NEW.customer_key := nullif(btrim(coalesce(NEW.row_data ->> 'userId', '')), '');
   RETURN NEW;
 END;
 $$;
@@ -735,12 +714,7 @@ RETURNS TEXT
 LANGUAGE sql
 STABLE
 AS $$
-SELECT coalesce(
-  nullif(btrim(coalesce(c.row_data ->> 'userId', '')), ''),
-  nullif(btrim(coalesce(c.row_data ->> 'uid', '')), ''),
-  nullif(btrim(coalesce(c.row_data ->> 'leadId', '')), ''),
-  ''
-);
+SELECT coalesce(nullif(btrim(coalesce(c.row_data ->> 'userId', '')), ''), '');
 $$;
 
 CREATE OR REPLACE FUNCTION public.dashboard_case_tags(c public.dashboard_cases)
