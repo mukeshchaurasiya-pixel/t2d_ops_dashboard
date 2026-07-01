@@ -129,7 +129,7 @@ function buildCaseRecord(row: CaseRow): DashboardCaseRecord {
     lead_ds_channel: cleanString(row.leadDsChannel),
     total_listing_days: toNumeric(row.totalListingDays),
     payment_percentage: toNumeric(row.paymentPercentage),
-    customer_key: cleanString(row.userId),
+    customer_key: cleanString(row.userId || row.uid || row.leadId),
   };
 }
 

@@ -299,14 +299,6 @@ ALTER TABLE public.dashboard_cases
   ADD COLUMN IF NOT EXISTS payment_percentage NUMERIC,
   ADD COLUMN IF NOT EXISTS customer_key TEXT;
 
--- Populate existing rows for customer_key and final_payment_type
-UPDATE public.dashboard_cases
-SET customer_key = nullif(btrim(coalesce(row_data ->> 'userId', '')), '');
-
-UPDATE public.dashboard_cases
-SET final_payment_type = nullif(btrim(coalesce(row_data ->> 'finalPaymentType', '')), '')
-WHERE final_payment_type IS NULL;
-
 CREATE OR REPLACE FUNCTION public.dashboard_cases_sync_structured_columns()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -344,7 +336,17 @@ BEGIN
   NEW.lead_ds_channel := nullif(btrim(coalesce(NEW.row_data ->> 'leadDsChannel', '')), '');
   NEW.total_listing_days := public.dashboard_numeric(NEW.row_data ->> 'totalListingDays');
   NEW.payment_percentage := public.dashboard_numeric(NEW.row_data ->> 'paymentPercentage');
-  NEW.customer_key := nullif(btrim(coalesce(NEW.row_data ->> 'userId', '')), '');
+  NEW.customer_key := nullif(
+    btrim(
+      coalesce(
+        NEW.row_data ->> 'userId',
+        NEW.row_data ->> 'uid',
+        NEW.row_data ->> 'leadId',
+        ''
+      )
+    ),
+    ''
+  );
   RETURN NEW;
 END;
 $$;

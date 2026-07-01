@@ -297,7 +297,7 @@ export function buildC2DStats(rows: CaseRow[]): C2DStats {
 
   const grouped: Record<string, CaseRow[]> = {};
   rows.forEach(row => {
-    const id = row.userId;
+    const id = row.userId || row.uid || row.leadId;
     if (!id) return;
     const key = id.trim();
     if (!grouped[key]) grouped[key] = [];
@@ -318,7 +318,7 @@ export function buildC2DStats(rows: CaseRow[]): C2DStats {
     if (row.isCR2D) cr2dBookingIds.add(row.bookingId);
 
     const flags = getDerivedFlags(row);
-    const customerId = row.userId;
+    const customerId = row.userId || row.uid || row.leadId;
 
     if (row.leadStage === 'DELIVERED' && Boolean(row.cancelReason)) {
       cr2dBookingIds.add(row.bookingId);

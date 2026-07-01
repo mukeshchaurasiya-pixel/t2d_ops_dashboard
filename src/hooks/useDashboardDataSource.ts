@@ -123,7 +123,7 @@ function buildFilteredCancelledC2dCount(filteredRows: CaseRow[], allRows: CaseRo
 
   allRows.forEach(row => {
     if (row.leadStage === 'DELIVERED') {
-      const key = row.userId;
+      const key = row.userId || row.uid || row.leadId;
       if (key) {
         const cleanedKey = key.trim();
         const delDateStr = row.actualDeliveryDate || row.tokenDate;
@@ -144,7 +144,7 @@ function buildFilteredCancelledC2dCount(filteredRows: CaseRow[], allRows: CaseRo
   filteredRows.forEach(row => {
     const flags = getDerivedFlags(row);
     if (flags.isCancelled) {
-      const key = row.userId;
+      const key = row.userId || row.uid || row.leadId;
       if (key) {
         const cleanedKey = key.trim();
         const deliveredTimes = customerDeliveredTimes.get(cleanedKey);
@@ -165,7 +165,7 @@ function buildFilteredCancelledC2dCount(filteredRows: CaseRow[], allRows: CaseRo
 function buildFilteredCancelledC2aCount(filteredRows: CaseRow[], allRows: CaseRow[]): number {
   const customerBookings = new Map<string, CaseRow[]>();
   allRows.forEach(row => {
-    const key = row.userId;
+    const key = row.userId || row.uid || row.leadId;
     if (key) {
       const cleanedKey = key.trim();
       if (!customerBookings.has(cleanedKey)) {
@@ -187,7 +187,7 @@ function buildFilteredCancelledC2aCount(filteredRows: CaseRow[], allRows: CaseRo
   filteredRows.forEach(row => {
     const flags = getDerivedFlags(row);
     if (flags.isCancelled) {
-      const key = row.userId;
+      const key = row.userId || row.uid || row.leadId;
       if (key) {
         const cleanedKey = key.trim();
         const sortedBookings = customerBookings.get(cleanedKey) || [];
