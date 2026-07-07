@@ -377,6 +377,8 @@ CREATE INDEX IF NOT EXISTS idx_dashboard_cases_final_payment_type ON public.dash
 CREATE INDEX IF NOT EXISTS idx_dashboard_cases_task_bucket ON public.dashboard_cases (task_bucket);
 CREATE INDEX IF NOT EXISTS idx_dashboard_cases_total_listing_days ON public.dashboard_cases (total_listing_days);
 CREATE INDEX IF NOT EXISTS idx_dashboard_cases_customer_key ON public.dashboard_cases (customer_key);
+CREATE INDEX IF NOT EXISTS idx_dashboard_cases_customer_key_token_date ON public.dashboard_cases (customer_key, token_date DESC);
+CREATE INDEX IF NOT EXISTS idx_dashboard_cases_customer_key_lead_stage ON public.dashboard_cases (customer_key, lead_stage);
 
 ALTER TABLE public.dashboard_cases ENABLE ROW LEVEL SECURITY;
 
@@ -1654,14 +1656,89 @@ BEGIN
   END IF;
 
   RETURN (
-    WITH filtered AS MATERIALIZED (
+    WITH base_filtered AS MATERIALIZED (
       SELECT
-        c.*,
-        (public.dashboard_case_tags(c) ->> 'isC2D')::boolean AS is_c2d,
-        (public.dashboard_case_tags(c) ->> 'isC2A')::boolean AS is_c2a,
-        (public.dashboard_case_tags(c) ->> 'isCR2D')::boolean AS is_cr2d
+        c.*
       FROM public.dashboard_cases c
       WHERE public.dashboard_case_matches_filters(c, non_date_filters)
+    ),
+    base_filtered_with_prev AS (
+      SELECT bf.*, prev.max_prev_token_date
+      FROM base_filtered bf
+      LEFT JOIN LATERAL (
+        SELECT max(d.token_date) AS max_prev_token_date
+        FROM public.dashboard_cases d
+        WHERE d.customer_key = bf.customer_key
+          AND d.token_date < bf.token_date
+      ) prev ON true
+    ),
+    filtered AS MATERIALIZED (
+      SELECT
+        c.*,
+        COALESCE(
+          CASE
+            WHEN (c.lead_stage IN ('CANCELLED', 'RETURNED') OR c.deal_status = 'CANCEL')
+            THEN EXISTS (
+              SELECT 1 FROM public.dashboard_cases d
+              WHERE d.customer_key = c.customer_key
+                AND d.lead_stage = 'DELIVERED'
+                AND coalesce(d.actual_delivery_date, d.token_date) >= c.token_date
+            )
+            WHEN c.lead_stage = 'DELIVERED'
+            THEN EXISTS (
+              SELECT 1 FROM public.dashboard_cases d
+              WHERE d.customer_key = c.customer_key
+                AND (d.lead_stage IN ('CANCELLED', 'RETURNED') OR d.deal_status = 'CANCEL')
+                AND coalesce(c.actual_delivery_date, c.token_date) >= d.token_date
+            )
+            ELSE false
+          END,
+          false
+        ) AS is_c2d,
+        COALESCE(
+          CASE
+            WHEN (c.lead_stage IN ('CANCELLED', 'RETURNED') OR c.deal_status = 'CANCEL')
+            THEN EXISTS (
+              SELECT 1 FROM public.dashboard_cases d
+              WHERE d.customer_key = c.customer_key
+                AND d.lead_stage = 'ACTIVE_TOKEN'
+                AND (
+                  d.token_date >= c.token_date
+                  OR (
+                    c.max_prev_token_date IS NOT NULL
+                    AND d.token_date >= c.max_prev_token_date
+                    AND d.token_date <= c.token_date
+                  )
+                )
+            )
+            WHEN c.lead_stage = 'ACTIVE_TOKEN'
+            THEN EXISTS (
+              SELECT 1 FROM public.dashboard_cases d
+              WHERE d.customer_key = c.customer_key
+                AND (d.lead_stage IN ('CANCELLED', 'RETURNED') OR d.deal_status = 'CANCEL')
+                AND (
+                  c.token_date >= d.token_date
+                  OR (
+                    EXISTS (
+                      SELECT 1 FROM public.dashboard_cases prev
+                      WHERE prev.customer_key = d.customer_key
+                        AND prev.token_date < d.token_date
+                    )
+                    AND c.token_date >= (
+                      SELECT max(prev.token_date) FROM public.dashboard_cases prev
+                      WHERE prev.customer_key = d.customer_key
+                        AND prev.token_date < d.token_date
+                    )
+                    AND c.token_date <= d.token_date
+                  )
+                )
+            )
+            ELSE false
+          END,
+          false
+        ) AS is_c2a,
+        (c.lead_stage = 'DELIVERED' AND c.cancel_reason IS NOT NULL AND c.cancel_reason <> '') AS is_cr2d
+      FROM base_filtered_with_prev c
     ),
     enriched AS MATERIALIZED (
       SELECT
@@ -1881,6 +1958,22 @@ BEGIN
       LEFT JOIN enriched e ON true
       GROUP BY tf.key, tf.label, tf.sub_label, tf.start_ts, tf.end_ts
     ),
+    custom_base AS MATERIALIZED (
+      SELECT
+        c.*
+      FROM public.dashboard_cases c
+      WHERE public.dashboard_case_matches_filters(c, input_filters)
+    ),
+    custom_base_with_prev AS (
+      SELECT cb.*, prev.max_prev_token_date
+      FROM custom_base cb
+      LEFT JOIN LATERAL (
+        SELECT max(d.token_date) AS max_prev_token_date
+        FROM public.dashboard_cases d
+        WHERE d.customer_key = cb.customer_key
+          AND d.token_date < cb.token_date
+      ) prev ON true
+    ),
     custom_enriched AS (
       SELECT
         c.*,
@@ -1888,11 +1981,70 @@ BEGIN
         c.actual_delivery_date::timestamp AS actual_delivery_ts,
         public.parse_dashboard_timestamp(c.row_data ->> 'cancellationDate') AS cancellation_ts,
         public.parse_dashboard_timestamp(coalesce(c.row_data ->> 'latestLoginTime', c.row_data ->> 'sheetLoginTimestamp')) AS login_ts,
-        (public.dashboard_case_tags(c) ->> 'isC2D')::boolean AS is_c2d,
-        (public.dashboard_case_tags(c) ->> 'isC2A')::boolean AS is_c2a,
-        (public.dashboard_case_tags(c) ->> 'isCR2D')::boolean AS is_cr2d
-      FROM public.dashboard_cases c
-      WHERE public.dashboard_case_matches_filters(c, input_filters)
+        COALESCE(
+          CASE
+            WHEN (c.lead_stage IN ('CANCELLED', 'RETURNED') OR c.deal_status = 'CANCEL')
+            THEN EXISTS (
+              SELECT 1 FROM public.dashboard_cases d
+              WHERE d.customer_key = c.customer_key
+                AND d.lead_stage = 'DELIVERED'
+                AND coalesce(d.actual_delivery_date, d.token_date) >= c.token_date
+            )
+            WHEN c.lead_stage = 'DELIVERED'
+            THEN EXISTS (
+              SELECT 1 FROM public.dashboard_cases d
+              WHERE d.customer_key = c.customer_key
+                AND (d.lead_stage IN ('CANCELLED', 'RETURNED') OR d.deal_status = 'CANCEL')
+                AND coalesce(c.actual_delivery_date, c.token_date) >= d.token_date
+            )
+            ELSE false
+          END,
+          false
+        ) AS is_c2d,
+        COALESCE(
+          CASE
+            WHEN (c.lead_stage IN ('CANCELLED', 'RETURNED') OR c.deal_status = 'CANCEL')
+            THEN EXISTS (
+              SELECT 1 FROM public.dashboard_cases d
+              WHERE d.customer_key = c.customer_key
+                AND d.lead_stage = 'ACTIVE_TOKEN'
+                AND (
+                  d.token_date >= c.token_date
+                  OR (
+                    c.max_prev_token_date IS NOT NULL
+                    AND d.token_date >= c.max_prev_token_date
+                    AND d.token_date <= c.token_date
+                  )
+                )
+            )
+            WHEN c.lead_stage = 'ACTIVE_TOKEN'
+            THEN EXISTS (
+              SELECT 1 FROM public.dashboard_cases d
+              WHERE d.customer_key = c.customer_key
+                AND (d.lead_stage IN ('CANCELLED', 'RETURNED') OR d.deal_status = 'CANCEL')
+                AND (
+                  c.token_date >= d.token_date
+                  OR (
+                    EXISTS (
+                      SELECT 1 FROM public.dashboard_cases prev
+                      WHERE prev.customer_key = d.customer_key
+                        AND prev.token_date < d.token_date
+                    )
+                    AND c.token_date >= (
+                      SELECT max(prev.token_date) FROM public.dashboard_cases prev
+                      WHERE prev.customer_key = d.customer_key
+                        AND prev.token_date < d.token_date
+                    )
+                    AND c.token_date <= d.token_date
+                  )
+                )
+            )
+            ELSE false
+          END,
+          false
+        ) AS is_c2a,
+        (c.lead_stage = 'DELIVERED' AND c.cancel_reason IS NOT NULL AND c.cancel_reason <> '') AS is_cr2d
+      FROM custom_base_with_prev c
     ),
     custom_metrics AS (
       SELECT
