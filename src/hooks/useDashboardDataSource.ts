@@ -28,6 +28,9 @@ import { buildC2DStats, buildDynamicFilterOptions, buildEddLabels, C2DStats, isR
 import { getDerivedFlags, splitTasks } from '../data/mockData';
 import { parseDateString } from '../lib/dateUtils';
 
+// Module-level cache for matrix RPC results (keyed by serialized filters)
+const matrixCache = new Map<string, DashboardMatrixResult>();
+
 type DashboardDataSourceArgs = {
   activeTab: 'ops' | 'performance' | 'loss' | 'ledger';
   demoMode: boolean;
@@ -432,6 +435,7 @@ export function useDashboardDataSource({
   }, [demoMode, refreshKey, reloadNonce]);
 
   const reload = useCallback(() => {
+    matrixCache.clear();
     setReloadNonce(prev => prev + 1);
   }, []);
 
@@ -479,6 +483,17 @@ export function useDashboardDataSource({
     reloadNonce,
   ]);
 
+  // Debounce filter changes for the expensive matrix RPC call
+  const [debouncedFilters, setDebouncedFilters] = useState(query.filters);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedFilters(query.filters);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [query.filters]);
+
+
+
   useEffect(() => {
     if (demoMode || activeTokenFastPath) {
       return;
@@ -491,12 +506,26 @@ export function useDashboardDataSource({
       return;
     }
 
+    const cacheKey = JSON.stringify(debouncedFilters);
+    const cached = matrixCache.get(cacheKey);
+    if (cached) {
+      setMatrix(cached);
+      setLoadingMatrix(false);
+      return;
+    }
+
     const loadMatrix = async () => {
       setLoadingMatrix(true);
       try {
-        const matrixResult = await getDashboardMatrixFromDb({ filters: query.filters });
+        const matrixResult = await getDashboardMatrixFromDb({ filters: debouncedFilters });
         if (!cancelled) {
           setMatrix(matrixResult);
+          // Cache result (keep max 5 entries to bound memory)
+          if (matrixCache.size >= 5) {
+            const firstKey = matrixCache.keys().next().value;
+            if (firstKey !== undefined) matrixCache.delete(firstKey);
+          }
+          matrixCache.set(cacheKey, matrixResult);
         }
       } catch (err) {
         console.error('Failed to load dashboard matrix summary:', err);
@@ -512,7 +541,7 @@ export function useDashboardDataSource({
     return () => {
       cancelled = true;
     };
-  }, [activeTab, activeTokenFastPath, demoMode, query.filters, reloadNonce]);
+  }, [activeTab, activeTokenFastPath, demoMode, debouncedFilters, reloadNonce]);
 
   return {
     pageRows,

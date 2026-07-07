@@ -297,7 +297,9 @@ ALTER TABLE public.dashboard_cases
   ADD COLUMN IF NOT EXISTS lead_ds_channel TEXT,
   ADD COLUMN IF NOT EXISTS total_listing_days NUMERIC,
   ADD COLUMN IF NOT EXISTS payment_percentage NUMERIC,
-  ADD COLUMN IF NOT EXISTS customer_key TEXT;
+  ADD COLUMN IF NOT EXISTS customer_key TEXT,
+  ADD COLUMN IF NOT EXISTS cancellation_date TIMESTAMP WITHOUT TIME ZONE,
+  ADD COLUMN IF NOT EXISTS login_date TIMESTAMP WITHOUT TIME ZONE;
 
 CREATE OR REPLACE FUNCTION public.dashboard_cases_sync_structured_columns()
 RETURNS TRIGGER
@@ -346,6 +348,10 @@ BEGIN
       )
     ),
     ''
+  );
+  NEW.cancellation_date := public.parse_dashboard_timestamp(NEW.row_data ->> 'cancellationDate');
+  NEW.login_date := public.parse_dashboard_timestamp(
+    coalesce(NEW.row_data ->> 'latestLoginTime', NEW.row_data ->> 'sheetLoginTimestamp')
   );
   RETURN NEW;
 END;
@@ -1745,8 +1751,8 @@ BEGIN
         f.*,
         f.token_date::timestamp AS token_ts,
         f.actual_delivery_date::timestamp AS actual_delivery_ts,
-        public.parse_dashboard_timestamp(f.row_data ->> 'cancellationDate') AS cancellation_ts,
-        public.parse_dashboard_timestamp(coalesce(f.row_data ->> 'latestLoginTime', f.row_data ->> 'sheetLoginTimestamp')) AS login_ts,
+        f.cancellation_date AS cancellation_ts,
+        f.login_date AS login_ts,
         public.parse_dashboard_timestamp(f.row_data ->> 'sheetLoginTimestamp') AS sheet_login_ts
       FROM filtered f
     ),
@@ -1979,8 +1985,8 @@ BEGIN
         c.*,
         c.token_date::timestamp AS token_ts,
         c.actual_delivery_date::timestamp AS actual_delivery_ts,
-        public.parse_dashboard_timestamp(c.row_data ->> 'cancellationDate') AS cancellation_ts,
-        public.parse_dashboard_timestamp(coalesce(c.row_data ->> 'latestLoginTime', c.row_data ->> 'sheetLoginTimestamp')) AS login_ts,
+        c.cancellation_date AS cancellation_ts,
+        c.login_date AS login_ts,
         COALESCE(
           CASE
             WHEN (c.lead_stage IN ('CANCELLED', 'RETURNED') OR c.deal_status = 'CANCEL')
