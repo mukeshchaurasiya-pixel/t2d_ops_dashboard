@@ -1635,6 +1635,7 @@ DECLARE
   custom_end TIMESTAMP;
   custom_end_ts TIMESTAMP;
   result_json JSONB;
+  min_relevant_date DATE;
 BEGIN
   -- Strip date fields from input_filters for the standard cohort comparison
   non_date_filters := input_filters - 'dateField' - 'startDate' - 'endDate' - 'filterBlankDates' - 'dateFilters';
@@ -1661,12 +1662,45 @@ BEGIN
     END IF;
   END IF;
 
+  -- The oldest start date across standard timeframes is from "last_mtd" or "llm" (beginning of previous month).
+  -- We default min_relevant_date to the first day of the previous calendar month.
+  min_relevant_date := (date_trunc('month', now() - interval '1 month')::date);
+  
+  IF has_date_filter THEN
+    -- If custom range goes even further back, adjust min_relevant_date accordingly
+    custom_start := public.parse_dashboard_timestamp(input_filters ->> 'startDate');
+    IF custom_start IS NOT NULL AND custom_start::date < min_relevant_date THEN
+      min_relevant_date := custom_start::date;
+    END IF;
+  END IF;
+
+  -- Also check dateFilters array for custom filters going back further
+  IF input_filters ? 'dateFilters' AND jsonb_typeof(input_filters -> 'dateFilters') = 'array' THEN
+    DECLARE
+      date_filter JSONB;
+      f_start TIMESTAMP;
+    BEGIN
+      FOR date_filter IN SELECT value FROM jsonb_array_elements(input_filters -> 'dateFilters') LOOP
+        f_start := public.parse_dashboard_timestamp(date_filter ->> 'startDate');
+        IF f_start IS NOT NULL AND f_start::date < min_relevant_date THEN
+          min_relevant_date := f_start::date;
+        END IF;
+      END LOOP;
+    END;
+  END IF;
+
   RETURN (
     WITH base_filtered AS MATERIALIZED (
       SELECT
         c.*
       FROM public.dashboard_cases c
       WHERE public.dashboard_case_matches_filters(c, non_date_filters)
+        AND (
+          c.token_date >= min_relevant_date
+          OR c.actual_delivery_date >= min_relevant_date
+          OR c.cancel_req_date >= min_relevant_date
+          OR c.lead_stage = 'ACTIVE_TOKEN'
+        )
     ),
     base_filtered_with_prev AS (
       SELECT bf.*, prev.max_prev_token_date
@@ -1751,8 +1785,8 @@ BEGIN
         f.*,
         f.token_date::timestamp AS token_ts,
         f.actual_delivery_date::timestamp AS actual_delivery_ts,
-        f.cancellation_date AS cancellation_ts,
-        f.login_date AS login_ts,
+        coalesce(f.cancellation_date, public.parse_dashboard_timestamp(f.row_data ->> 'cancellationDate')) AS cancellation_ts,
+        coalesce(f.login_date, public.parse_dashboard_timestamp(coalesce(f.row_data ->> 'latestLoginTime', f.row_data ->> 'sheetLoginTimestamp'))) AS login_ts,
         public.parse_dashboard_timestamp(f.row_data ->> 'sheetLoginTimestamp') AS sheet_login_ts
       FROM filtered f
     ),
@@ -1969,6 +2003,12 @@ BEGIN
         c.*
       FROM public.dashboard_cases c
       WHERE public.dashboard_case_matches_filters(c, input_filters)
+        AND (
+          c.token_date >= min_relevant_date
+          OR c.actual_delivery_date >= min_relevant_date
+          OR c.cancel_req_date >= min_relevant_date
+          OR c.lead_stage = 'ACTIVE_TOKEN'
+        )
     ),
     custom_base_with_prev AS (
       SELECT cb.*, prev.max_prev_token_date
@@ -1985,8 +2025,8 @@ BEGIN
         c.*,
         c.token_date::timestamp AS token_ts,
         c.actual_delivery_date::timestamp AS actual_delivery_ts,
-        c.cancellation_date AS cancellation_ts,
-        c.login_date AS login_ts,
+        coalesce(c.cancellation_date, public.parse_dashboard_timestamp(c.row_data ->> 'cancellationDate')) AS cancellation_ts,
+        coalesce(c.login_date, public.parse_dashboard_timestamp(coalesce(c.row_data ->> 'latestLoginTime', c.row_data ->> 'sheetLoginTimestamp'))) AS login_ts,
         COALESCE(
           CASE
             WHEN (c.lead_stage IN ('CANCELLED', 'RETURNED') OR c.deal_status = 'CANCEL')
