@@ -1782,12 +1782,21 @@ BEGIN
     ),
     enriched AS MATERIALIZED (
       SELECT
-        f.*,
+        f.token_type,
+        f.lead_ds_channel,
+        f.token_type_with_nrt,
+        f.row_data,
+        f.lead_stage,
+        f.final_payment_type,
+        f.cancel_reason,
         f.token_date::timestamp AS token_ts,
         f.actual_delivery_date::timestamp AS actual_delivery_ts,
         coalesce(f.cancellation_date, public.parse_dashboard_timestamp(f.row_data ->> 'cancellationDate')) AS cancellation_ts,
         coalesce(f.login_date, public.parse_dashboard_timestamp(coalesce(f.row_data ->> 'latestLoginTime', f.row_data ->> 'sheetLoginTimestamp'))) AS login_ts,
-        public.parse_dashboard_timestamp(f.row_data ->> 'sheetLoginTimestamp') AS sheet_login_ts
+        public.parse_dashboard_timestamp(f.row_data ->> 'sheetLoginTimestamp') AS sheet_login_ts,
+        f.is_c2d,
+        f.is_c2a,
+        f.is_cr2d
       FROM filtered f
     ),
     base_date AS (
@@ -2022,7 +2031,13 @@ BEGIN
     ),
     custom_enriched AS (
       SELECT
-        c.*,
+        c.token_type,
+        c.lead_ds_channel,
+        c.token_type_with_nrt,
+        c.row_data,
+        c.lead_stage,
+        c.final_payment_type,
+        c.cancel_reason,
         c.token_date::timestamp AS token_ts,
         c.actual_delivery_date::timestamp AS actual_delivery_ts,
         coalesce(c.cancellation_date, public.parse_dashboard_timestamp(c.row_data ->> 'cancellationDate')) AS cancellation_ts,
